@@ -117,7 +117,8 @@ Staff phone              Next.js          FastAPI                       PostgreS
     │    idempotency_key, scan_ref}           │                               │
     ├──────────────────────►├───────────────►│ PointsService.award_task()    │
     │                       │                │  A. pure: parse, scan_ref     │
-    │                       │                │     HMAC + expiry (no DB)     │
+    │                       │                │     HMAC + binding (no DB;    │
+    │                       │                │     expiry checked at B3a)    │
     │                       │                │ ┌─ BEGIN ────────────────────┐│
     │                       │                │ │B0. SHARED RESET FENCE ─────┼┼─► advisory lock
     │                       │                │ │    before any DB read      ││
@@ -125,6 +126,8 @@ Staff phone              Next.js          FastAPI                       PostgreS
     │                       │                │ │B2. booth_id ← staff session││
     │                       │                │ │B3. IDEMPOTENCY ────────────┼┼─► pk(staff,key)
     │                       │                │ │    (completed? replay&stop)││
+    │                       │                │ │B3a. scan_ref expiry        ││
+    │                       │                │ │     (new awards only)      ││
     │                       │                │ │B4. resolve token → ACTIVE  ││
     │                       │                │ │B5. points ∈ booth presets? ││
     │                       │                │ │B8. INSERT points_log ──────┼┼─► unique(dedupe_key)
@@ -952,11 +955,15 @@ The HMAC covers **`B`, the exact string that is transmitted**, not a re-serializ
 1. Split on the final `.`; malformed shape → `INVALID_QR`.
 2. Recompute the HMAC over `B` and compare with `hmac.compare_digest` (constant time). Mismatch → `INVALID_QR`.
 3. Parse `P`. `v != 1` → `INVALID_QR`.
-4. **Future-timestamp rejection:** `iat > now + 5 s` → `INVALID_QR`. A clock-skew allowance of 5 s is permitted; beyond that the envelope claims to have been issued in the future, which a correctly behaving server cannot produce. Treated as tampering, not as expiry.
-5. **Expiry:** `now - iat > 120 s` → `SCAN_EXPIRED`.
-6. **Staff binding:** `sid` must equal the authenticated staff account id → `STAFF_NOT_AUTHORIZED`.
-7. **Session binding:** `ses` must equal the current session id → `STAFF_NOT_AUTHORIZED`.
-8. **Token binding:** `sha256(request.card_token)` must equal `tok` → `INVALID_QR`.
+4. **Future-timestamp rejection:** `iat > now + 5 s` → `INVALID_QR`. A clock-skew allowance of 5 s is permitted; beyond that the envelope claims to have been issued in the future, which a correctly behaving server cannot produce. Treated as **tampering, not expiry**, which is why it stays with the cryptographic checks and is never bypassed.
+5. **Staff binding:** `sid` must equal the authenticated staff account id → `STAFF_NOT_AUTHORIZED`.
+6. **Session binding:** `ses` must equal the current session id → `STAFF_NOT_AUTHORIZED`.
+7. **Token binding:** `sha256(request.card_token)` must equal `tok` → `INVALID_QR`.
+8. **Expiry — deliberately last:** `now - iat > 120 s` → `SCAN_EXPIRED`.
+
+**Where each check runs, and why expiry is last.** Checks 1–4 and 7 are pure — no database, no authenticated identity — and run **pre-fence**. Checks 5–6 compare against the authenticated staff identity, so they run **inside the reset fence** (§19.4). Check 8 is also pure, but it is **ordered after the completed-idempotency lookup** (§13.4 B3), because freshness is a property of a *new* award attempt, not of one that already committed.
+
+> A successfully committed award whose HTTP response was lost must stay replayable with the same idempotency key even if the envelope has since expired — the retry may legitimately arrive minutes later. Rejecting it on freshness would break the guarantee that a lost response never costs a second award. Expiry therefore gates **new awards only**; it never gates a replay. Nothing is weakened: signature, version, future-`iat` and token binding are all enforced before anything else happens, so a forged or mismatched envelope is still rejected outright whether or not a record exists.
 
 **Binding is to the staff *session*, not merely the staff account — decided deliberately.** Account-only binding would let an envelope issued before logout be redeemed after logout, or an envelope minted in one device's session be used from another. Session binding means revoking a session (logout, expiry, admin deactivation) invalidates every outstanding scan for free, with no revocation list and no stored state. The cost is that a staff member whose session expires between scan and award must scan again — correct behaviour, since their authorization genuinely ended.
 
@@ -1027,11 +1034,13 @@ The fingerprint deliberately **excludes** `scan_ref` (time-bound by design), the
 |---|---|---|
 | A1 | Parse and schema-validate the request body (§12.2) | Syntax only |
 | A2 | Extract the session cookie | A string; **not** yet an authenticated identity |
-| A3 | `scan_ref` structural + cryptographic checks — split, HMAC verify, version, future-`iat`, expiry (§13.3 checks 1–5) | Pure crypto and clock arithmetic against a configured secret. Touches no table |
-| A4 | `scan_ref` token binding — `sha256(request.card_token) == tok` (§13.3 check 8) | Compares two values already in hand |
-| A5 | Compute the request fingerprint | A hash of request fields |
+| A3 | `scan_ref` structural + cryptographic checks — split, HMAC verify, version, future-`iat` (§13.3 checks 1–4) | Pure crypto and clock arithmetic against a configured secret. Touches no table |
+| A4 | `scan_ref` token binding — `sha256(request.card_token) == tok` (§13.3 check 7) | Compares two values already in hand |
+| A5 | Extract the signed values (`sid`, `ses`, `iat`) and compute the request fingerprint | Hashing and field access |
 
 Nothing in Stage A resolves an entity, and nothing in it can be invalidated by a reset. A maintenance-mode fast-path check may also run here; it is **advisory only** (§19.4) and never the authoritative gate.
+
+> **`scan_ref` expiry is deliberately NOT checked in Stage A.** It is evaluated at **B3a**, after the completed-idempotency lookup, so a committed award whose response was lost stays replayable however late the retry arrives (§13.3, §13.4 scenario table). Every *security* property of the envelope — signature, version, future-`iat`, token binding — is still enforced here, before anything else happens.
 
 **Stage B — inside one transaction, fence held first.**
 
@@ -1041,17 +1050,21 @@ BEGIN;
   SELECT pg_advisory_xact_lock_shared(FACEMARK_RESET_FENCE);   -- §19.4
 
   -- B1. AUTHORITATIVE identity: session row → staff account → active?
-  --     scan_ref checks 6-7 (sid/ses binding) are evaluated here, because
+  --     scan_ref checks 5-6 (sid/ses binding) are evaluated here, because
   --     they compare against this authenticated identity.
   -- B2. booth_id := staff.booth_id                      (derived, §12.2)
 
-  -- B3. IDEMPOTENCY LOOKUP
+  -- B3. IDEMPOTENCY LOOKUP  ── before any freshness or mutable validation
   SELECT * FROM idempotency_records
    WHERE staff_account_id = :staff AND idempotency_key = :key;
   --   fingerprint matches  → COMMIT (read-only) and return the stored
   --                          snapshot with replayed = true.  STOP.
+  --                          ↳ scan_ref expiry is NOT evaluated on this path
   --   fingerprint differs  → 409 IDEMPOTENCY_KEY_REUSE.      STOP.
-  --   no row               → continue
+  --   no row               → continue, this is a NEW award
+
+  -- B3a. scan_ref EXPIRY (§13.3 check 8) — new awards only
+  --      now - iat > 120s  → SCAN_EXPIRED
 
   -- B4. Resolve card_token → attendee; require status = ACTIVE
   -- B5. points ∈ presets(booth)
@@ -1081,7 +1094,7 @@ COMMIT;
 
 **Ordering rules that remain contractual:**
 
-- **B4–B6 run only for a genuinely new logical request.** That is what makes "retried after `scan_ref` expired" return the original success rather than an error.
+- **B3a–B6 run only for a genuinely new logical request.** `scan_ref` freshness is evaluated at B3a, *after* the idempotency lookup, which is what makes "retried after `scan_ref` expired" return the original success rather than an error.
 - **The response is computed (B8–B10) before it is persisted (B11) and before commit.** A replay is byte-identical to the original reply.
 - A failure anywhere in Stage B rolls the whole transaction back: no award, no claimed key, nothing to reconcile.
 
@@ -1197,14 +1210,15 @@ def award_feedback(user: User, booth: Booth, feedback: Feedback) -> AwardResult 
 |---|---|---|---|
 | A1 | **Pre-fence — pure** | Parse and schema-validate the body (§12.2) | `VALIDATION_ERROR` |
 | A2 | Pre-fence — pure | Extract the session cookie (a string, **not** an identity) | — |
-| A3 | Pre-fence — pure | `scan_ref` structural + cryptographic checks (§13.3 checks 1–5) | `INVALID_QR` / `SCAN_EXPIRED` |
-| A4 | Pre-fence — pure | `scan_ref` token binding, `sha256(card_token) == tok` (§13.3 check 8) | `INVALID_QR` |
-| A5 | Pre-fence — pure | Compute the request fingerprint | — |
+| A3 | Pre-fence — pure | `scan_ref` structural + cryptographic checks (§13.3 checks 1–4). **Expiry is not checked here** | `INVALID_QR` |
+| A4 | Pre-fence — pure | `scan_ref` token binding, `sha256(card_token) == tok` (§13.3 check 7) | `INVALID_QR` |
+| A5 | Pre-fence — pure | Extract signed values; compute the request fingerprint | — |
 | A6 | Pre-fence — advisory | Maintenance fast-path (§19.4) — a courtesy rejection, **never** the authoritative gate | `MAINTENANCE` |
 | **B0** | **▶ FENCE** | **BEGIN**, then `pg_advisory_xact_lock_shared(FACEMARK_RESET_FENCE)` as the **first statement, before any reset-sensitive read** | `MAINTENANCE` on `lock_timeout` |
-| B1 | Fenced — identity | **Authoritative** session → staff account → active check; `scan_ref` sid/ses binding (§13.3 checks 6–7) | `UNAUTHENTICATED` / `STAFF_NOT_AUTHORIZED` |
+| B1 | Fenced — identity | **Authoritative** session → staff account → active check; `scan_ref` sid/ses binding (§13.3 checks 5–6) | `UNAUTHENTICATED` / `STAFF_NOT_AUTHORIZED` |
 | B2 | Fenced — identity | `booth_id = staff.booth_id`, derived, never read from input (§12.2) | — |
-| B3 | Fenced — **resolve** | **IDEMPOTENCY LOOKUP** — match → return the stored snapshot with `replayed: true` and **stop**; fingerprint differs → | `IDEMPOTENCY_KEY_REUSE` |
+| B3 | Fenced — **resolve** | **IDEMPOTENCY LOOKUP** — match → return the stored snapshot with `replayed: true` and **stop**, *without* evaluating freshness; fingerprint differs → | `IDEMPOTENCY_KEY_REUSE` |
+| B3a | Fenced — validate | **`scan_ref` expiry (§13.3 check 8) — new awards only**, reached only when B3 found no record | `SCAN_EXPIRED` |
 | B4 | Fenced — validate | Resolve the token → attendee; unknown, revoked, or `PROVISIONAL` (§8.1) → | `INVALID_QR` |
 | B5 | Fenced — validate | `points ∈ presets(booth)` — allow-list membership, not a range check. `12` is rejected even though it lies between 10 and 15 → | `INVALID_POINT_VALUE` |
 | B6 | Fenced — validate | Repeat policy → compute `dedupe_key` (§14.5) | — |
@@ -1221,7 +1235,7 @@ Four ordering rules are contractual, not incidental:
 
 - **The fence precedes every reset-sensitive database read** — including authentication (B1) and the idempotency lookup (B3). Nothing between B0 and B12 can observe a dataset that is replaced before the write. This is invariant §24.29.
 - **Authentication at A2 is not authentication.** Only B1, inside the fence, authorises the mutation. A pre-fence cookie read is a string extraction.
-- **B4–B6 run only for a genuinely new logical request**, which is what makes "retried after `scan_ref` expired" replay rather than fail.
+- **B3a–B6 run only for a genuinely new logical request.** `scan_ref` freshness is part of that set, which is precisely what makes "retried after `scan_ref` expired" replay rather than fail.
 - **The response is computed (B9–B10) before it is persisted (B11) and before commit (B12).** A replay is byte-identical to the original reply.
 
 A failure anywhere in Stage B rolls back the whole transaction: no award, no claimed key, nothing to reconcile, and the fence released.
@@ -1838,7 +1852,7 @@ One shape for every failure, so the client has exactly one parsing path. `messag
 |---|---|---|---|
 | `VALIDATION_ERROR` | 422 | API | Pydantic rejects the payload |
 | `INVALID_QR` | 404 | Domain | Token unknown, malformed, revoked — or a `scan_ref` whose signature does not verify |
-| `SCAN_EXPIRED` | 400 | Domain | `scan_ref` signature is valid but older than 120 s |
+| `SCAN_EXPIRED` | 400 | Domain | `scan_ref` signature is valid but older than 120 s. Raised at B3a, so it applies to **new awards only** — a completed award always replays (§13.4) |
 | `IDEMPOTENCY_KEY_REUSE` | 409 | Domain | Key reused with a different request fingerprint (§13.4) |
 | `AWARD_IN_PROGRESS` | 409 | Domain | **Safety valve only** — `lock_timeout` exceeded waiting on a same-key transaction. Normal concurrency waits and replays instead (§13.4) |
 | `MAINTENANCE` | 503 | API | Demo reset in progress; mutations rejected (§19) |
