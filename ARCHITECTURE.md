@@ -450,15 +450,20 @@ Idempotency is **not** a column on `points_log`. It needs to be resolvable *befo
 |---|---|---|
 | `staff_account_id` | FK→staff_accounts NOT NULL | the key is scoped to its issuer |
 | `idempotency_key` | uuid NOT NULL | client-supplied |
-| `request_fingerprint` | text NOT NULL | SHA-256 over the canonical immutable request (§14.4) |
-| `status` | enum `IN_PROGRESS` \| `COMPLETED` NOT NULL | |
-| `points_log_id` | FK→points_log NULL | set on completion |
+| `request_fingerprint` | text NOT NULL | SHA-256 over the canonical immutable request (§13.4) |
+| `points_log_id` | FK→points_log NULL | the award this record completed |
 | `response_snapshot` | jsonb NULL | the exact response body originally returned |
 | `created_at`, `completed_at` | timestamptz | |
 
-*Constraints:* **`PRIMARY KEY (staff_account_id, idempotency_key)`**; `CHECK (status = 'IN_PROGRESS' OR (points_log_id IS NOT NULL AND response_snapshot IS NOT NULL))`.
+*Constraints:* **`PRIMARY KEY (staff_account_id, idempotency_key)`**.
 
 Scoping the key to the staff account is what makes it safe: one staff member's key can never collide with another's, and a key cannot be replayed across accounts.
+
+> **There is no `status` column, and no `IN_PROGRESS` state.**
+>
+> The record is claimed and filled inside **one transaction** together with the `points_log` insert, so no other transaction can ever observe a half-finished record: it sees either nothing (the claiming transaction has not committed, or rolled back) or a complete record with its snapshot. A status flag would describe a state that is unobservable by definition, and an earlier draft used it to justify a crash-recovery branch that cannot occur — see §13.4.
+>
+> `points_log_id` and `response_snapshot` are nullable **only** because they are written a few statements after the claim, within that same transaction. The invariant *"a visible record is always complete"* is guaranteed by transaction atomicity rather than by a `CHECK`, since a `CHECK` would have to hold mid-transaction and PostgreSQL does not support deferrable `CHECK` constraints. A `DEFERRABLE INITIALLY DEFERRED` constraint trigger could assert it at commit time; it is not required for the demo and is noted only so the omission is deliberate rather than overlooked.
 
 ### 7.13 `event_config` (added entity)
 
@@ -756,7 +761,7 @@ The engineer implementing this should get exactly 78 for these inputs. That is t
 >
 > **No cosmetic multiplier, curve, floor, or display transform may be applied** to make percentages look more impressive. There is exactly one number: the output of `MatchingService`. The API returns it, the UI renders it, and no layer in between adjusts it. This is the fake-percentage failure mode the whole section exists to prevent, and it is now an invariant (§24.5).
 >
-> The approved lever for strong headline matches is **seed data design** (§19.7): demo booths whose top-weighted interests genuinely align with the demo attendees' selected interests produce high scores *under the real formula*, because the match is real. `α` remains 0.7 and is not being tuned for presentation purposes.
+> The approved lever for strong headline matches is **seed data design** (§19.9): demo booths whose top-weighted interests genuinely align with the demo attendees' selected interests produce high scores *under the real formula*, because the match is real. `α` remains 0.7 and is not being tuned for presentation purposes.
 
 ### 11.4 Edge cases
 
@@ -982,13 +987,17 @@ Cases 4, 9 and 10 are the security-critical ones; cases 2, 6, 7 and 8 are the de
 
 ### 13.4 Idempotency (F02)
 
-> **Corrected (review finding).** The earlier design relied on a unique index on `points_log.idempotency_key` and caught the violation. That does **not** deliver the promised retry behaviour, for three reasons: (a) the retry never reached the insert, because `scan_ref` expiry and preset validation ran first and rejected it; (b) the key was not bound to the caller, so any staff account could replay another's key; (c) a retry violates *two* unique indexes at once, and which one PostgreSQL reports is not contractual.
+> **Corrected twice.** The first design relied on a unique index on `points_log.idempotency_key` and caught the violation — which never delivered the promised retry, because `scan_ref` expiry and preset validation ran first, the key was unbound to its caller, and a retry violated two unique indexes at once.
+>
+> The second design fixed the ordering but introduced an **impossible state**: it declared the idempotency record, the `points_log` insert and the completion to be one atomic transaction, and then described recovering from a crash that left a committed award beside an `IN_PROGRESS` record. Under one transaction that state cannot exist. The recovery branch it justified — re-finding the award by `(staff, token, points, time window)` — was also unimplementable, because `card_token` is deliberately **not** stored in `points_log`, and `dedupe_key` is `NULL` whenever repeat awards are enabled.
+>
+> Both the impossible state and the invalid recovery lookup are removed below. The model is now a plain read-then-atomic-write.
 
 #### The rule
 
 **Idempotency is resolved immediately after authentication and authorization, and before every mutable validation.** "Mutable" means anything that can legitimately change between the original request and its retry: `scan_ref` freshness, preset configuration, repeat policy, QR revocation state.
 
-#### Key binding
+#### Key binding and fingerprint
 
 A key is identified by `(staff_account_id, idempotency_key)` — the primary key of `idempotency_records` (§7.12.1). It carries a **request fingerprint** over the immutable logical operation:
 
@@ -1000,59 +1009,115 @@ fingerprint = sha256( canonical_json({
 }) )
 ```
 
-The fingerprint deliberately **excludes** `scan_ref` (time-bound by design), the booth (derived, not supplied), and all configuration. It answers exactly one question: *is this the same logical award?*
+The fingerprint deliberately **excludes** `scan_ref` (time-bound by design), the booth (derived, not supplied), and all configuration. It answers exactly one question: *is this the same logical award?* Storing `sha256(card_token)` rather than the token keeps the attendee reference out of a second table while still making the comparison exact.
 
-#### Resolution algorithm
+#### Protocol
+
+**Phase 1 — resolve (read-only, no transaction required).**
 
 ```
-authenticate staff  →  authorize role  →  THEN:
-
-  INSERT INTO idempotency_records (staff_account_id, key, fingerprint, status)
-  VALUES (..., 'IN_PROGRESS')
-  ON CONFLICT (staff_account_id, idempotency_key) DO NOTHING
-     │
-     ├── inserted  → proceed to full validation and award (§14.3 step 5 onward)
-     │
-     └── conflict  → SELECT the existing row
-           ├── fingerprint differs              → 409 IDEMPOTENCY_KEY_REUSE   (always, whatever the status)
-           ├── status = COMPLETED               → 200, replay response_snapshot, replayed = true
-           └── status = IN_PROGRESS             → 409 AWARD_IN_PROGRESS       (client may retry shortly)
+SELECT * FROM idempotency_records
+ WHERE staff_account_id = :staff AND idempotency_key = :key
 ```
 
-The `ON CONFLICT DO NOTHING` insert is what makes two genuinely simultaneous requests safe: exactly one wins the row and proceeds, and the other takes the `IN_PROGRESS` branch rather than performing a second award.
+| Outcome | Action |
+|---|---|
+| Row found, fingerprint **matches** | **Return the stored `response_snapshot` with `replayed: true`. Stop.** No mutable validation is run. No new award |
+| Row found, fingerprint **differs** | **409 `IDEMPOTENCY_KEY_REUSE`. Stop.** |
+| No row | Continue to Phase 2 |
 
-#### Defined behaviour for every case the review asked about
+**Phase 2 — validate.** `scan_ref`, QR/attendee resolution and status, booth derivation, preset membership, repeat policy (§14.3 steps 5–9). A failure here aborts before any write, so the key remains unused and the client may legitimately retry after fixing the cause.
+
+**Phase 3 — one atomic transaction.**
+
+```sql
+BEGIN;
+  SELECT pg_advisory_xact_lock_shared(FACEMARK_RESET_FENCE);   -- §19.4
+
+  -- (a) CLAIM the key. First write of the transaction.
+  INSERT INTO idempotency_records
+         (staff_account_id, idempotency_key, request_fingerprint, created_at)
+  VALUES (:staff, :key, :fingerprint, now());
+  --  ↳ unique violation on pk_idempotency_records  ⇒  see "Concurrent same-key" below
+
+  -- (b) INSERT the award
+  INSERT INTO points_log (...) RETURNING id;
+
+  -- (c) COMPUTE every value the canonical response needs
+  SELECT COALESCE(SUM(points), 0) FROM points_log WHERE user_id = :user;
+
+  -- (d) BUILD the complete response snapshot from (b) and (c)
+
+  -- (e) COMPLETE the record with that snapshot
+  UPDATE idempotency_records
+     SET points_log_id = :award_id, response_snapshot = :snapshot, completed_at = now()
+   WHERE staff_account_id = :staff AND idempotency_key = :key;
+COMMIT;
+```
+
+**Phase 4 — after commit only.** Publish the realtime invalidation signal (best-effort, §17.7), then return the response.
+
+The ordering inside Phase 3 is contractual: **the complete canonical response is computed at (c)–(d) and only then persisted at (e)**. An earlier draft persisted the snapshot before the returned total was calculated, which would have stored a snapshot that did not match what the caller received.
+
+#### Concurrent same-key requests — one defined behaviour
+
+**Chosen behaviour: the second request waits for the first, then replays its committed result.**
+
+This falls out of PostgreSQL's own semantics rather than needing a mechanism. When T2 attempts the claim insert at (a) while T1 holds an uncommitted row for the same primary key, **T2 blocks on the index entry**. Then:
+
+| T1 outcome | T2 resumes and sees | T2 does |
+|---|---|---|
+| **Commits** | Unique violation — and the row is now visible **complete**, because claim and completion committed together | Roll back its own (empty) transaction, re-read the record, verify the fingerprint, **return the snapshot with `replayed: true`** |
+| **Rolls back** | No conflicting row | Proceed normally and become the owner |
+
+Exactly one award is created in both cases. T2 never performs a second `points_log` insert, because the claim at (a) is the **first write** of its transaction — when it fails, nothing else has happened and the rollback is free.
+
+Two properties make this reliable:
+
+- **The conflict is identified by constraint name** (`pk_idempotency_records`), never by "whichever unique constraint PostgreSQL reported first" (§7.14). Other unique indexes on the award path — `uq_points_dedupe_key`, `uq_points_feedback_user_booth` — map to different domain errors and are not conflated.
+- **A visible record is always complete.** Because claim and completion are the same transaction, T2 can never read a claimed-but-unfilled row, so "wait then replay" has no half-state to handle.
+
+`AWARD_IN_PROGRESS` is **not** part of this contract. It is retained in the error catalogue solely as an operational safety valve: mutating transactions set `lock_timeout` (2 s), and if the wait is exceeded — which implies a stuck or pathologically slow transaction, not normal contention — the request returns `AWARD_IN_PROGRESS` so the client can retry rather than hanging. Normal operation never emits it.
+
+#### Defined behaviour for every reuse scenario
 
 | Scenario | Result |
 |---|---|
-| Same key + same request | **200**, replay of the original response, `replayed: true`. No new row |
-| Same key + different `points` | **409 `IDEMPOTENCY_KEY_REUSE`**. Fingerprint mismatch — explicit failure, never a silent second award |
-| Same key + different attendee | **409 `IDEMPOTENCY_KEY_REUSE`**. Same reason |
-| Same key + different staff | Different primary key ⇒ a **different record**; proceeds normally. Safe because keys are scoped per account and a UUIDv4 collision across accounts is not a practical concern |
-| Same key **after `scan_ref` expiry** | **200, replay.** Idempotency resolves before `scan_ref` is examined, so expiry is irrelevant to a retry of an already-completed award — this is the central point of the fix |
-| Same key **after QR revocation** | **200, replay.** The original award was valid when it committed; revoking a card does not retroactively invalidate history |
+| Same key + same request | **200**, stored snapshot, `replayed: true`. No new row |
+| Same key + different `points` | **409 `IDEMPOTENCY_KEY_REUSE`** — fingerprint mismatch, never a silent second award |
+| Same key + different attendee/token | **409 `IDEMPOTENCY_KEY_REUSE`** — same reason |
+| Same key + different staff account | Different primary key ⇒ a **different record**; proceeds normally. Safe because keys are scoped per account |
+| Same key **after `scan_ref` expiry** | **200, replay.** Phase 1 completes before `scan_ref` is examined in Phase 2 |
+| Same key **after QR revocation** | **200, replay.** The award was valid when it committed; revoking a card does not rewrite history |
 | Same key **after preset change** | **200, replay.** Configuration at retry time has no bearing on a completed operation |
-| Key never seen, award already exists via `dedupe_key` | **409 `DUPLICATE_TASK_REWARD`** — a genuinely different attempt that the repeat policy forbids |
+| Key never seen, but the repeat policy forbids the award | **409 `DUPLICATE_TASK_REWARD`** — a genuinely different attempt, correctly refused |
 
-#### Response contract on replay — decision
+#### The canonical response — and what it deliberately omits
 
-**Option A: the original response snapshot, returned verbatim, with `replayed: true` added.**
+```jsonc
+{
+  "points_log_id":  481,          // ledger identifier
+  "points_awarded": 15,
+  "resulting_total": 45,          // SUM over the ledger, computed in-transaction
+  "attendee_name":  "Leyla A.",   // for the staff confirmation toast
+  "booth_name":     "AIWorks",
+  "awarded_at":     "2026-09-22T17:04:11Z",
+  "replayed":       false         // stored as false; set to true when replayed
+}
+```
 
-Rejected alternative (B — transaction result plus *current* score and rank): it produces a response that is half historical and half live, so a caller cannot tell which fields describe the original award and which describe the present. It is also not reliably reproducible, since rank depends on everyone else's activity.
+Every field is a fact about **this award**, fixed at commit time, so the snapshot stays true forever.
 
-Option A is exact, cheap, and reliably implementable. The client does not depend on the award response for current state in any case — under the realtime model of §17 it refetches authoritative state after every mutation, so nothing is lost by the snapshot being historical.
+**`rank` is deliberately excluded.** Rank is a function of every other attendee's score and changes whenever anyone else earns points. It is not an immutable property of an award, and storing it would make the snapshot state a historical rank as though it were current — the exact "half-historical, half-live" ambiguity that made Option B unacceptable. The staff award screen does not display rank; the attendee's own screen obtains rank from the authoritative snapshot endpoint (§17.4), which is where live values belong.
 
-#### Transaction and savepoint behaviour
+#### Why no crash-recovery branch exists
 
-The award executes in **one transaction**:
+`points_log` and the completed `idempotency_records` row commit together or not at all. Therefore:
 
-1. `SAVEPOINT idem` → the `ON CONFLICT DO NOTHING` insert → release, or take the conflict branch.
-2. Validation (§14.3).
-3. `SAVEPOINT award` → insert into `points_log`. On `IntegrityError`, roll back **to the savepoint only**, dispatch on `diag.constraint_name` (§7.14), and raise the mapped domain error — the enclosing transaction is still usable, which is what allows the idempotency record to be cleaned up rather than orphaned.
-4. On success: update the record to `COMPLETED` with `points_log_id` and `response_snapshot`.
-5. On a mapped domain error: the whole transaction rolls back, so no `IN_PROGRESS` row is left behind and the key remains usable.
+- **Crash before commit** → neither exists. The key is unused and a retry is an ordinary first attempt.
+- **Crash after commit** → both exist, complete and consistent. A retry replays.
 
-A crash between steps 3 and 4 leaves an `IN_PROGRESS` record whose award did commit. This is bounded, not silent: records stuck `IN_PROGRESS` for more than 60 s are reconciled by looking up the committed `points_log` row via `dedupe_key` or `(staff, token, points, window)` and completing the record. The demo does not need a background job for this — reconciliation runs lazily when the key is next seen, which is exactly when it matters.
+There is no third state, so there is nothing to reconcile, no lazy repair path, and no background job. The invalid `(staff, token, points, window)` lookup is removed outright: `points_log` does not store `card_token` (by design, §9), and `dedupe_key` is `NULL` whenever repeat awards are enabled — so that lookup could never have been implemented reliably. Atomicity makes it unnecessary.
 
 The client still generates the UUIDv4 **when the confirmation screen opens**, not per click, so every retry of that award carries the same key.
 
@@ -1102,23 +1167,32 @@ def award_feedback(user: User, booth: Booth, feedback: Feedback) -> AwardResult 
 
 **The order is contractual, not merely an optimisation.** Identity checks come first, idempotency resolves before anything mutable, and only then does validation run. Reordering steps 3 and 4 would reintroduce F02.
 
-| # | Step | On failure |
-|---|---|---|
-| 1 | **Session → staff account.** Expired/revoked → | `UNAUTHENTICATED` |
-| 2 | **Role check.** Not `BOOTH_STAFF`, or inactive → | `STAFF_NOT_AUTHORIZED` |
-| 3 | **Maintenance mode check** (§19) → | `MAINTENANCE` |
-| 4 | **▶ IDEMPOTENCY RESOLUTION (§13.4).** Completed + matching fingerprint → replay and **return now**. Fingerprint mismatch → | `IDEMPOTENCY_KEY_REUSE` |
-| 5 | **`booth_id = staff.booth_id`.** Derived, never read from input (§12.2) | — |
-| 6 | **Resolve the token** → attendee; unknown, revoked, or `PROVISIONAL` (§8.1) → | `INVALID_QR` |
-| 7 | **Validate `scan_ref`** — the eight ordered checks in §13.3 | `INVALID_QR` / `SCAN_EXPIRED` / `STAFF_NOT_AUTHORIZED` |
-| 8 | **`points ∈ presets(booth)`** — allow-list membership, not a range check. `12` is rejected even though it lies between 10 and 15 → | `INVALID_POINT_VALUE` |
-| 9 | **Compute `dedupe_key`** (§14.5) | — |
-| 10 | **Insert `points_log`** inside a savepoint; violations dispatched by constraint name (§7.14) | mapped domain error |
-| 11 | **Complete the idempotency record** with the response snapshot, same transaction | — |
-| 12 | **Recompute the total** inside the same transaction and return it | — |
-| 13 | **Publish the realtime invalidation signal — *after* commit** (§17.6) | best-effort, never fails the award |
+| # | Phase | Step | On failure |
+|---|---|---|---|
+| 1 | Identity | **Session → staff account.** Expired/revoked → | `UNAUTHENTICATED` |
+| 2 | Identity | **Role check.** Not `BOOTH_STAFF`, or inactive → | `STAFF_NOT_AUTHORIZED` |
+| 3 | Identity | **Maintenance mode check** (§19.4) → | `MAINTENANCE` |
+| 4 | **Resolve** | **▶ IDEMPOTENCY LOOKUP (§13.4 Phase 1)** — read-only. Record found + fingerprint matches → **return the stored snapshot with `replayed: true` and stop**. Fingerprint differs → | `IDEMPOTENCY_KEY_REUSE` |
+| 5 | Validate | **`booth_id = staff.booth_id`.** Derived, never read from input (§12.2) | — |
+| 6 | Validate | **Resolve the token** → attendee; unknown, revoked, or `PROVISIONAL` (§8.1) → | `INVALID_QR` |
+| 7 | Validate | **Validate `scan_ref`** — the eight ordered checks in §13.3 | `INVALID_QR` / `SCAN_EXPIRED` / `STAFF_NOT_AUTHORIZED` |
+| 8 | Validate | **`points ∈ presets(booth)`** — allow-list membership, not a range check. `12` is rejected even though it lies between 10 and 15 → | `INVALID_POINT_VALUE` |
+| 9 | Validate | **Compute `dedupe_key`** (§14.5) | — |
+| 10 | **Write** | **BEGIN.** Acquire the shared reset fence, `pg_advisory_xact_lock_shared` (§19.4) | `MAINTENANCE` on `lock_timeout` |
+| 11 | Write | **Claim the idempotency key** — first write of the transaction | conflict → wait-then-replay (§13.4) |
+| 12 | Write | **Insert `points_log`**; violations dispatched by constraint name (§7.14) | mapped domain error |
+| 13 | Write | **Compute the resulting total** | — |
+| 14 | Write | **Build the complete canonical response**, then **persist it** as the idempotency snapshot | — |
+| 15 | Write | **COMMIT** — award, claim and snapshot become visible together | — |
+| 16 | After | **Publish the realtime invalidation signal** (§17.7) | best-effort, never fails the award |
+| 17 | After | **Return the response** | — |
 
-Everything from step 5 onward runs **only** for a genuinely new logical request. That is what makes "retried after `scan_ref` expired" return the original success rather than an error.
+Two ordering rules are contractual, not incidental:
+
+- **Steps 5 onward run only for a genuinely new logical request.** That is what makes "retried after `scan_ref` expired" return the original success rather than an error.
+- **The response is computed (13–14) before it is persisted (14) and before commit (15).** The snapshot a replay returns is byte-identical to what the original caller received.
+
+A failure anywhere in steps 10–15 rolls back the whole transaction: no award, no claimed key, nothing to reconcile.
 
 ### 14.4 Feedback points
 
@@ -1170,7 +1244,8 @@ Changing this setting is an admin action and is written to the admin audit log w
 | Client-supplied `booth_id` / `staff_id` / `source` | Fields do not exist; `extra="forbid"`; all derived server-side (§12.2 field-authority table) |
 | Double-click | Idempotency resolution (§13.4) → original result replayed, not an error |
 | Duplicate network retry, response lost | Same mechanism; resolves **before** any mutable validation, so a retry after `scan_ref` expiry still replays |
-| Two concurrent identical requests | `ON CONFLICT DO NOTHING` on the idempotency PK → one proceeds, the other gets `AWARD_IN_PROGRESS` |
+| Two concurrent identical requests | The second blocks on the idempotency primary key, then replays the first's committed snapshot (§13.4). Exactly one award |
+| Mutation racing a demo reset | Shared advisory fence held for the whole mutating transaction; reset's exclusive acquire waits it out (§19.4) |
 | Key reused for a different operation | Fingerprint mismatch → explicit `IDEMPOTENCY_KEY_REUSE`, never a silent second award |
 | Key replayed by a *different* staff account | Key is scoped by `staff_account_id`; one account cannot address another's record |
 | Unauthorized staff | Session → role → active checks before any mutation |
@@ -1189,6 +1264,7 @@ Changing this setting is an admin action and is written to the admin audit log w
 
 ```
 BEGIN
+  0. SELECT pg_advisory_xact_lock_shared(FACEMARK_RESET_FENCE)  -- §19.4, every mutation
   1. INSERT feedback (user_id, booth_id, rating, comment)      -- always succeeds
   2. SAVEPOINT reward
      attempt INSERT points_log
@@ -1215,6 +1291,8 @@ Both are **`200`**. A repeat submission is not an error: submitting more feedbac
 **Concurrency.** Two simultaneous submissions (double-tap, two tabs) both attempt the reward insert; the partial unique index guarantees exactly one succeeds. The loser is caught by constraint **name** on a `SAVEPOINT`, so the enclosing transaction survives and the feedback row still commits. There is **no** "check if already rewarded, then insert" path — that pattern has a window between check and insert and would double-award under exactly the conditions a live demo produces. Frontend button disabling is a UX nicety layered on top and is never relied upon.
 
 Feedback requires an **ACTIVE** attendee session (§8.1), so an unverified registration cannot generate rewards.
+
+The reset fence at step 0 is not specific to awards: **every mutating transaction in the system acquires it** — feedback, registration, activation, admin configuration changes. A single omission would reopen the F05 race for that one path, so it belongs in the shared unit-of-work helper (`db/session.py`) rather than being written out per endpoint.
 
 ---
 
@@ -1474,21 +1552,53 @@ Refuses to run unless **both** `DEMO_MODE=true` and `ENVIRONMENT != production`,
 
 This is what makes reused numeric ids safe. After a reset, `points_log.id = 481` refers to a different award than it did before, and `users.id = 3` to a different person — but any client still holding pre-reset state sees a generation mismatch on its very next request and discards everything. Without this counter, a phone left open across a reset could silently display stale values against reused ids, which is precisely the confusion a rehearsal→presentation reset would produce.
 
-### 19.4 Sequence
+### 19.4 The reset fence — why maintenance mode alone is not enough
+
+> **Corrected (review finding F05).** Maintenance mode is an application-level check that runs when a request *enters*. It says nothing about a mutation that passed that check microseconds **before** the flag was set and is still executing. Such a request could resume after the dataset had been restored and commit an award against the new dataset — producing a row that belongs to no coherent state, attributed to a pre-reset attendee id that now names someone else.
+>
+> A database-level fence closes this window. Maintenance mode remains, as the fast, friendly rejection; the fence is what makes the boundary actually impossible to cross.
+
+**Mechanism: one PostgreSQL advisory lock.** No new infrastructure — advisory locks are part of the database we already run.
 
 ```
- 1. Enter maintenance      event_config.maintenance_mode = true  (committed first,
-                           so it holds even if a later step fails)
- 2. Reject mutations       middleware returns 503 MAINTENANCE for every mutating
+FACEMARK_RESET_FENCE  =  a single well-known bigint constant,
+                         defined once in app.core.locks
+```
+
+| Party | Lock mode | Scope | Acquired |
+|---|---|---|---|
+| **Any mutating transaction** | `pg_advisory_xact_lock_shared(FENCE)` | **transaction-scoped** | As the first statement of the transaction, before any write |
+| **Demo reset** | `pg_advisory_lock(FENCE)` (exclusive) | **session-scoped**, held by the CLI's own connection | After enabling maintenance mode, before touching anything |
+
+**Why these scopes.** Mutations use the **transaction-scoped** variant so the lock is released automatically at commit *or* rollback — a crashed request, a timeout, or an unhandled exception cannot leak the fence and stall every future reset. Reset uses the **session-scoped** variant because it must hold the fence across several steps that are not one transaction (terminating streams, clearing broker state, then the restore transaction); it releases it explicitly at the end.
+
+Shared locks are mutually compatible, so ordinary awards never contend with each other — the fence costs nothing in normal operation. Shared and exclusive are incompatible, which is the entire mechanism:
+
+**Why a mutation cannot cross the reset boundary**
+
+- *Mutation already running when reset starts.* It holds the shared fence. Reset's exclusive acquire **blocks until that mutation commits or rolls back**. Reset therefore begins only after every in-flight mutation has finished — the drain is provided by the lock, with no polling and no arbitrary sleep.
+- *Mutation arriving while reset holds the fence.* Maintenance mode rejects it immediately with `503 MAINTENANCE` — the normal path. Should it somehow pass that check (it was read a moment earlier), its shared acquire **blocks** behind the exclusive holder, and its `lock_timeout` (2 s) expires, yielding `MAINTENANCE`. It never reaches a write.
+- Consequently no mutating transaction can have writes on both sides of the restore, and none can be in progress while the restore runs.
+
+Reset bounds its own wait with `lock_timeout = 30 s` on the exclusive acquire. Exceeding it means a mutation is genuinely stuck; the command aborts **before** any destructive step, reports which backend holds the fence, and leaves the dataset untouched.
+
+### 19.5 Sequence
+
+```
+ 1. Enter maintenance      event_config.maintenance_mode = true, committed FIRST,
+                           so it holds even if a later step fails
+ 2. Reject new mutations   middleware returns 503 MAINTENANCE for every mutating
                            route; reads continue to serve
- 3. Terminate streams      emit `dataset_reset`, then close every SSE connection
- 4. Invalidate sessions    revoke ALL attendee sessions; revoke staff and admin
-                           sessions for seeded demo accounts. A human-held admin
-                           session outside the fixture set is left alone so the
-                           operator is not locked out mid-operation
- 5. Clear broker state     drop every queue and subscriber set in the in-process
+ 3. ACQUIRE THE FENCE      pg_advisory_lock(FACEMARK_RESET_FENCE)   [exclusive,
+                           session-scoped, lock_timeout 30s]
+                           ── blocks until every in-flight mutation has finished ──
+                           From here on, no mutation can begin or commit.
+ 4. Terminate streams      emit `dataset_reset`, then close every SSE connection
+ 5. Invalidate sessions    revoke ALL sessions — attendee, staff AND admin,
+                           with no exceptions (§19.6)
+ 6. Clear broker state     drop every queue and subscriber set in the in-process
                            EventBus, so no queue outlives the dataset it refers to
- 6. ── SINGLE TRANSACTION ───────────────────────────────────────────────────
+ 7. ── SINGLE TRANSACTION ───────────────────────────────────────────────────
       a. TRUNCATE ... RESTART IDENTITY CASCADE:
            points_log, idempotency_records, feedback, sessions,
            otp_challenges, consent_audit, user_interests,
@@ -1503,29 +1613,45 @@ This is what makes reused numeric ids safe. After a reset, `points_log.id = 481`
       e. Optionally seed baseline points so the leaderboard is not empty
       f. dataset_generation = dataset_generation + 1
     ── COMMIT ────────────────────────────────────────────────────────────────
- 7. Reset sequences        RESTART IDENTITY in 6a covers truncated tables;
-                           reference tables keep their sequences, which is
-                           harmless because generation disambiguates ids
- 8. Exit maintenance       maintenance_mode = false
- 9. Report                 counts, staff logins, demo card URLs, new generation
+ 8. Exit maintenance       maintenance_mode = false   (only on success)
+ 9. RELEASE THE FENCE      pg_advisory_unlock(FACEMARK_RESET_FENCE)
+10. Report                 counts, staff logins, demo card URLs, new generation
 ```
 
-**Step 6b is the correction.** Upserting alone leaves behind anything an admin created during a rehearsal — an extra booth, a spare preset value, a staff account — so the "known presentation state" would silently differ from the fixture set in exactly the way rehearsals cause. Reconciliation deletes rows not present in the fixtures, making the outcome a function of the fixture file alone.
+The release order in steps 8–9 matters: maintenance mode is cleared **before** the fence is released, so there is no instant in which the fence is free while the application still believes it is in maintenance. Sequences for truncated tables are restarted by 7a; reference tables keep theirs, which is harmless because `dataset_generation` disambiguates ids across resets (§19.3).
 
-### 19.5 Failure behaviour
+**Step 7b is a correction from an earlier draft.** Upserting alone leaves behind anything an admin created during a rehearsal — an extra booth, a spare preset, a staff account — so the "known presentation state" would silently differ from the fixture set in exactly the way rehearsals cause. Reconciliation makes the outcome a function of the fixture file alone.
 
-Step 6 is one transaction: a failure anywhere inside it rolls back completely, so the database is never left half-reset.
+### 19.6 Session rule — all sessions are invalidated, without exception
 
-**Maintenance mode deliberately stays ON after a failure.** The command exits non-zero and reports that the system is held in maintenance. This is fail-safe rather than fail-open: a partially-reset or unverified system must not start accepting awards on its own. Recovery is an explicit operator action:
+> **Corrected (review finding F05).** An earlier draft claimed a non-fixture operator session was "left alone so the operator is not locked out", while the same sequence truncated the entire `sessions` table. Both could not be true.
+
+**The rule: reset revokes every session — attendee, booth staff and admin alike.** There is no preserved-session exception anywhere in this document.
+
+This is safe because **the reset operator does not need a web session**. Reset is a CLI command executed inside the backend container (§19.1); it authenticates through container access, not through the application. Preserving a web session would have bought nothing and cost the guarantee that no credential survives a dataset change.
+
+After reset, every browser client must reinitialise and authenticate again: attendees via OTP, staff and admins via password. Combined with the `dataset_generation` check (§19.3), a client that was open across the reset is forced to discard its state *and* re-authenticate before it can act, so no pre-reset identity or cached value can be reused against the new dataset.
+
+### 19.7 Failure behaviour
+
+Step 7 is one transaction: a failure anywhere inside it rolls back completely, so the database is never left half-reset.
+
+**Maintenance mode deliberately stays ON after a failure**, and the fence is released so the operator can investigate without a stuck lock. The command exits non-zero and reports that the system is held in maintenance. This is fail-safe rather than fail-open: a partially-reset or unverified system must not resume accepting awards on its own.
+
+| Failure point | State afterwards |
+|---|---|
+| Fence acquire times out (step 3) | Nothing touched; maintenance ON; operator investigates the stuck mutation |
+| Steps 4–6 | Streams/sessions possibly already cleared — all idempotent and destructive-only; maintenance ON; re-running is safe |
+| Step 7 (restore transaction) | **Full rollback**; dataset unchanged; generation unchanged; maintenance ON |
+
+Recovery is an explicit operator action:
 
 ```bash
 python -m app.cli reset-demo --confirm          # retry (idempotent)
 python -m app.cli maintenance --off             # deliberate manual release
 ```
 
-Steps 3–5 are not transactional, but they are idempotent and destructive-only: re-running the command simply re-closes streams and re-revokes sessions.
-
-### 19.6 Determinism and the printed-QR requirement
+### 19.8 Determinism and the printed-QR requirement
 
 The seed uses **fixed** `public_token` values for demo attendees. This is not cosmetic: pre-printed QR cards and slide screenshots must keep working after every reset. Random tokens would invalidate printed materials at exactly the moment it matters. Stable tokens remain stable across generations by design — the generation counter disambiguates *state*, while tokens deliberately survive.
 
@@ -1533,7 +1659,7 @@ Demo attendees are seeded as `status = ACTIVE` with `activated_at` set, so they 
 
 **Security note:** fixed demo tokens are acceptable **only** because they are demo identities in a demo-mode deployment, and §19.2 prevents that fixture set ever loading into production. Real attendees always receive `secrets`-generated tokens. Staff passwords come from environment variables with no fallback default — the CLI fails loudly if they are unset rather than seeding a known password.
 
-### 19.7 Seed data must produce genuinely strong matches
+### 19.9 Seed data must produce genuinely strong matches
 
 Because no cosmetic transform is permitted (§11.3), the demo's headline match percentages are entirely a function of the seed data. Designing that data is a **required deliverable of the seeding work**:
 
@@ -1581,7 +1707,7 @@ One shape for every failure, so the client has exactly one parsing path. `messag
 | `INVALID_QR` | 404 | Domain | Token unknown, malformed, revoked — or a `scan_ref` whose signature does not verify |
 | `SCAN_EXPIRED` | 400 | Domain | `scan_ref` signature is valid but older than 120 s |
 | `IDEMPOTENCY_KEY_REUSE` | 409 | Domain | Key reused with a different request fingerprint (§13.4) |
-| `AWARD_IN_PROGRESS` | 409 | Domain | Same key is mid-flight; client may retry shortly |
+| `AWARD_IN_PROGRESS` | 409 | Domain | **Safety valve only** — `lock_timeout` exceeded waiting on a same-key transaction. Normal concurrency waits and replays instead (§13.4) |
 | `MAINTENANCE` | 503 | API | Demo reset in progress; mutations rejected (§19) |
 | `CSRF_REJECTED` | 403 | API | Missing or mismatched `Origin` on a mutating request (§8.3.1) |
 | `REGISTRATION_NOT_VERIFIED` | 403 | Domain | Action requires an `ACTIVE` attendee (§8.1) |
@@ -1715,7 +1841,7 @@ These four were open at the end of Phase 1 and have since been decided. They are
 | # | Question | **Resolution** | Implemented in |
 |---|---|---|---|
 | R1 | Venue HTTPS / camera access | **Real camera scanning is mandatory.** The presentation environment must serve HTTPS acceptable to iPhone Safari and Android Chrome. No paid or vendor-specific tunnel is selected; the mechanism is defined by three properties and stays replaceable. Manual token entry is a development and emergency fallback only, never the primary flow. Milestone **M-CAM** verifies real-device camera access before presentation day | §13.5, §21.12 |
-| R2 | Match scores and the "94%" example | **Formula unchanged; displayed score is always the calculated score.** No cosmetic multiplier or transform of any kind. The 94% was illustrative. Strong headline matches come from seed data designed so real alignments score high under the real formula; expected fixture scores are asserted in tests | §11.3, §19.7, §24.5 |
+| R2 | Match scores and the "94%" example | **Formula unchanged; displayed score is always the calculated score.** No cosmetic multiplier or transform of any kind. The 94% was illustrative. Strong headline matches come from seed data designed so real alignments score high under the real formula; expected fixture scores are asserted in tests | §11.3, §19.9, §24.5 |
 | R3 | Public networking card contact exposure | **One server-chosen contact action:** LinkedIn when present, email as fallback. **Phone is never exposed publicly. Sponsor-consent state is never exposed publicly.** Staff QR resolution is unchanged and still returns name and profession only | §9.3, §9.3.1 |
 | R4 | `scan_ref` — keep or simplify | **Kept, with reliability treated as equal in weight to its security value.** The client obligation is to echo one opaque string — no parsing, no timers, no client-side expiry logic. A seven-case test matrix covering generation, expiry, tampering, wrong-staff use, repeat awards, the happy path, and presentation latency must pass before Phase 2 is complete | §13.3, §20.3 |
 
@@ -1726,10 +1852,10 @@ Seven HIGH findings, each independently verified against the document before cor
 | ID | Finding | Correction | Sections |
 |---|---|---|---|
 | **F01** | Award contract contradictory — schema omitted `scan_ref` while `extra="forbid"` would reject it | One canonical schema plus a field-authority table; full `scan_ref` envelope, canonical serialization, HMAC construction, expiry, future-timestamp rejection and **session** binding specified | §12.2, §13.3, §3.3, §13.1 |
-| **F02** | Idempotency did not deliver its promise — mutable validation ran first, key unbound to caller, ambiguous constraint reporting | `idempotency_records` keyed `(staff_account_id, key)` with an immutable fingerprint; resolved **before** all mutable validation; all eight scenarios defined; replay returns the **original snapshot**; savepoint behaviour specified | §7.12.1, §13.4, §14.3 |
+| **F02** | Idempotency did not deliver its promise — mutable validation ran first, key unbound to caller, ambiguous constraint reporting. **Re-opened in verification:** the corrected text described an impossible crash state (committed award beside an `IN_PROGRESS` record under one transaction), persisted the snapshot before the total was computed, and proposed an unimplementable recovery lookup | Read-then-atomic-write model. `status`/`IN_PROGRESS` removed — a visible record is always complete. Claim, award, total, snapshot and completion in **one transaction**; response computed before it is persisted. Concurrency: **wait-then-replay**, from PostgreSQL's own primary-key blocking. Crash-recovery branch and `(staff, token, points, window)` lookup deleted | §7.12.1, §13.4, §14.3 |
 | **F03** | `points_log.id` used as a commit-ordered cursor — sequence order ≠ commit order, so events could be permanently discarded | Ledger identity, notification identity and state freshness separated. Cursors, resume tokens and high-water marks eliminated; animation uses **set membership**, which is order-independent | §7.12, §17.2, §17.6 |
 | **F04** | SSE recovery incomplete — no reconciliation while connected, no dead-stream detection, no buffering mitigation | Snapshot/subscribe/reconcile protocol with a **20 s reconciliation floor**, 15 s heartbeat, 45 s liveness cutoff, subscribe-before-snapshot ordering, anti-buffering headers, bounded stream age, and a required pre-summit proxy test | §17.4, §17.9 |
-| **F05** | Reset was a data operation, ignoring streams, sessions, broker state and orphaned rows | Coordinated maintenance sequence with maintenance mode, stream termination, session invalidation, broker clearing, **reconcile-not-upsert**, generation bump, and fail-safe halt behaviour | §19.3–19.5 |
+| **F05** | Reset was a data operation, ignoring streams, sessions, broker state and orphaned rows. **Re-opened in verification:** maintenance mode did not fence a mutation that passed the middleware moments before reset began, and one step preserved an operator session that another step truncated | Adds a PostgreSQL **advisory-lock reset fence** — shared and transaction-scoped for mutations, exclusive and session-scoped for reset — so reset drains in-flight mutations and none can cross the boundary. Session rule settled: **all sessions revoked, no exception**, since the CLI operator needs no web session | §19.4–19.7 |
 | **F06** | Full session issued before email ownership proven | `PROVISIONAL → ACTIVE` lifecycle; no session, public card, scanning, matching or leaderboard presence until verified; duplicate-email branches defined non-enumerably; 24 h purge | §8.1, §9.4, §16.1 |
 | **F07** | Per-IP limits hostile to a shared venue NAT | Per-identity primary limits with high shared-IP ceilings; per-token card limit; explicit trusted-proxy resolution that cannot be spoofed | §21.7, §21.7.1 |
 
@@ -1772,9 +1898,11 @@ Non-negotiable. A change that violates one of these is an architecture change re
 20. **Staff card resolution returns name and profession only.** Widening the public card never widens what the staff scanner receives.
 21. **Real camera scanning is the primary staff flow**, and the presentation environment is served over HTTPS. Manual token entry exists only as a development and emergency fallback and is never the default path.
 22. **`points_log.id` is an identity, never a cursor.** It may be used for set membership and row references; it may never be used as a high-water mark, an ordering, or a resume token, because sequence allocation is not commit order.
-23. **Idempotency is resolved after authentication and before every mutable validation**, and its key is bound to `(staff_account_id, fingerprint)`. A completed request replays its original response snapshot verbatim.
+23. **Idempotency is resolved after authentication and before every mutable validation**, and its key is bound to `(staff_account_id, fingerprint)`. A completed request replays its original response snapshot verbatim. **The award, the key claim and the response snapshot commit in one transaction**, so no partially-completed state is observable and no crash-recovery path exists.
 24. **Constraint violations are dispatched by constraint name**, never by which error the database happens to report first.
 25. **No attendee capability exists before email ownership is proven.** Registration creates a provisional record; sessions, public cards, scanning, matching and leaderboard presence all require `ACTIVE`.
 26. **Rate limits are primarily per identity, never primarily per IP**, because a venue shares one public IP. Forwarding headers are trusted only from configured proxies.
 27. **The UI cannot remain stale indefinitely.** Periodic reconciliation runs even while the realtime channel appears healthy.
 28. **A client can never confuse pre-reset and post-reset state**, because `dataset_generation` changes on every reset and a mismatch forces hard reinitialisation.
+29. **Every mutating transaction holds the shared reset fence** (`pg_advisory_xact_lock_shared`) for its whole duration, so no mutation can span a demo reset.
+30. **Demo reset revokes every session, with no exception.** The operator runs the CLI and needs no web session.
