@@ -113,17 +113,22 @@ Staff phone              Next.js          FastAPI                       PostgreS
     │ [human confirms: "Is this the correct attendee?"]                       │
     │                       │                │                               │
     │ POST /api/staff/points/award            │                               │
-    │   {token, points, idempotency_key}      │                               │
+    │   {card_token, points,                  │                               │
+    │    idempotency_key, scan_ref}           │                               │
     ├──────────────────────►├───────────────►│ PointsService.award_task()    │
-    │                       │                │  1. booth_id ← staff session  │
-    │                       │                │  2. points ∈ booth presets?   │
-    │                       │                │  3. compute dedupe_key        │
-    │                       │                │  4. INSERT points_log ────────┼─► unique(dedupe_key)
-    │                       │                │                               │   unique(idempotency_key)
-    │                       │                │  5. publish event POST-COMMIT │
+    │                       │                │  1. authn + role              │
+    │                       │                │  2. IDEMPOTENCY FIRST ────────┼─► pk(staff,key)
+    │                       │                │     (completed? replay & stop)│
+    │                       │                │  3. booth_id ← staff session  │
+    │                       │                │  4. verify scan_ref           │
+    │                       │                │  5. points ∈ booth presets?   │
+    │                       │                │  6. INSERT points_log ────────┼─► unique(dedupe_key)
+    │                       │                │  7. complete idem record      │
+    │                       │                │  8. signal POST-COMMIT        │
     │◄── {awarded: 15, new_total: 45} ────────┤                               │
                                              │
-Attendee phone  ◄── SSE: points_awarded (id = points_log.id) ──┘
+Attendee phone ◄── SSE: state_changed (signal only) ──┘
+                └─► GET /api/attendees/me/score   ← authoritative values
 ```
 
 The attendee's screen updates from an SSE notification, but the value it shows is server-computed, and the client reconciles against the API on reconnect (§17).
@@ -354,7 +359,14 @@ CHECK ((principal_type = 'ATTENDEE' AND user_id IS NOT NULL)
 ### 7.10 `task_preset_points`
 
 `id`, `booth_id` FK **NULL**, `points` int NOT NULL, `label` text, `sort_order` int, `is_active` boolean.
-*Constraints:* **`UNIQUE (booth_id, points)`**; `CHECK (points > 0 AND points <= 100)`.
+*Constraints:*
+```sql
+CHECK (points > 0 AND points <= 100)
+UNIQUE (booth_id, points) WHERE booth_id IS NOT NULL   -- per-booth presets
+UNIQUE (points)           WHERE booth_id IS NULL       -- event-wide defaults
+```
+
+> **Corrected (review finding).** A plain `UNIQUE (booth_id, points)` does **not** de-duplicate the global rows: in SQL, `NULL` is not equal to `NULL`, so two rows with `booth_id = NULL, points = 5` both insert. The allow-list would then contain a duplicate `+5`, rendering a duplicated button and making the preset set ambiguous. Two partial unique indexes express the actual intent.
 *Responsibility:* the allowed award values. `booth_id IS NULL` rows are the event-wide defaults (+5/+10/+15); a booth with its own rows overrides the defaults entirely.
 *Resolution:* `presets(booth) = rows WHERE booth_id = booth.id AND is_active`, falling back to `rows WHERE booth_id IS NULL AND is_active` when the first set is empty.
 This table is **the server-side allow-list** that makes "staff cannot enter arbitrary point values" enforceable rather than aspirational (§14.3).
@@ -370,76 +382,182 @@ This table is **the server-side allow-list** that makes "staff cannot enter arbi
 
 | Field | Type | Notes |
 |---|---|---|
-| `id` | bigint PK IDENTITY | monotonic; doubles as the SSE event id |
+| Field | Type | Notes |
+|---|---|---|
+| `id` | bigint PK IDENTITY | **Identity only. Not a commit-order cursor — see the warning below** |
 | `user_id` | FK→users NOT NULL | who earned |
 | `booth_id` | FK→booths **NULL** | null only for future non-booth sources |
 | `source` | enum `TASK` \| `FEEDBACK` NOT NULL | extensible |
-| `points` | int NOT NULL | |
-| `task_id` | FK→tasks NULL | |
+| `entry_type` | enum `AWARD` \| `REVERSAL` NOT NULL DEFAULT `AWARD` | see reversal semantics below |
+| `points` | int NOT NULL | positive for `AWARD`, negative for `REVERSAL` |
+| `task_id` | FK NULL | composite FK with `booth_id` — see below |
+| `reverses_points_log_id` | FK→points_log **NULL, UNIQUE** | set iff `entry_type = REVERSAL` |
 | `entered_by_staff_id` | FK→staff_accounts **NULL** | NULL ⇔ system-generated |
 | `entered_by_system` | boolean NOT NULL DEFAULT false | |
-| `idempotency_key` | uuid **NULL, UNIQUE** | client-supplied per interaction |
-| `dedupe_key` | text **NULL, UNIQUE** | business-rule de-duplication (§14.5) |
+| `dedupe_key` | text **NULL, UNIQUE** | TASK repeat policy only (§14.5) |
 | `note` | text NULL | |
-| `created_at` | timestamptz NOT NULL DEFAULT now() | |
+| `created_at` | timestamptz NOT NULL DEFAULT now() | wall clock, **not** an ordering guarantee |
 
 *Constraints and indexes:*
 ```sql
 CHECK (points <> 0)
+CHECK ((entry_type = 'AWARD'    AND points > 0 AND reverses_points_log_id IS NULL)
+    OR (entry_type = 'REVERSAL' AND points < 0 AND reverses_points_log_id IS NOT NULL))
 CHECK ((source = 'TASK'     AND booth_id IS NOT NULL
                             AND entered_by_staff_id IS NOT NULL
                             AND entered_by_system = false)
     OR (source = 'FEEDBACK' AND booth_id IS NOT NULL
                             AND entered_by_staff_id IS NULL
                             AND entered_by_system = true))
-UNIQUE (idempotency_key)          -- NULLs do not collide
-UNIQUE (dedupe_key)               -- NULLs do not collide
-INDEX  (user_id)                  -- leaderboard aggregation
-INDEX  (user_id, created_at DESC) -- attendee point history
+
+-- F: feedback reward uniqueness is STRUCTURAL, not string-based
+UNIQUE (user_id, booth_id) WHERE source = 'FEEDBACK' AND entry_type = 'AWARD'
+
+UNIQUE (dedupe_key)                   -- TASK repeat policy; NULLs do not collide
+UNIQUE (reverses_points_log_id)       -- a row can be reversed at most once
+FOREIGN KEY (task_id, booth_id) REFERENCES tasks (id, booth_id)   -- see below
+INDEX  (user_id)                      -- leaderboard aggregation
+INDEX  (user_id, created_at DESC)     -- attendee point history
 INDEX  (booth_id, created_at DESC)
 ```
 
-**This table is append-only by policy.** No `UPDATE`, no `DELETE` in application code. A correction is a new compensating row with negative points — which is why the check is `points <> 0` rather than `points > 0`. This preserves the audit trail and means the leaderboard can never disagree with history. The demo does not expose a correction UI, but the schema does not have to change to add one.
+> ### ⚠ `points_log.id` is an identity, not an event cursor
+>
+> **PostgreSQL identity/sequence allocation order is not commit order.** Transaction A may take id 481, transaction B take 482, and B commit *first*. A reader that has seen 482 and then treats "everything ≤ 482 is already known" will **permanently discard 481**.
+>
+> Therefore `points_log.id` may be used for:
+> - **identity** — "is this the same award I already processed?" (set membership), and
+> - **referencing** a specific row.
+>
+> It must **never** be used as:
+> - a high-water mark or cursor (`WHERE id > last_seen`),
+> - a total ordering of events,
+> - an SSE resume token.
+>
+> This corrects an earlier design in §17 and is now invariant §24.22.
+
+**Task/booth consistency.** `tasks` carries `UNIQUE (id, booth_id)` purely so `points_log` can declare the composite foreign key above. Without it, a row could reference a task belonging to a *different* booth, and nothing in the schema would object. With it, that state is unrepresentable.
+
+**Append-only, and what a reversal is.** No `UPDATE` and no `DELETE` in application code. A correction is a new `REVERSAL` row with negative points referencing the row it reverses. `reverses_points_log_id` is unique, so a row cannot be reversed twice, and the `entry_type` predicate keeps reversal rows out of the feedback-uniqueness index — so reversing a feedback award correctly makes the attendee eligible again rather than being blocked by the index. The demo exposes no correction UI; the schema needs no change to add one.
 
 `entered_by_staff_id` is populated from the **authenticated session**, never from the request body.
 
+### 7.12.1 `idempotency_records` (added entity — F02)
+
+Idempotency is **not** a column on `points_log`. It needs to be resolvable *before* any mutable validation runs and must survive a request that fails after commit, so it is its own record.
+
+| Field | Type | Notes |
+|---|---|---|
+| `staff_account_id` | FK→staff_accounts NOT NULL | the key is scoped to its issuer |
+| `idempotency_key` | uuid NOT NULL | client-supplied |
+| `request_fingerprint` | text NOT NULL | SHA-256 over the canonical immutable request (§14.4) |
+| `status` | enum `IN_PROGRESS` \| `COMPLETED` NOT NULL | |
+| `points_log_id` | FK→points_log NULL | set on completion |
+| `response_snapshot` | jsonb NULL | the exact response body originally returned |
+| `created_at`, `completed_at` | timestamptz | |
+
+*Constraints:* **`PRIMARY KEY (staff_account_id, idempotency_key)`**; `CHECK (status = 'IN_PROGRESS' OR (points_log_id IS NOT NULL AND response_snapshot IS NOT NULL))`.
+
+Scoping the key to the staff account is what makes it safe: one staff member's key can never collide with another's, and a key cannot be replayed across accounts.
+
 ### 7.13 `event_config` (added entity)
 
-Single row enforced by `CHECK (id = 1)`. Fields: `feedback_points` int NOT NULL DEFAULT 5, `allow_repeat_task_points_default` boolean NOT NULL DEFAULT false, `leaderboard_top_n` int NOT NULL DEFAULT 10, `updated_at`, `updated_by_staff_id`.
+Single row enforced by `CHECK (id = 1)`.
 
-*Justification:* the feedback reward and the repeat-task rule are product decisions that may need to change **between demo runs, at the venue, without a redeploy**. Putting them in code would mean a rebuild during an event; putting them in environment variables would mean a container restart and no audit of who changed what. A one-row table is the least complex option that avoids both.
+| Field | Type | Bound |
+|---|---|---|
+| `feedback_points` | int NOT NULL DEFAULT 5 | `CHECK (BETWEEN 1 AND 100)` |
+| `allow_repeat_task_points_default` | boolean NOT NULL DEFAULT false | |
+| `leaderboard_top_n` | int NOT NULL DEFAULT 10 | `CHECK (BETWEEN 1 AND 100)` |
+| `dataset_generation` | bigint NOT NULL DEFAULT 1 | monotonically incremented by demo reset (§19) |
+| `maintenance_mode` | boolean NOT NULL DEFAULT false | mutations rejected while true (§19) |
+| `updated_at`, `updated_by_staff_id` | | |
+
+**Bounds are enforced in the database, not only in the admin form.** These values feed point awards and page sizes; an unbounded `feedback_points` set to a large value by a mistyped admin input would corrupt the leaderboard in a way the append-only log cannot cleanly undo. A `CHECK` makes the bad state unreachable regardless of which code path writes it.
+
+*Justification for the table:* the feedback reward and the repeat-task rule are product decisions that may need to change **between demo runs, at the venue, without a redeploy**. Code would mean a rebuild during an event; environment variables would mean a container restart and no audit of who changed what.
 
 ### 7.14 Concurrency summary
 
 Every rule that must hold under concurrent requests is backed by a **unique index**, not by a read-then-write check:
 
-| Rule | Mechanism |
-|---|---|
-| One live contact card per attendee | partial unique `(user_id) WHERE revoked_at IS NULL` |
-| No duplicate feedback reward | unique `dedupe_key` = `FEEDBACK:{user_id}:{booth_id}` |
-| No repeat task reward (when disallowed) | unique `dedupe_key` = `TASK:{user_id}:{booth_id}` |
-| No double-submit / retry duplication | unique `idempotency_key` |
-| One interest selection per pair | PK `(user_id, interest_id)` |
-| Booth staff always have a booth | `CHECK` constraint |
+| Rule | Mechanism | Constraint name |
+|---|---|---|
+| One live contact card per attendee | partial unique `(user_id) WHERE revoked_at IS NULL` | `uq_contact_card_live_user` |
+| No duplicate feedback reward | partial unique `(user_id, booth_id) WHERE source='FEEDBACK' AND entry_type='AWARD'` | `uq_points_feedback_user_booth` |
+| No repeat task reward (when disallowed) | unique `dedupe_key` | `uq_points_dedupe_key` |
+| No duplicate award per idempotency key | PK `(staff_account_id, idempotency_key)` | `pk_idempotency_records` |
+| A row is reversed at most once | unique `reverses_points_log_id` | `uq_points_reverses` |
+| One interest selection per pair | PK `(user_id, interest_id)` | `pk_user_interests` |
+| One global preset per value | partial unique `(points) WHERE booth_id IS NULL` | `uq_preset_global_points` |
+| Booth staff always have a booth | `CHECK` | `ck_staff_role_booth` |
+| Task belongs to the awarding booth | composite FK `(task_id, booth_id)` | `fk_points_task_booth` |
 
-The application catches `IntegrityError`, inspects the violated constraint name, and maps it to a domain error. A `SELECT` that checks for an existing row before inserting is **explicitly forbidden as an enforcement mechanism**; it may only be used to produce a nicer message before the authoritative insert is attempted.
+**Constraint violations are dispatched by name, never by order.** The application wraps each authoritative insert in a `SAVEPOINT`, catches `IntegrityError`, reads `err.orig.diag.constraint_name`, and maps **that specific name** to a domain error. A single statement can violate more than one unique index, and which one PostgreSQL reports first is not contractual — branching on "the first error" would produce the wrong user-facing message intermittently. An unmapped constraint name is a bug and raises `INTERNAL_ERROR` rather than being guessed at.
+
+A `SELECT` that checks for an existing row before inserting is **explicitly forbidden as an enforcement mechanism**; it may only be used to produce a nicer message before the authoritative insert is attempted.
 
 ---
 
 ## 8. Attendee Registration & Authentication
 
-### 8.1 Registration
+### 8.1 Registration lifecycle — provisional until email is proven (F06)
 
-`POST /api/attendees/register` accepts first name, last name, email, phone, profession, optional LinkedIn URL, interest slugs, and sponsor consent.
+> **Corrected (review finding).** The earlier design issued a full attendee session immediately on registration. That grants an authenticated identity — and a live public networking card — to whoever typed an email address, including someone typing **another person's** email. Registration now creates a *provisional* record, and authentication begins only after the email is proven.
+
+**States.** `users.status` is an enum with a `CHECK`-guarded lifecycle:
+
+```
+PROVISIONAL ──(OTP verified)──► ACTIVE
+     │
+     └──(expired, 24 h)──► purged by cleanup
+```
+
+`users.activated_at timestamptz NULL` is set exactly when the transition happens, and `CHECK (status = 'PROVISIONAL' OR activated_at IS NOT NULL)` keeps the two in agreement.
+
+#### Step 1 — `POST /api/attendees/register`
+
+Accepts first name, last name, email, phone, profession, optional LinkedIn URL, interest slugs, and sponsor consent. In **one transaction** it creates the `PROVISIONAL` user, its interest rows, its consent audit row, and its contact card, then issues an OTP challenge.
 
 Server-side rules:
-- Email normalised (trim, lowercase) and validated; `citext` uniqueness is enforced by the database, and a conflict returns `EMAIL_ALREADY_REGISTERED` — never a 500.
-- Interests are resolved **by slug against active rows**. Unknown slugs are rejected with `UNKNOWN_INTEREST`, rather than silently dropped, so an attendee is never told they matched on something that does not exist.
-- `sponsor_consent` is a required explicit boolean with **no default**. Absence is a validation error, not an implied "false" and certainly not an implied "true".
-- LinkedIn URL is validated for scheme and host shape; stored as-is otherwise.
-- Registration, interest rows, and contact card issuance happen in **one transaction**. An attendee never exists without a QR card.
+- Email normalised (trim, lowercase); `citext` uniqueness enforced by the database (never a 500).
+- Interests resolved **by slug against active rows**; unknown slugs → `UNKNOWN_INTEREST`, rather than silently dropped, so an attendee is never told they matched on something that does not exist.
+- `sponsor_consent` is a required explicit boolean with **no default**. Absence is a validation error, not an implied value. The `users` row and its `consent_audit` row are written **in the same transaction**, so a consent decision can never exist without its audit entry.
+- LinkedIn URL validated for scheme and host shape.
 
-On success the server issues an attendee session and returns the card token, so the attendee lands on their QR card with no second step.
+**It returns no session.** The response says only that a code has been sent.
+
+#### Step 2 — duplicate email behaviour
+
+Resolved by existing state, and deliberately **non-enumerating** — all three branches return the identical response body:
+
+| Existing record | Behaviour |
+|---|---|
+| none | Create `PROVISIONAL`, send activation OTP |
+| `PROVISIONAL` | **Overwrite** the provisional profile with the new submission and send a fresh OTP. The unverified data has no standing, and the second submitter may well be the genuine owner |
+| `ACTIVE` | Create nothing. Send a **login** OTP to the registered address. The submitted profile fields are discarded |
+
+The `ACTIVE` branch is what prevents registration from becoming an account-takeover vector *and* from becoming a membership oracle: an attacker submitting a victim's address learns nothing and causes only a login code to be delivered to the victim's own inbox.
+
+#### Step 3 — activation transaction
+
+On correct OTP (§8.2), in one transaction: consume the challenge, set `status = ACTIVE` and `activated_at`, activate the contact card, and create the session. Either everything commits or nothing does — there is no window where the card is public but the account inactive.
+
+#### Capability gating
+
+| Capability | PROVISIONAL | ACTIVE |
+|---|---|---|
+| Attendee session exists | ❌ | ✅ |
+| Public card `/c/{token}` resolves | ❌ `INVALID_QR` | ✅ |
+| Staff can scan and award points | ❌ `INVALID_QR` | ✅ |
+| Booth matching / recommendations | ❌ (requires a session) | ✅ |
+| Appears on the leaderboard | ❌ | ✅ |
+
+**The card token is generated at registration but is inert until activation.** Keeping generation early means the token is stable across the activation step; gating resolution on `status = ACTIVE` means an unverified registration cannot be scanned for points. Leaderboard exclusion matters specifically because §16's `LEFT JOIN` over all users would otherwise list unverified registrations.
+
+#### Abandoned registrations
+
+`PROVISIONAL` users older than 24 h are purged, together with their interests, contact card and challenges, by `python -m app.cli purge-provisional` (also invoked by demo reset). Because they hold a `UNIQUE` email, leaving them forever would permanently block a genuine owner from registering that address. The purge is idempotent and safe to run repeatedly.
 
 ### 8.2 Attendee authentication — email + OTP (no password)
 
@@ -447,15 +565,19 @@ The architecture is OTP-based from the start; only the *delivery channel* is sim
 
 **`otp_challenges`** (entity introduced by this section, justified as the OTP store):
 
-`id`, `email` citext NOT NULL, `user_id` FK NULL, `code_hash` text NOT NULL, `created_at`, `expires_at`, `consumed_at` NULL, `attempt_count` int NOT NULL DEFAULT 0, `request_ip` text.
+`id`, `email` citext NOT NULL, `user_id` FK NULL, `purpose` enum `ACTIVATION` \| `LOGIN` NOT NULL, `code_hash` text NOT NULL, `created_at`, `expires_at`, `consumed_at` NULL, `attempt_count` int NOT NULL DEFAULT 0, `request_ip` text.
+
+*Index:* partial unique `(email, purpose) WHERE consumed_at IS NULL` — at most one live challenge per email and purpose, so "supersede the previous code" is enforced by the database rather than by a best-effort update.
+
+`purpose` exists so an activation code cannot be replayed as a login code, or vice versa; verification matches on purpose as well as value.
 
 | Concern | Decision |
 |---|---|
 | Code format | 6 digits, generated with `secrets.randbelow(1_000_000)`, zero-padded |
 | Storage | **Argon2id hash only.** A 6-digit code has a 10⁶ space; storing it in plaintext makes a database read an account takeover |
 | Expiration | 10 minutes, enforced in SQL (`expires_at > now()`), never by a client clock |
-| Single use | `consumed_at` set in the **same transaction** as successful verification, guarded by `UPDATE ... WHERE consumed_at IS NULL` and checking the affected row count. Two concurrent verifications cannot both succeed |
-| Attempt limit | 5 failed attempts invalidates the challenge; `attempt_count` incremented on every attempt |
+| Single use | The verifying transaction begins with `SELECT … FOR UPDATE` on the challenge row, then `UPDATE … WHERE consumed_at IS NULL` and checks the affected row count. The row lock serialises concurrent verifications of the same challenge, so two simultaneous correct submissions cannot both activate — exactly one wins and the other sees `OTP_INVALID` |
+| Attempt limit | 5 failed attempts invalidates the challenge. `attempt_count` is incremented **inside the same locked transaction**, so parallel guesses cannot race past the cap by each reading a stale counter — the failure mode that would otherwise turn a 5-attempt limit into an unbounded one under concurrency |
 | Request throttle | Per-email and per-IP rate limit on issuance (§21.7) |
 | Enumeration | `POST /api/auth/otp/request` returns **the same response whether or not the email is registered**. Otherwise the endpoint is a membership oracle for the attendee list |
 | Superseding | Requesting a new code marks prior unconsumed challenges for that email as consumed |
@@ -464,11 +586,22 @@ The architecture is OTP-based from the start; only the *delivery channel* is sim
 
 ### 8.3 Sessions
 
-On successful registration or OTP verification: generate `secrets.token_urlsafe(32)`, store **only its SHA-256 hash** in `sessions`, and set it as a cookie:
+On **OTP verification** (attendee) or **password login** (staff) — never on mere registration (§8.1): generate `secrets.token_urlsafe(32)`, store **only its SHA-256 hash** in `sessions`, and set it as a cookie:
 
 `HttpOnly; SameSite=Lax; Path=/; Secure (when served over HTTPS); Max-Age = 12h`
 
 `HttpOnly` means XSS cannot exfiltrate the session. Same-origin proxying (§3.2) is what allows `SameSite=Lax`. Logout revokes server-side (`revoked_at`), so the token is dead immediately — the property JWTs cannot offer without extra machinery.
+
+**Session death must propagate to open streams.** Revocation or expiry has no effect on an SSE connection that is already open, so a logged-out tab could otherwise keep receiving personal events indefinitely. Every stream re-validates its session on each heartbeat tick and closes immediately when the session is revoked, expired, or its principal deactivated (§17.9). Authorization lifetime is therefore bounded by one heartbeat interval, not by how long the socket happens to survive.
+
+#### 8.3.1 CSRF policy
+
+Cookie authentication needs an explicit CSRF stance. Two layers, both server-side:
+
+1. **`SameSite=Lax`** stops cross-site `POST` from carrying the cookie at all in current browsers. This is the primary defence and it is free.
+2. **Origin assertion.** Every mutating request (`POST`/`PATCH`/`DELETE`) must carry an `Origin` (or, failing that, `Referer`) header matching the configured application origin. Requests with a missing or mismatched origin are rejected with `CSRF_REJECTED` (403) before the handler runs.
+
+Layer 2 exists because `SameSite` behaviour varies across older browsers and embedded webviews — plausible at a conference where attendees open links from messaging apps. Because the frontend is same-origin (§3.2), legitimate requests always carry a matching `Origin`, so the check costs nothing in normal operation. No CSRF token table is introduced: a synchroniser token would add state and a failure mode without meaningfully improving on Lax + Origin for this threat model.
 
 ---
 
@@ -533,7 +666,7 @@ The tradeoff is accepted deliberately: in the fallback case an attendee's email 
 
 ### 9.4 Invalid token handling
 
-All of: malformed token, unknown token, revoked token, and token belonging to a deleted attendee produce the **identical** response — `404` with code `INVALID_QR`. Distinguishing them would turn the endpoint into an oracle that separates "never existed" from "revoked". The frontend shows one message: *"This QR code isn't valid. Ask the attendee to reopen their card."*
+All of: malformed token, unknown token, revoked token, token belonging to a **provisional (unverified) attendee** (§8.1), and token belonging to a deleted attendee produce the **identical** response — `404` with code `INVALID_QR`. Distinguishing them would turn the endpoint into an oracle that separates "never existed" from "revoked". The frontend shows one message: *"This QR code isn't valid. Ask the attendee to reopen their card."*
 
 ### 9.5 Enumeration resistance
 
@@ -623,7 +756,7 @@ The engineer implementing this should get exactly 78 for these inputs. That is t
 >
 > **No cosmetic multiplier, curve, floor, or display transform may be applied** to make percentages look more impressive. There is exactly one number: the output of `MatchingService`. The API returns it, the UI renders it, and no layer in between adjusts it. This is the fake-percentage failure mode the whole section exists to prevent, and it is now an invariant (§24.5).
 >
-> The approved lever for strong headline matches is **seed data design** (§19.5): demo booths whose top-weighted interests genuinely align with the demo attendees' selected interests produce high scores *under the real formula*, because the match is real. `α` remains 0.7 and is not being tuned for presentation purposes.
+> The approved lever for strong headline matches is **seed data design** (§19.7): demo booths whose top-weighted interests genuinely align with the demo attendees' selected interests produce high scores *under the real formula*, because the match is real. `α` remains 0.7 and is not being tuned for presentation purposes.
 
 ### 11.4 Edge cases
 
@@ -691,13 +824,33 @@ Enforcement has four independent layers. Any one of them alone would be a single
 **1. The request schema cannot express a booth.**
 ```python
 class AwardTaskPointsRequest(BaseModel):
+    """THE canonical award request contract. Defined once, here."""
     model_config = ConfigDict(extra="forbid")
-    card_token: str
-    points: int
-    idempotency_key: UUID
-    # there is deliberately no booth_id field
+    card_token:      str       # opaque attendee reference (§9)
+    points:          int       # validated against the booth's preset allow-list
+    idempotency_key: UUID      # client-generated once per confirmation screen
+    scan_ref:        str       # opaque; proves this staff member scanned this token
+    # deliberately absent: booth_id, staff_id, source, task_id, timestamp
 ```
 `extra="forbid"` means a client sending `booth_id` receives a `422`. The value cannot reach the service even by accident.
+
+> **Corrected (review finding).** An earlier draft of this schema omitted `scan_ref` while §13.3 required it — with `extra="forbid"`, a compliant client would have been rejected with `422`. The block above is now **the single authoritative contract**; §13.1, §13.3, §14.3 and §20.3 all reference it rather than restating it.
+
+**Field authority — where every value in an award actually comes from:**
+
+| Value | Source | Client may supply? |
+|---|---|---|
+| `card_token` | request body | ✅ (validated, then resolved server-side) |
+| `points` | request body | ✅ (must be a member of the booth's preset allow-list) |
+| `idempotency_key` | request body | ✅ (scoped to the authenticated staff account) |
+| `scan_ref` | request body, **but server-issued** at resolve time | ✅ echo only — unforgeable, §13.3 |
+| `booth_id` | `staff.booth_id` via the session | ❌ **never** |
+| `entered_by_staff_id` | the session | ❌ **never** |
+| `source` | constant `TASK` for this endpoint | ❌ **never** |
+| `task_id` | omitted in the demo flow (§7.9) | ❌ **never** |
+| `created_at` | database `now()` | ❌ **never** |
+
+Anything in the "never" rows that appears in a request body is rejected by `extra="forbid"`. There is no code path that reads them from input.
 
 **2. The service derives the booth from the authenticated identity.** The only assignment in the codebase is:
 ```python
@@ -742,7 +895,8 @@ A test asserting that a request carrying a foreign `booth_id` is rejected, and t
                                       Is this the correct attendee?"  [Cancel] [Confirm]
 6. Confirm                         → preset buttons [ +5 ] [ +10 ] [ +15 ]  (from the server)
 7. Award                           → POST /api/staff/points/award
-                                      { card_token, points, idempotency_key }
+                                      { card_token, points,
+                                        idempotency_key, scan_ref }   ← §12.2
 8. Result                          → "+15 awarded to {name}" or a typed error
 ```
 
@@ -756,11 +910,52 @@ The `+5 / +10 / +15` buttons are rendered from `GET /api/staff/points/presets`, 
 
 The award carries the **card token** again, not a user id — consistent with "QR never contains raw internal user IDs" and meaning the award endpoint performs its own authoritative resolution rather than trusting a value the client held between two calls.
 
-The resolve step additionally returns `scan_ref`: an HMAC-SHA256 signature over `(staff_account_id, card_token, issued_at)`, keyed by the application secret from configuration (§21.5 — no fallback default), with a 120-second validity window. The award endpoint recomputes and compares it in constant time.
+#### `scan_ref` — complete specification
+
+`scan_ref` is a stateless, server-issued, signed envelope. It is created by resolve and verified by award.
+
+**Envelope contents** (payload `P`, a JSON object):
+
+| Key | Meaning |
+|---|---|
+| `v` | format version, currently `1` — lets the format change without ambiguity |
+| `sid` | `staff_accounts.id` of the staff member who scanned |
+| `ses` | `sessions.id` of the session that scanned |
+| `tok` | SHA-256 of the `card_token` (hex) — **never the token itself**, so the envelope is not a second copy of the QR secret and is safe in logs |
+| `iat` | issue time, **Unix seconds, assigned by the server** from `now()` — never supplied or influenced by the client |
+
+**Canonical serialization.** `P` is serialised as UTF-8 JSON with keys sorted ascending, no insignificant whitespace, no trailing newline. The result is base64url-encoded **without padding** to produce `B`.
+
+**Signature construction.**
+
+```
+B   = base64url_nopad( canonical_json(P) )
+sig = base64url_nopad( HMAC_SHA256(key = SCAN_REF_SECRET, msg = B) )
+scan_ref = B + "." + sig
+```
+
+The HMAC covers **`B`, the exact string that is transmitted**, not a re-serialization of the parsed object. Signing the parsed form would mean verification depends on reproducing byte-identical JSON, and any serializer difference becomes a silent verification failure. `SCAN_REF_SECRET` comes from configuration with no fallback default (§21.5).
+
+**Verification, in order:**
+
+1. Split on the final `.`; malformed shape → `INVALID_QR`.
+2. Recompute the HMAC over `B` and compare with `hmac.compare_digest` (constant time). Mismatch → `INVALID_QR`.
+3. Parse `P`. `v != 1` → `INVALID_QR`.
+4. **Future-timestamp rejection:** `iat > now + 5 s` → `INVALID_QR`. A clock-skew allowance of 5 s is permitted; beyond that the envelope claims to have been issued in the future, which a correctly behaving server cannot produce. Treated as tampering, not as expiry.
+5. **Expiry:** `now - iat > 120 s` → `SCAN_EXPIRED`.
+6. **Staff binding:** `sid` must equal the authenticated staff account id → `STAFF_NOT_AUTHORIZED`.
+7. **Session binding:** `ses` must equal the current session id → `STAFF_NOT_AUTHORIZED`.
+8. **Token binding:** `sha256(request.card_token)` must equal `tok` → `INVALID_QR`.
+
+**Binding is to the staff *session*, not merely the staff account — decided deliberately.** Account-only binding would let an envelope issued before logout be redeemed after logout, or an envelope minted in one device's session be used from another. Session binding means revoking a session (logout, expiry, admin deactivation) invalidates every outstanding scan for free, with no revocation list and no stored state. The cost is that a staff member whose session expires between scan and award must scan again — correct behaviour, since their authorization genuinely ended.
+
+Being stateless, `scan_ref` needs no table, no cleanup job, and no shared state across workers.
+
+> **Stated bound — `scan_ref` is not single-use.** Within its 120 s window the same envelope can be presented more than once. This is deliberate: single-use would require a server-side consumption record, reintroducing exactly the shared state the stateless design avoids, and it would break the legitimate retry in §13.4 case 8.
+>
+> The bound is safe because it grants no privilege the staff member lacks. A second presentation with the **same** idempotency key replays the original response; with a **different** key it is an ordinary new award, which the repeat policy then judges — blocked by `dedupe_key` when repeats are disallowed (the demo default), and permitted when they are allowed, which is what "repeats allowed" means. In no case can a staff member award outside their own booth, exceed the preset allow-list, or act after their session ends.
 
 It binds *this staff member* to *this token* for *this short window*. Without it, a staff client could award against any token it obtained by other means — a photograph of someone's card, a value pasted from a log — without ever having scanned it in their own session. It also bounds how long a scan stays actionable, so a phone left on a confirmation screen during a coffee break cannot award an hour later. Cost: one response field and one signature check.
-
-Being stateless (a signature, not a stored row) it needs no table and no cleanup job, and it survives the single-worker constraint of §17.7 without shared state.
 
 **Frontend simplicity contract — CONFIRMED.** `scan_ref` must add no meaningful complexity to the client. The entire client-side obligation is:
 
@@ -779,12 +974,87 @@ The client treats it as an opaque string. Expiry is discovered by the server ret
 | 5 | Repeated award | Same `idempotency_key` replayed → original result returned, exactly one row total |
 | 6 | Happy path | Full scan → confirm → award cycle succeeds end-to-end on a real device |
 | 7 | Presentation latency | Resolve and award each complete well inside a comfortable on-stage pause; the measured end-to-end scan-to-points-visible time is recorded, including the SSE update on the attendee's phone |
+| 8 | **Reuse after expiry** | Same key + same fingerprint, replayed after the 120 s window → **replays the original success**, does *not* return `SCAN_EXPIRED` (§13.4) |
+| 9 | **Wrong session** | `scan_ref` valid for the account but issued to a different session → `STAFF_NOT_AUTHORIZED` |
+| 10 | **Future timestamp** | Forged `iat` in the future → `INVALID_QR`, no row written |
 
-Cases 4 and 5 are the security-critical ones; cases 2, 6 and 7 are the demo-critical ones. Case 7 is measured rather than assumed, because a mechanism that is secure but visibly slow on stage still fails the presentation.
+Cases 4, 9 and 10 are the security-critical ones; cases 2, 6, 7 and 8 are the demo-critical ones. Case 7 is measured rather than assumed, because a mechanism that is secure but visibly slow on stage still fails the presentation.
 
-### 13.4 Idempotency
+### 13.4 Idempotency (F02)
 
-The client generates a UUIDv4 **when the confirmation screen opens** — not per click. Every retry of that award, from a double-tap or a flaky network, carries the same key. The unique index on `idempotency_key` means the second insert fails; the service catches it, loads the original row, and returns the **same successful response**. A double-tap therefore shows one award, not an error — the correct experience, and one the frontend cannot guarantee by disabling a button.
+> **Corrected (review finding).** The earlier design relied on a unique index on `points_log.idempotency_key` and caught the violation. That does **not** deliver the promised retry behaviour, for three reasons: (a) the retry never reached the insert, because `scan_ref` expiry and preset validation ran first and rejected it; (b) the key was not bound to the caller, so any staff account could replay another's key; (c) a retry violates *two* unique indexes at once, and which one PostgreSQL reports is not contractual.
+
+#### The rule
+
+**Idempotency is resolved immediately after authentication and authorization, and before every mutable validation.** "Mutable" means anything that can legitimately change between the original request and its retry: `scan_ref` freshness, preset configuration, repeat policy, QR revocation state.
+
+#### Key binding
+
+A key is identified by `(staff_account_id, idempotency_key)` — the primary key of `idempotency_records` (§7.12.1). It carries a **request fingerprint** over the immutable logical operation:
+
+```
+fingerprint = sha256( canonical_json({
+    "v": 1,
+    "tok": sha256(card_token),
+    "points": points,
+}) )
+```
+
+The fingerprint deliberately **excludes** `scan_ref` (time-bound by design), the booth (derived, not supplied), and all configuration. It answers exactly one question: *is this the same logical award?*
+
+#### Resolution algorithm
+
+```
+authenticate staff  →  authorize role  →  THEN:
+
+  INSERT INTO idempotency_records (staff_account_id, key, fingerprint, status)
+  VALUES (..., 'IN_PROGRESS')
+  ON CONFLICT (staff_account_id, idempotency_key) DO NOTHING
+     │
+     ├── inserted  → proceed to full validation and award (§14.3 step 5 onward)
+     │
+     └── conflict  → SELECT the existing row
+           ├── fingerprint differs              → 409 IDEMPOTENCY_KEY_REUSE   (always, whatever the status)
+           ├── status = COMPLETED               → 200, replay response_snapshot, replayed = true
+           └── status = IN_PROGRESS             → 409 AWARD_IN_PROGRESS       (client may retry shortly)
+```
+
+The `ON CONFLICT DO NOTHING` insert is what makes two genuinely simultaneous requests safe: exactly one wins the row and proceeds, and the other takes the `IN_PROGRESS` branch rather than performing a second award.
+
+#### Defined behaviour for every case the review asked about
+
+| Scenario | Result |
+|---|---|
+| Same key + same request | **200**, replay of the original response, `replayed: true`. No new row |
+| Same key + different `points` | **409 `IDEMPOTENCY_KEY_REUSE`**. Fingerprint mismatch — explicit failure, never a silent second award |
+| Same key + different attendee | **409 `IDEMPOTENCY_KEY_REUSE`**. Same reason |
+| Same key + different staff | Different primary key ⇒ a **different record**; proceeds normally. Safe because keys are scoped per account and a UUIDv4 collision across accounts is not a practical concern |
+| Same key **after `scan_ref` expiry** | **200, replay.** Idempotency resolves before `scan_ref` is examined, so expiry is irrelevant to a retry of an already-completed award — this is the central point of the fix |
+| Same key **after QR revocation** | **200, replay.** The original award was valid when it committed; revoking a card does not retroactively invalidate history |
+| Same key **after preset change** | **200, replay.** Configuration at retry time has no bearing on a completed operation |
+| Key never seen, award already exists via `dedupe_key` | **409 `DUPLICATE_TASK_REWARD`** — a genuinely different attempt that the repeat policy forbids |
+
+#### Response contract on replay — decision
+
+**Option A: the original response snapshot, returned verbatim, with `replayed: true` added.**
+
+Rejected alternative (B — transaction result plus *current* score and rank): it produces a response that is half historical and half live, so a caller cannot tell which fields describe the original award and which describe the present. It is also not reliably reproducible, since rank depends on everyone else's activity.
+
+Option A is exact, cheap, and reliably implementable. The client does not depend on the award response for current state in any case — under the realtime model of §17 it refetches authoritative state after every mutation, so nothing is lost by the snapshot being historical.
+
+#### Transaction and savepoint behaviour
+
+The award executes in **one transaction**:
+
+1. `SAVEPOINT idem` → the `ON CONFLICT DO NOTHING` insert → release, or take the conflict branch.
+2. Validation (§14.3).
+3. `SAVEPOINT award` → insert into `points_log`. On `IntegrityError`, roll back **to the savepoint only**, dispatch on `diag.constraint_name` (§7.14), and raise the mapped domain error — the enclosing transaction is still usable, which is what allows the idempotency record to be cleaned up rather than orphaned.
+4. On success: update the record to `COMPLETED` with `points_log_id` and `response_snapshot`.
+5. On a mapped domain error: the whole transaction rolls back, so no `IN_PROGRESS` row is left behind and the key remains usable.
+
+A crash between steps 3 and 4 leaves an `IN_PROGRESS` record whose award did commit. This is bounded, not silent: records stuck `IN_PROGRESS` for more than 60 s are reconciled by looking up the committed `points_log` row via `dedupe_key` or `(staff, token, points, window)` and completing the record. The demo does not need a background job for this — reconciliation runs lazily when the key is next seen, which is exactly when it matters.
+
+The client still generates the UUIDv4 **when the confirmation screen opens**, not per click, so every retry of that award carries the same key.
 
 ### 13.5 Secure context and camera access — RESOLVED
 
@@ -830,18 +1100,25 @@ def award_feedback(user: User, booth: Booth, feedback: Feedback) -> AwardResult 
 
 ### 14.3 Validation sequence for `award_task`
 
-Ordered so that cheap and security-relevant checks precede expensive ones:
+**The order is contractual, not merely an optimisation.** Identity checks come first, idempotency resolves before anything mutable, and only then does validation run. Reordering steps 3 and 4 would reintroduce F02.
 
-1. **Session → staff account.** Expired/revoked session → `UNAUTHENTICATED`.
-2. **Role check.** Not `BOOTH_STAFF`, or inactive → `STAFF_NOT_AUTHORIZED`.
-3. **`booth_id = staff.booth_id`.** Derived, never read from input (§12.2).
-4. **Resolve the token** → attendee, or `INVALID_QR`.
-5. **Validate `scan_ref`.** Signature mismatch → `INVALID_QR` (indistinguishable from a bad token, since a forged signature is an attack and deserves no detail). Valid signature but older than 120 s → `SCAN_EXPIRED`, which tells staff to simply scan again. The distinction is safe because expiry reveals nothing about any attendee — only about the staff member's own session timing.
-6. **`points ∈ presets(booth)`** — membership in the server-side allow-list, not a range check. `12` is rejected even though it lies between 10 and 15 → `INVALID_POINT_VALUE`.
-7. **Compute `dedupe_key`** (§14.5).
-8. **Single `INSERT`.** Constraint violations are translated (§14.6).
-9. **Recompute the total inside the same transaction** and return it.
-10. **Publish the realtime event *after* commit** (§17.6).
+| # | Step | On failure |
+|---|---|---|
+| 1 | **Session → staff account.** Expired/revoked → | `UNAUTHENTICATED` |
+| 2 | **Role check.** Not `BOOTH_STAFF`, or inactive → | `STAFF_NOT_AUTHORIZED` |
+| 3 | **Maintenance mode check** (§19) → | `MAINTENANCE` |
+| 4 | **▶ IDEMPOTENCY RESOLUTION (§13.4).** Completed + matching fingerprint → replay and **return now**. Fingerprint mismatch → | `IDEMPOTENCY_KEY_REUSE` |
+| 5 | **`booth_id = staff.booth_id`.** Derived, never read from input (§12.2) | — |
+| 6 | **Resolve the token** → attendee; unknown, revoked, or `PROVISIONAL` (§8.1) → | `INVALID_QR` |
+| 7 | **Validate `scan_ref`** — the eight ordered checks in §13.3 | `INVALID_QR` / `SCAN_EXPIRED` / `STAFF_NOT_AUTHORIZED` |
+| 8 | **`points ∈ presets(booth)`** — allow-list membership, not a range check. `12` is rejected even though it lies between 10 and 15 → | `INVALID_POINT_VALUE` |
+| 9 | **Compute `dedupe_key`** (§14.5) | — |
+| 10 | **Insert `points_log`** inside a savepoint; violations dispatched by constraint name (§7.14) | mapped domain error |
+| 11 | **Complete the idempotency record** with the response snapshot, same transaction | — |
+| 12 | **Recompute the total** inside the same transaction and return it | — |
+| 13 | **Publish the realtime invalidation signal — *after* commit** (§17.6) | best-effort, never fails the award |
+
+Everything from step 5 onward runs **only** for a genuinely new logical request. That is what makes "retried after `scan_ref` expired" return the original success rather than an error.
 
 ### 14.4 Feedback points
 
@@ -863,29 +1140,46 @@ if allow_repeat is None:
 
 | Situation | `dedupe_key` |
 |---|---|
-| `FEEDBACK` | `"FEEDBACK:{user_id}:{booth_id}"` — **always**, unconditionally |
-| `TASK`, repeats disallowed | `"TASK:{user_id}:{booth_id}"` |
-| `TASK`, repeats allowed | `NULL` |
+| `TASK`, repeats **disallowed** | `"TASK:{user_id}:{booth_id}"` |
+| `TASK`, repeats **allowed** | `NULL` |
+| `FEEDBACK` | `NULL` — feedback uniqueness is **structural** (§7.12), not string-based |
+| `REVERSAL` (any source) | `NULL` — a reversal must never be blocked by the policy of the row it reverses |
 
-Because Postgres unique indexes **do not collide on NULLs**, a NULL key means unlimited awards, while a non-NULL key is enforced atomically by the index. One column, one index, both policies — and flipping the config changes behaviour for future awards with no migration and no code change.
+Because Postgres unique indexes **do not collide on NULLs**, a NULL key means unconstrained, while a non-NULL key is enforced atomically by the index. Flipping the config changes behaviour for future awards with no migration and no code change.
 
-Two consequences to state plainly:
-- Flipping from disallow→allow does **not** retroactively delete existing keys. Attendees who already earned at that booth under the old rule cannot earn a second time *under that key*. For a demo this is correct; a production change would need a documented backfill.
-- Feedback de-duplication is **not** configurable. It is a stated invariant, so it is unconditional.
+> **Refinement (review finding).** Feedback de-duplication was previously expressed as a `dedupe_key` string, putting a stated invariant in the same mutable mechanism as a configurable policy — one service-layer bug in key construction could have silently disabled it. It is now a **partial unique index on `(user_id, booth_id) WHERE source='FEEDBACK' AND entry_type='AWARD'`**, which holds regardless of what any service computes. `dedupe_key` is now exclusively the TASK repeat-policy mechanism.
+
+#### Transition semantics — what happens when the policy is flipped
+
+The policy is evaluated **at award time only**, and `dedupe_key` is frozen into the row. The consequences are asymmetric and must be stated:
+
+| Transition | Effect on existing rows | Effect on future awards |
+|---|---|---|
+| disallow → **allow** | Old rows keep their non-NULL keys | New awards get `NULL` keys and are unconstrained. **An attendee blocked under the old policy can now earn again**, because the new row's key is NULL and collides with nothing |
+| allow → **disallow** | Old rows keep `NULL` keys | The *first* award after the flip writes `TASK:{u}:{b}` and succeeds **even if the attendee already earned there** under the permissive policy, since the earlier rows have no key to collide with. Subsequent attempts are then blocked |
+
+Neither transition rewrites history, and neither is retroactive. The allow→disallow case permits exactly one extra award per attendee/booth pair that had already earned — acceptable for a demo, and the honest description of what the mechanism does. A production change that must be strictly retroactive requires a documented backfill that writes keys for existing rows, which would fail loudly on any pair that already has duplicates rather than silently discarding them.
+
+Changing this setting is an admin action and is written to the admin audit log with the previous and new values.
 
 ### 14.6 Threat/failure matrix
 
 | Threat | Defence |
 |---|---|
-| Arbitrary point values | Server-side allow-list membership (§14.3 step 6); `INVALID_POINT_VALUE` |
-| Client-supplied `booth_id` | Field does not exist; `extra="forbid"`; booth derived from session (§12.2) |
-| Double-click | `idempotency_key` unique index → returns the original result, not an error |
-| Duplicate network retry | Same mechanism; key is generated once per confirmation screen |
+| Arbitrary point values | Allow-list membership (§14.3 step 8); `INVALID_POINT_VALUE` |
+| Client-supplied `booth_id` / `staff_id` / `source` | Fields do not exist; `extra="forbid"`; all derived server-side (§12.2 field-authority table) |
+| Double-click | Idempotency resolution (§13.4) → original result replayed, not an error |
+| Duplicate network retry, response lost | Same mechanism; resolves **before** any mutable validation, so a retry after `scan_ref` expiry still replays |
+| Two concurrent identical requests | `ON CONFLICT DO NOTHING` on the idempotency PK → one proceeds, the other gets `AWARD_IN_PROGRESS` |
+| Key reused for a different operation | Fingerprint mismatch → explicit `IDEMPOTENCY_KEY_REUSE`, never a silent second award |
+| Key replayed by a *different* staff account | Key is scoped by `staff_account_id`; one account cannot address another's record |
 | Unauthorized staff | Session → role → active checks before any mutation |
-| Duplicate reward where prohibited | `dedupe_key` unique index, enforced by the database under concurrency |
-| Awarding to a token never scanned in this session | `scan_ref` binding (§13.3) |
-| Replay of an old award payload | `idempotency_key` already consumed → original result returned, no new points |
-| Staff account compromise | Blast radius bounded to one booth and to preset values; every row is attributed and reversible by compensating entry |
+| Duplicate reward where prohibited | `dedupe_key` unique index (TASK) / partial unique index (FEEDBACK), enforced by the database under concurrency |
+| Awarding to a token never scanned in this session | `scan_ref` staff **and session** binding (§13.3) |
+| `scan_ref` reuse after logout | Session binding — a revoked session invalidates every outstanding envelope |
+| Forged `scan_ref` timestamp | Future-`iat` rejection with a 5 s skew allowance (§13.3) |
+| Awarding to an unverified attendee | Token resolution requires `status = ACTIVE` (§8.1) |
+| Staff account compromise | Blast radius bounded to one booth and to preset values; every row is attributed and reversible by a `REVERSAL` entry |
 
 ---
 
@@ -895,21 +1189,32 @@ Two consequences to state plainly:
 
 ```
 BEGIN
-  1. INSERT feedback (user_id, booth_id, rating, comment)
-  2. attempt INSERT points_log
-       source='FEEDBACK', points=event_config.feedback_points,
-       entered_by_system=true,
-       dedupe_key='FEEDBACK:{user_id}:{booth_id}'
-     ├─ success           → awarded_points = N
-     └─ unique violation  → SAVEPOINT rollback; awarded_points = 0
+  1. INSERT feedback (user_id, booth_id, rating, comment)      -- always succeeds
+  2. SAVEPOINT reward
+     attempt INSERT points_log
+       source='FEEDBACK', entry_type='AWARD',
+       points=event_config.feedback_points,
+       entered_by_system=true, dedupe_key=NULL
+     ├─ success                                   → awarded_points = N
+     └─ violation of uq_points_feedback_user_booth → ROLLBACK TO reward
+                                                     awarded_points = 0
   3. recompute total
 COMMIT
-  4. publish realtime event only if awarded_points > 0
+  4. publish realtime invalidation only if awarded_points > 0
 ```
 
-**Outcome:** the feedback is always saved; the reward is granted at most once per `(user, booth)`. A second submission returns `200` with `awarded_points: 0` and `already_rewarded: true` — not an error, because submitting more feedback is legitimate behaviour that simply is not paid twice.
+**Outcome contract** — one response shape for both cases, so the client has no branch to get wrong:
 
-**Concurrency.** Two simultaneous submissions (double-tap, or two tabs) both attempt the insert; the unique index guarantees exactly one succeeds. The loser is detected by catching the integrity error on a `SAVEPOINT`, so the enclosing transaction survives and the feedback row is still committed. There is **no** "check if already rewarded, then insert" path — that pattern has a window between the check and the insert and would double-award under exactly the conditions a live demo produces. Frontend button disabling is a UX nicety layered on top and is never relied upon.
+```jsonc
+{ "feedback_id": 91, "awarded_points": 5, "already_rewarded": false, "total_points": 50 }
+{ "feedback_id": 92, "awarded_points": 0, "already_rewarded": true,  "total_points": 50 }
+```
+
+Both are **`200`**. A repeat submission is not an error: submitting more feedback is legitimate behaviour that simply is not paid twice. `already_rewarded` is the field the UI keys on; `DUPLICATE_FEEDBACK` exists in the error catalogue for completeness but is **not** returned by this endpoint.
+
+**Concurrency.** Two simultaneous submissions (double-tap, two tabs) both attempt the reward insert; the partial unique index guarantees exactly one succeeds. The loser is caught by constraint **name** on a `SAVEPOINT`, so the enclosing transaction survives and the feedback row still commits. There is **no** "check if already rewarded, then insert" path — that pattern has a window between check and insert and would double-award under exactly the conditions a live demo produces. Frontend button disabling is a UX nicety layered on top and is never relied upon.
+
+Feedback requires an **ACTIVE** attendee session (§8.1), so an unverified registration cannot generate rewards.
 
 ---
 
@@ -923,10 +1228,15 @@ SELECT u.id, u.first_name, u.last_name, u.profession,
        MAX(p.created_at)          AS last_award_at
 FROM users u
 LEFT JOIN points_log p ON p.user_id = u.id
+WHERE u.status = 'ACTIVE'            -- provisional registrations are not attendees yet (§8.1)
 GROUP BY u.id
 ```
 
-The `LEFT JOIN` is what makes **every registered attendee rankable, including those with zero points** — an `INNER JOIN` would silently drop them, and a demo where a newly registered attendee is missing from the list looks broken.
+The `LEFT JOIN` is what makes **every activated attendee rankable, including those with zero points** — an `INNER JOIN` would silently drop them, and a demo where a newly activated attendee is missing from the list looks broken.
+
+The `status` filter is required, not cosmetic: without it, an unverified registration made with someone else's email address would appear publicly on the leaderboard under that person's name.
+
+Because `points` may be negative on a `REVERSAL` row, `SUM` naturally reflects corrections with no special handling.
 
 ### 16.2 Deterministic ordering and ranking
 
@@ -952,6 +1262,8 @@ so two attendees on 45 points both show rank 3 and the next shows 5. Ties are sh
 | Current attendee outside top N | Their own row is returned **additionally** in a `current_user` field, with true rank — one query using a window function over the full set, not a second round trip |
 | Show all | Paginated full list, keyset pagination on `(total_points DESC, last_award_at ASC, id ASC)` |
 
+**Pagination consistency.** The underlying data changes while a visitor pages through it, so a row can legitimately move between pages and be seen twice or missed. Keyset pagination (rather than `OFFSET`) keeps the anomaly bounded to rows whose totals actually changed, instead of shifting every subsequent page. Every leaderboard response carries `as_of` (server timestamp) and `dataset_generation` (§19); the client displays `as_of` on the "show all" view and **discards a page whose `dataset_generation` differs from the first page's**, restarting the listing. No snapshot isolation or materialised cursor is introduced — for a demo-scale list this is the honest, cheap behaviour, and the alternative would be a cache with its own staleness problem (§16.4).
+
 `current_user` is always populated for an authenticated attendee, even when they are inside the top N, so the client renders one consistent component and the highlight logic has no special case.
 
 ### 16.4 No caching in the demo — justified
@@ -966,95 +1278,157 @@ In order of escalation: (1) materialised view refreshed on award; (2) a `user_sc
 
 ## 17. Realtime Architecture
 
+> **Corrected (review findings F03, F04).** The earlier design used `points_log.id` as an SSE event cursor, discarding events with `id <= last_seen` and resuming with `WHERE id > Last-Event-ID`. Sequence allocation is not commit order, so a lower id committing after a higher one would have been **permanently discarded** by both rules. The protocol below replaces state-carrying, ordered events with **invalidation signals plus authoritative refetch**, which is simpler *and* correct.
+
 ### 17.1 The scenario to satisfy
 
 Phone A (attendee) has the score screen open. Phone B (staff) scans A and awards +15. Phone A must update total, rank and leaderboard **without a manual refresh**, and may animate `+15 POINTS`.
 
-### 17.2 Decision: Server-Sent Events
+### 17.2 Three concepts, deliberately separated
+
+Conflating these caused F03. They are now distinct:
+
+| Concept | Carried by | Used for | **Never** used for |
+|---|---|---|---|
+| **Ledger identity** | `points_log.id` | Naming a row; asking "have I already animated this award?" (set membership) | Ordering, cursors, resume tokens |
+| **Notification identity** | SSE `event: …` name + a per-connection sequence number | Delivering a "something changed" hint | Carrying authoritative state |
+| **State freshness** | A full authoritative snapshot fetched over HTTP | Everything the UI displays | — |
+
+**Ledger ids are safe as identities and unsafe as cursors.** Set membership (`has this id been animated?`) is order-independent and therefore immune to out-of-order commits. That is why the animation rule below uses a set, not a high-water mark.
+
+### 17.3 Decision: Server-Sent Events as an invalidation channel
 
 | Option | Assessment |
 |---|---|
-| **SSE — chosen** | One-directional server→client, exactly our shape. Plain HTTP, so it traverses the Next.js rewrite proxy with no protocol upgrade. **Automatic browser reconnection with `Last-Event-ID` is built into `EventSource`** — the reconnect logic we would otherwise write by hand. FastAPI ships first-party support (`fastapi.sse.EventSourceResponse`, `ServerSentEvent` with `id`/`event`/`retry`), so no third-party dependency |
-| WebSockets | Rejected: bidirectional capability we do not need, hand-rolled reconnect and heartbeat, an upgrade that proxies can mishandle, and a second auth path. Strictly more failure modes for zero additional capability |
-| Polling only | Rejected as primary (a 5 s delay is visibly sluggish on stage) but **retained as fallback**, because it works in every environment |
+| **SSE — chosen** | One-directional server→client, exactly our shape. Plain HTTP, so it traverses the Next.js rewrite proxy with no protocol upgrade. Native `EventSource` reconnection. FastAPI ships first-party support (`fastapi.sse.EventSourceResponse`), so no third-party dependency |
+| WebSockets | Rejected: bidirectional capability we do not need, hand-rolled reconnect and heartbeat, an upgrade that proxies can mishandle, and a second auth path |
+| Polling only | Rejected as primary (a 5 s delay is visibly sluggish on stage) but **retained as fallback** |
+| Durable event log / broker | **Rejected.** Kafka, Redis Streams and RabbitMQ are all excluded (§2.6). Periodic reconciliation gives us the same user-visible guarantee at a fraction of the complexity — see §17.8 |
 
-The deciding factor is that the reconnect behaviour we most need is the part `EventSource` already implements correctly.
+SSE is used **only** to say *"refetch"*. It never carries a total, a rank, or a leaderboard.
 
-### 17.3 Endpoint and events
-
-`GET /api/realtime/stream` — attendee session required. One connection carries **two channels**, and the distinction is a security boundary:
-
-| Channel | Subscription key | Carries | Visible to |
-|---|---|---|---|
-| **Personal** | `user_id` from the session | `points_awarded` — your points, your total, your rank | Only that attendee |
-| **Broadcast** | global topic | `leaderboard_changed` — a bare signal, **no names, no scores, no user ids** | Every connected attendee |
-
-The subscription key for the personal channel comes from the **session**, never from a query parameter, so **a client cannot request another user's stream**.
-
-The broadcast channel exists because the requirement is that the *leaderboard* updates live. When attendee X is awarded points, attendee Y's **rank can change without Y earning anything**. A purely per-user stream would leave every other phone in the room showing a stale leaderboard — the failure would be invisible in single-device testing and glaring on stage with two phones. The broadcast event deliberately carries no data beyond a version number: it is a "refetch now" signal, so it leaks nothing about other attendees and cannot itself become a source of truth.
+### 17.4 The snapshot / subscribe / reconcile protocol
 
 ```
-event: points_awarded         ← personal channel only
-id: 481                       ← points_log.id — monotonic, and already our event id
-data: {"points":15,"source":"TASK","booth_name":"AIWorks",
-       "total_points":45,"rank":3,"replay":false}
+1. SUBSCRIBE FIRST, THEN SNAPSHOT
+     open EventSource  →  wait for the `ready` event
+     then GET /api/attendees/me/score
+   Ordering matters: subscribing first means any award landing during the
+   fetch produces a signal that arrives *after* the snapshot, triggering a
+   refetch. Fetching first would leave a gap in which a change is missed.
 
-event: leaderboard_changed    ← broadcast to all connected attendees
-id: 481
-data: {"version":481}         ← signal only; client refetches the leaderboard
-
-event: heartbeat              ← every 20 s, keeps proxies from idling the connection
+2. ON ANY SIGNAL          →  refetch the authoritative snapshot
+3. ON RECONNECT           →  refetch (no event replay, no resume token)
+4. ON VISIBILITY REGAINED →  refetch
+5. EVERY 20 s, EVEN WHILE CONNECTED →  refetch   (reconciliation floor)
+   "Refetch" in steps 2-5 means BOTH the personal snapshot AND the
+   leaderboard whenever the leaderboard view is mounted — a rank can
+   change with no personal event, because someone else scored.
+6. IF NO FRAME FOR 45 s   →  treat the stream as dead, close, reconnect, refetch
 ```
 
-On `leaderboard_changed` the client refetches `/api/leaderboard` (which already includes its own `current_user` rank, §16.3). It **never animates** on a broadcast event — the `+N` animation belongs exclusively to the personal channel, so other people scoring never triggers celebration on your phone.
+**Step 5 is the correctness backstop.** It is what makes every F04 failure mode self-healing without a durable event system: a lost publication, a buffering proxy, a half-open socket, or a backend restart all resolve within 20 seconds regardless of whether any event was ever delivered. Everything else in this protocol is latency optimisation on top of it.
 
-Using `points_log.id` as the SSE id is deliberate: the event identifier **is** the identifier of the durable fact, so client de-duplication and server backfill share one ordering with nothing to keep in sync.
+**Authoritative snapshot** (`GET /api/attendees/me/score`):
 
-### 17.4 Reconnect behaviour
-
-`EventSource` reconnects automatically (we send `retry: 5000`). On reconnect the browser sends `Last-Event-ID`; the server reads it and replays **personal-channel** `points_log` rows for that attendee with `id > Last-Event-ID`, marking each `"replay": true`. Missed awards during a Wi-Fi blip therefore still arrive.
-
-Broadcast events are **not** replayed individually — the server sends a single `leaderboard_changed` on every reconnect, because the leaderboard is refetched wholesale anyway and replaying N stale signals would produce N identical refetches.
-
-Additionally, the client performs a **full state refetch** of `/api/attendees/me/score` on reconnect and on `visibilitychange → visible`. This is the safety net that makes the whole design tolerable: even if events were lost entirely, the screen self-heals within a second of coming back.
-
-### 17.5 Duplicate events and animation replay
-
-The client keeps `lastSeenPointsLogId` in memory (**not** `localStorage` — it must not survive a page reload, or a genuine post-refresh event would be suppressed).
-
-It is **initialised from the API, not from zero.** `GET /api/attendees/me/score` returns `last_points_log_id` alongside the total, and the client seeds `lastSeenPointsLogId` with it before opening the stream. Initialising to `0` would leave a window between the initial fetch and the SSE connection: an award landing in that gap is already included in the fetched total, but its event would still pass the `>` check and animate a `+15` the attendee has already been shown. The total would stay correct — the payload is authoritative — but the animation would be a lie about recency.
-
-```
-on event (personal channel):
-  if (event.id <= lastSeenPointsLogId) → ignore entirely
-  lastSeenPointsLogId = event.id
-  apply total/rank from payload
-  animate "+N" only if (event.replay === false && documentIsVisible)
-
-on event (broadcast channel):
-  refetch leaderboard; never animate
+```jsonc
+{
+  "total_points": 45,
+  "rank": 3,
+  "recent_awards": [ { "id": 481, "points": 15, "booth_name": "AIWorks",
+                       "source": "TASK", "created_at": "…" } ],
+  "as_of": "2026-09-22T17:04:11Z",
+  "dataset_generation": 7
+}
 ```
 
-This is precisely how the "+15 replayed on every reconnect" failure is avoided: backfilled events update state but are flagged `replay: true` and never animate. A phone that was locked during the award shows the correct total when unlocked, without a burst of stale confetti.
+`recent_awards` is the most recent N (default 10) rows for this attendee, ordered by `created_at DESC, id DESC` **for display only** — the client never treats that order as a delivery guarantee.
 
-### 17.6 Realtime is never the source of truth
+### 17.5 Events
 
-Three rules:
-1. Events are published **after** the database transaction commits. A rolled-back award cannot emit an event. (Publishing inside the transaction is the classic bug here: the event escapes, the transaction aborts, and the UI shows points that do not exist.)
-2. Event payloads carry **server-computed** values, never client-computed deltas.
-3. Any disagreement is resolved by refetching from the API. The client never adds `+15` to its own local total as an independent calculation.
+```
+event: ready            data: {"dataset_generation":7,"heartbeat_seconds":15}
+event: state_changed    data: {"scope":"personal"}      ← your points changed; refetch
+event: leaderboard_changed  data: {}                    ← broadcast; refetch leaderboard
+event: heartbeat        data: {"t":"…"}                 ← every 15 s
+event: session_invalid  data: {"reason":"revoked"}      ← stream closes; client re-authenticates
+event: dataset_reset    data: {"dataset_generation":8}  ← demo reset (§19); client hard-reinitialises
+```
 
-### 17.7 Transport and the worker constraint
+No event carries points, totals, ranks, names, or any attendee data. The personal channel is keyed by `user_id` **from the session**, never from a query parameter. The broadcast channel is data-free by construction (invariant §24.18), so fanning it out to every connection discloses nothing.
 
-The demo uses an **in-process async pub/sub broker**: a dict of `user_id → set[asyncio.Queue]`. No Redis, no broker service.
+Events deliberately have **no `id:` field**, so `EventSource` never sends `Last-Event-ID` and no resume semantics exist to get wrong.
 
-> **Invariant:** the backend runs with **exactly one Uvicorn worker** in the demo. With multiple workers, an award handled by worker 2 would not reach a stream held by worker 1.
+### 17.6 Animation without ordering
 
-This is enforced by the container command and stated in the README rather than left to chance. The production path is Postgres `LISTEN/NOTIFY` — which needs no new infrastructure since Postgres is already present — or Redis pub/sub at larger scale. The `EventBus` is an interface precisely so this swap touches one class.
+The client keeps `animatedAwardIds: Set<bigint>`, seeded from the **first** snapshot's `recent_awards` (so awards already reflected on arrival are never animated) and held in memory only.
 
-### 17.8 Fallback
+```
+after every refetch:
+  for award in snapshot.recent_awards:
+      if award.id not in animatedAwardIds:
+          if pageHasBeenOpenSince(award.created_at) and documentIsVisible:
+              animate("+" + award.points)
+          animatedAwardIds.add(award.id)
+  replace total/rank with snapshot values   ← always, unconditionally
+```
 
-If `EventSource` fails to connect, or after 3 consecutive failed reconnects, the client falls back to polling `/api/attendees/me/score` every 5 s and retries SSE every 60 s. Polled changes update values **without** animation, since a poll cannot distinguish new from missed. On a fallback-polled increase the UI updates silently rather than lying about recency.
+This is correct **regardless of commit order**: an award that commits late still appears in a later snapshot, is still absent from the set, and is still animated exactly once. Set membership has no notion of "too old", which is precisely the property the id-as-cursor design lacked.
+
+Displayed state is always assigned from the snapshot, never accumulated locally — the client never computes `total += 15`.
+
+> **Stated bound.** `recent_awards` is a window of the last N (10). If an award commits so late that more than N others have landed for the same attendee in the meantime, it will never enter a snapshot window and its **animation** is skipped. The **total and rank remain exactly correct**, because they come from `SUM` over the whole ledger, not from the window. This is an acceptable cosmetic bound rather than a correctness defect, and at demo scale — one staff member awarding at a time — it is unreachable. Widening N is the remedy if it ever matters; growing a durable per-client delivery log to close a missed animation is not warranted.
+
+### 17.7 Realtime is never the source of truth
+
+1. Signals are published **after** the database transaction commits (§14.3 step 13). A rolled-back award cannot emit one.
+2. Publication is **best-effort**: a failure to publish is logged and never fails the award. The 20 s reconciliation covers it.
+3. No event payload carries authoritative state, so a lost, duplicated, reordered or forged event cannot corrupt what the UI shows.
+4. Any disagreement is resolved by refetching.
+
+### 17.8 Why this needs no durable messaging
+
+The required guarantee is *"the UI is never stale for long"*, not *"every event is delivered exactly once"*. Since every signal is a hint and every value comes from a refetch, delivery loss degrades **latency** (up to 20 s) rather than **correctness**. A broker would add a service, a failure mode, and operational surface to improve a bound we already find acceptable, in exchange for nothing the user can perceive. Excluded deliberately.
+
+### 17.9 Liveness, stream lifecycle and proxy behaviour
+
+| Concern | Behaviour |
+|---|---|
+| Heartbeat | Server emits `heartbeat` every **15 s** |
+| Dead-stream detection | Client sees no frame of any kind for **45 s** (3 missed) → close, reconnect, refetch |
+| Proxy buffering | Response sets `Content-Type: text/event-stream`, `Cache-Control: no-cache, no-transform`, `X-Accel-Buffering: no`, and **compression is disabled for this content type**. A buffering proxy withholds heartbeats too, so it is detected by the 45 s rule rather than appearing as a healthy silent stream |
+| Session revoked / expired | Stream re-validates its session **on every heartbeat tick**, emits `session_invalid` and closes. Authorization lifetime is bounded by 15 s, not by socket lifetime (§8.3) |
+| Attendee deactivated or purged | Same path |
+| Backend restart | All streams drop; clients reconnect and refetch. No server-side state to rebuild |
+| Demo reset | `dataset_reset` is emitted, then all streams are closed (§19) |
+| Max connection age | Streams are closed by the server after **30 minutes**; the client reconnects transparently. Bounds resource leaks from phones left open on a table all day |
+
+**Path that must be tested before the summit:**
+
+```
+Browser (EventSource)
+  → TLS terminator / reverse proxy      ← buffering, idle timeout, compression
+  → Next.js rewrite proxy               ← must stream, not buffer, the upstream body
+  → FastAPI EventSourceResponse
+```
+
+**Every hop can buffer or idle-timeout a streaming response, and a buffered SSE stream looks identical to a healthy idle one.** The pre-summit check is explicit: open the attendee screen through the **real presentation URL and proxy chain**, award points from a second device, and confirm the update appears within ~1 s rather than in a delayed burst — and separately confirm that a stream left open for several minutes still delivers heartbeats. This is listed alongside milestone M-CAM (§13.5) and is not satisfied by testing against `localhost`, which bypasses the proxy chain entirely.
+
+### 17.10 Transport and the worker constraint
+
+The demo uses an **in-process async pub/sub broker**: a dict of `user_id → set[asyncio.Queue]` plus one broadcast set. No Redis, no broker service.
+
+> **Invariant:** the backend runs with **exactly one Uvicorn worker** in the demo. With multiple workers, an award handled by worker 2 would not signal a stream held by worker 1.
+
+Note that the consequence of violating this is now **bounded**: with the 20 s reconciliation floor, a mis-signalled client still self-corrects — it is degraded, not wrong. The single-worker rule remains, but it is no longer the difference between working and broken.
+
+Production path: PostgreSQL `LISTEN/NOTIFY`, which needs no new infrastructure since Postgres is already present. `EventBus` is an interface so this swap touches one class.
+
+### 17.11 Fallback
+
+If `EventSource` fails to connect, or after 3 consecutive failed reconnects, the client falls back to polling every 5 s and retries SSE every 60 s.
+
+**Polling refreshes both the personal snapshot and the leaderboard**, since in fallback mode there is no broadcast channel to signal that another attendee's score changed. Polled changes update values and animate new award ids under the same §17.6 rule — the rule is source-independent, so no separate fallback logic exists.
 
 ---
 
@@ -1067,11 +1441,14 @@ Boundaries:
 - Admins **cannot award or modify points** (§12.3). The audit view is read-only. Corrections, if ever built, are compensating entries attributed to a real account.
 - The first admin is created by the seed/CLI path, never by an HTTP endpoint. There is no bootstrap route that creates an admin if none exists — that is a backdoor by another name.
 - Admin routes are excluded from the public OpenAPI schema in production and rate-limited (§21.9).
+- **Every admin mutation and its audit row are written in the same transaction.** An audit log that can be missing entries for committed changes is worse than none, because it is trusted. The same rule applies to attendee consent and its `consent_audit` row (§8.1), and to `event_config` changes, which record the previous and new values.
 - Editing a booth's interest weights changes future match scores. Nothing is cached (§11.4), so the change takes effect on the next request with no invalidation step.
 
 ---
 
 ## 19. Demo Reset Strategy
+
+> **Corrected (review finding F05).** The earlier design truncated tables and upserted fixtures. That leaves live SSE streams attached, sessions valid, in-process broker state populated, admin-created rows orphaned, and — because identity sequences restart — a browser holding pre-reset state that now collides with reused ids. Reset is therefore a **coordinated maintenance operation**, not a data operation.
 
 ### 19.1 Mechanism
 
@@ -1081,53 +1458,89 @@ A CLI command run inside the backend container:
 docker compose exec backend python -m app.cli reset-demo --confirm
 ```
 
-**No HTTP endpoint exists for reset.** Not an authenticated one, not a hidden one. The reason is blunt: an endpoint that destroys all event data is a liability whose worst case (someone triggers it mid-summit) vastly outweighs the convenience it buys, and CLI access is already available to whoever runs the demo.
+**No HTTP endpoint exists for reset** — not authenticated, not hidden. An endpoint that destroys all event data is a liability whose worst case (triggered mid-summit) vastly outweighs the convenience, and whoever runs the demo already has CLI access.
 
 ### 19.2 Guards
 
-The command refuses to run unless **both**:
-- `DEMO_MODE=true`, and
-- `ENVIRONMENT != production`
+Refuses to run unless **both** `DEMO_MODE=true` and `ENVIRONMENT != production`, and requires explicit `--confirm`. Failing any check aborts with a non-zero exit and no writes.
 
-and it requires the explicit `--confirm` flag. Failing any check aborts with a non-zero exit and no writes.
+### 19.3 Dataset generation — how a browser tells old state from new
 
-### 19.3 Sequence
+`event_config.dataset_generation` is a monotonically increasing integer, bumped by every reset. **It never restarts**, even though table identities do.
+
+- Every API response carries `X-Dataset-Generation`.
+- The client stores the value it first saw and compares it on every response.
+- **On mismatch, the client hard-reinitialises**: clears all in-memory state (including `animatedAwardIds`), drops its session, closes the stream, and returns to the entry screen.
+
+This is what makes reused numeric ids safe. After a reset, `points_log.id = 481` refers to a different award than it did before, and `users.id = 3` to a different person — but any client still holding pre-reset state sees a generation mismatch on its very next request and discards everything. Without this counter, a phone left open across a reset could silently display stale values against reused ids, which is precisely the confusion a rehearsal→presentation reset would produce.
+
+### 19.4 Sequence
 
 ```
-1. Verify guards                      → abort if any fail
-2. TRUNCATE ... RESTART IDENTITY CASCADE:
-     points_log, feedback, sessions, otp_challenges,
-     user_interests, contact_cards, users
-   (attendee-generated data only)
-3. Upsert reference data from seed/demo_fixtures.py:
-     interests, booths, booth_interests,
-     tasks, task_preset_points, event_config,
-     staff_accounts (fixed emails; passwords from env, never literals)
-4. Insert demo attendees with FIXED public_tokens
-5. Optionally seed a small baseline of points so the leaderboard is not empty on stage
-6. Print a summary: counts, staff logins, demo card URLs
+ 1. Enter maintenance      event_config.maintenance_mode = true  (committed first,
+                           so it holds even if a later step fails)
+ 2. Reject mutations       middleware returns 503 MAINTENANCE for every mutating
+                           route; reads continue to serve
+ 3. Terminate streams      emit `dataset_reset`, then close every SSE connection
+ 4. Invalidate sessions    revoke ALL attendee sessions; revoke staff and admin
+                           sessions for seeded demo accounts. A human-held admin
+                           session outside the fixture set is left alone so the
+                           operator is not locked out mid-operation
+ 5. Clear broker state     drop every queue and subscriber set in the in-process
+                           EventBus, so no queue outlives the dataset it refers to
+ 6. ── SINGLE TRANSACTION ───────────────────────────────────────────────────
+      a. TRUNCATE ... RESTART IDENTITY CASCADE:
+           points_log, idempotency_records, feedback, sessions,
+           otp_challenges, consent_audit, user_interests,
+           contact_cards, users
+      b. RECONCILE reference data to the fixture set — not merely upsert:
+           DELETE booths / interests / booth_interests / tasks /
+                  task_preset_points / staff_accounts
+           whose natural key is absent from the fixtures,
+           then UPSERT every fixture row
+      c. Restore event_config values from fixtures
+      d. Insert demo attendees (status = ACTIVE) with FIXED public_tokens
+      e. Optionally seed baseline points so the leaderboard is not empty
+      f. dataset_generation = dataset_generation + 1
+    ── COMMIT ────────────────────────────────────────────────────────────────
+ 7. Reset sequences        RESTART IDENTITY in 6a covers truncated tables;
+                           reference tables keep their sequences, which is
+                           harmless because generation disambiguates ids
+ 8. Exit maintenance       maintenance_mode = false
+ 9. Report                 counts, staff logins, demo card URLs, new generation
 ```
 
-### 19.4 Determinism — and the printed-QR requirement
+**Step 6b is the correction.** Upserting alone leaves behind anything an admin created during a rehearsal — an extra booth, a spare preset value, a staff account — so the "known presentation state" would silently differ from the fixture set in exactly the way rehearsals cause. Reconciliation deletes rows not present in the fixtures, making the outcome a function of the fixture file alone.
 
-The seed uses **fixed** `public_token` values for demo attendees. This is not cosmetic: pre-printed QR cards and slide screenshots must keep working after every reset. Random tokens would invalidate the printed materials the moment the demo is reset, which is exactly when it matters.
+### 19.5 Failure behaviour
 
-`RESTART IDENTITY` makes ids reproducible, so a reset returns to a genuinely known state rather than an equivalent one.
+Step 6 is one transaction: a failure anywhere inside it rolls back completely, so the database is never left half-reset.
 
-**Security note:** fixed demo tokens are acceptable **only** because they are demo identities in a demo-mode deployment. Seeded tokens are generated once, committed as fixtures, and the guard in §19.2 prevents that fixture ever loading into production. Real attendees always receive `secrets`-generated tokens.
+**Maintenance mode deliberately stays ON after a failure.** The command exits non-zero and reports that the system is held in maintenance. This is fail-safe rather than fail-open: a partially-reset or unverified system must not start accepting awards on its own. Recovery is an explicit operator action:
 
-Staff passwords come from environment variables with no fallback default — the CLI fails loudly if they are unset, rather than seeding a known password.
+```bash
+python -m app.cli reset-demo --confirm          # retry (idempotent)
+python -m app.cli maintenance --off             # deliberate manual release
+```
 
-### 19.5 Seed data must produce genuinely strong matches
+Steps 3–5 are not transactional, but they are idempotent and destructive-only: re-running the command simply re-closes streams and re-revokes sessions.
 
-Because no cosmetic transform is permitted (§11.3), the demo's headline match percentages are entirely a function of the seed data. Designing that data is therefore a **required deliverable of the seeding work**, not an afterthought.
+### 19.6 Determinism and the printed-QR requirement
 
-Constraints on the fixture set:
+The seed uses **fixed** `public_token` values for demo attendees. This is not cosmetic: pre-printed QR cards and slide screenshots must keep working after every reset. Random tokens would invalidate printed materials at exactly the moment it matters. Stable tokens remain stable across generations by design — the generation counter disambiguates *state*, while tokens deliberately survive.
+
+Demo attendees are seeded as `status = ACTIVE` with `activated_at` set, so they are immediately scannable without an OTP round trip on stage. This is a fixture property, not a code path: ordinary registration still requires verification (§8.1).
+
+**Security note:** fixed demo tokens are acceptable **only** because they are demo identities in a demo-mode deployment, and §19.2 prevents that fixture set ever loading into production. Real attendees always receive `secrets`-generated tokens. Staff passwords come from environment variables with no fallback default — the CLI fails loudly if they are unset rather than seeding a known password.
+
+### 19.7 Seed data must produce genuinely strong matches
+
+Because no cosmetic transform is permitted (§11.3), the demo's headline match percentages are entirely a function of the seed data. Designing that data is a **required deliverable of the seeding work**:
 
 - At least one demo attendee must have a **genuinely strong** alignment with at least one demo booth — their selected interests are that booth's top-weighted interests — so the computed score naturally lands high.
 - The fixture set must also contain **mid and low matches**, so the recommendation list visibly discriminates. A demo where every booth shows 90%+ demonstrates nothing and invites the suspicion that the number is decorative.
-- Interest catalogue and booth weights are curated together, so that `coverage` is high (the booth serves most of what the attendee picked) *and* `focus` is respectable (those interests are central to the booth). Both terms matter — §11.3.
-- Expected scores for the demo fixtures are **computed by hand and asserted in tests**. If a seed change moves a headline number, the test fails and the demo script is updated — rather than the discrepancy being discovered on stage.
+- Interest catalogue and booth weights are curated together so that `coverage` is high *and* `focus` is respectable — both terms matter (§11.3).
+- Expected scores for the demo fixtures are **computed by hand and asserted in tests**. If a seed change moves a headline number, the test fails and the demo script is updated, rather than the discrepancy being discovered on stage.
 
 This keeps the demonstration honest: the impressive number is impressive *because the match is real*.
 
@@ -1167,6 +1580,11 @@ One shape for every failure, so the client has exactly one parsing path. `messag
 | `VALIDATION_ERROR` | 422 | API | Pydantic rejects the payload |
 | `INVALID_QR` | 404 | Domain | Token unknown, malformed, revoked — or a `scan_ref` whose signature does not verify |
 | `SCAN_EXPIRED` | 400 | Domain | `scan_ref` signature is valid but older than 120 s |
+| `IDEMPOTENCY_KEY_REUSE` | 409 | Domain | Key reused with a different request fingerprint (§13.4) |
+| `AWARD_IN_PROGRESS` | 409 | Domain | Same key is mid-flight; client may retry shortly |
+| `MAINTENANCE` | 503 | API | Demo reset in progress; mutations rejected (§19) |
+| `CSRF_REJECTED` | 403 | API | Missing or mismatched `Origin` on a mutating request (§8.3.1) |
+| `REGISTRATION_NOT_VERIFIED` | 403 | Domain | Action requires an `ACTIVE` attendee (§8.1) |
 | `USER_NOT_FOUND` | 404 | Domain | Attendee referenced but absent |
 | `INVALID_POINT_VALUE` | 400 | Domain | Value not in the booth's preset allow-list |
 | `DUPLICATE_TASK_REWARD` | 409 | Domain | `dedupe_key` collision on a TASK award |
@@ -1208,16 +1626,31 @@ One shape for every failure, so the client has exactly one parsing path. `messag
 
 **21.7 Rate limiting.** Applied where abuse is cheap and consequential:
 
-| Endpoint | Limit |
-|---|---|
-| `POST /api/auth/otp/request` | 3 / 15 min per email, 10 / 15 min per IP |
-| `POST /api/auth/otp/verify` | 10 / 15 min per IP (plus the 5-attempt per-challenge cap) |
-| `POST /api/staff/auth/login` | 10 / 15 min per IP, plus per-account lockout (§21.8) |
-| `GET /api/cards/{token}` | 60 / min per IP |
-| `POST /api/staff/scan/resolve` | 60 / min per staff account |
-| `POST /api/attendees/register` | 5 / hour per IP |
+> **Corrected (review finding F07).** The earlier limits were per-IP and small — 5 registrations per hour, 10 OTP requests per 15 minutes. **At a summit, hundreds of attendees share one NAT public IP.** The sixth genuine registration of the day would have been refused, and the demo would appear broken in the most public way possible. Per-IP limiting assumes one IP ≈ one user, which is false in exactly our environment.
 
-Demo implementation is an in-process fixed-window counter (consistent with the single-worker invariant, §17.7); production moves to a shared store. Awarding is **not** aggressively rate-limited — a busy booth is normal traffic, and idempotency plus `dedupe_key` already prevent the abuse a limit would target.
+**Principle: limit the identity being attacked, not the network path.** The per-identity limit does the security work; the per-IP limit is only a blunt ceiling against a single host flooding the service, set high enough that a venue full of legitimate users never reaches it.
+
+| Endpoint | Primary limit (per identity) | Shared-IP ceiling |
+|---|---|---|
+| `POST /api/auth/otp/request` | **3 / 15 min per normalised email** | 600 / 15 min |
+| `POST /api/auth/otp/verify` | **5 attempts per challenge** (§8.2) + 10 / 15 min per email | 1200 / 15 min |
+| `POST /api/staff/auth/login` | **10 / 15 min per account** + lockout (§21.8) | 600 / 15 min |
+| `POST /api/attendees/register` | **`UNIQUE(email)` + the ACTIVE-email branch (§8.1)** — the real duplicate protection | 600 / hour |
+| `GET /api/cards/{token}` | **30 / min per token** | 1200 / min |
+| `POST /api/staff/scan/resolve` | 120 / min per staff account | — |
+| `POST /api/staff/points/award` | not limited — a busy booth is normal traffic, and idempotency plus `dedupe_key` already prevent the abuse a limit would target | — |
+
+Card reads are now limited **per token** rather than per IP: that is the resource actually worth protecting, and it does not punish a crowd behind one NAT for sharing an uplink.
+
+**21.7.1 Trusted proxy handling.** The client IP used for any ceiling above is resolved as follows:
+
+1. If the immediate peer address is **not** in the configured `TRUSTED_PROXY_CIDRS`, the peer address is the client IP and **all forwarding headers are ignored**.
+2. If it is trusted, walk `X-Forwarded-For` from the **right**, discarding entries that are themselves trusted proxies, and take the first untrusted address.
+3. `TRUSTED_PROXY_CIDRS` defaults to **empty** — trust nothing until it is configured.
+
+A public client therefore **cannot spoof `X-Forwarded-For` to choose its own rate-limit identity**, which would otherwise make every limit here trivially bypassable while still penalising honest users. Taking the leftmost XFF entry — the common mistake — is exactly the spoofable choice and is prohibited. Because the deployment sits behind the Next.js rewrite proxy and a TLS terminator (§3.2, §13.5), configuring these CIDRs is a required infrastructure step, not optional: leaving it empty makes every request appear to originate from the proxy and collapses all ceilings onto one bucket.
+
+Demo implementation is an in-process fixed-window counter (consistent with the single-worker invariant, §17.10); production moves to a shared store.
 
 **21.8 Brute force.** Staff login: `failed_login_count` increments on failure; at 10 failures `locked_until = now() + 15 min` and further attempts return `ACCOUNT_LOCKED` without evaluating the password. The counter resets on success. OTP: 5 attempts per challenge, 10-minute expiry, single use. Both paths use constant-time comparison and return identical responses regardless of whether the identity exists.
 
@@ -1225,7 +1658,14 @@ Demo implementation is an in-process fixed-window counter (consistent with the s
 
 **21.10 SQL injection.** All queries are built through SQLAlchemy Core/ORM constructs, which parameterise by construction. Raw SQL is permitted only in Alembic migrations and the reset CLI, where it is static with no interpolation of user input. **String-formatted SQL containing request data is prohibited**, and a lint rule enforces it.
 
-**21.11 Sensitive logging.** Never logged: passwords, password hashes, OTP codes, session tokens, QR tokens, full email addresses at info level. A log filter redacts known-sensitive keys. Requests are logged with method, path (tokens masked as `/c/***`), status and correlation id. In demo mode the OTP is logged deliberately — behind the `DEMO_MODE` guard, and stated in the README so it can never be mistaken for an accident.
+**21.11 Sensitive logging.** Never logged: passwords, password hashes, OTP codes, session tokens, **QR/card tokens**, **`scan_ref` values**, and full email addresses at info level. A log filter redacts known-sensitive keys by name at the formatter level, so a stray `logger.info(request_body)` cannot leak them.
+
+QR tokens need specific care because they appear in a **URL path** (`/c/{token}`), which is the part of a request that proxies, access logs and error trackers record by default:
+
+- The application's own access log masks the segment as `/c/***`.
+- The reverse proxy's access log must be configured to apply the same masking — a required infrastructure step, since a token in a proxy log is a permanent capability sitting in plain text.
+- Card pages send `Referrer-Policy: no-referrer`, so the token is not leaked to a third-party site when an attendee taps the LinkedIn contact action (§9.3.1). This is stricter than the site-wide `strict-origin-when-cross-origin` precisely because the path itself is the secret.
+- `scan_ref` is never logged even though it embeds only a token *hash*, because logging it would make the signature reusable for its 120 s lifetime. In demo mode the OTP is logged deliberately — behind the `DEMO_MODE` guard, and stated in the README so it can never be mistaken for an accident.
 
 **21.12 Transport and headers.** **The presentation environment must be served over HTTPS** — this is mandatory, because real camera scanning is a hard requirement and browsers gate `getUserMedia` on a secure context (§13.5). The certificate must be trusted by iPhone Safari and Android Chrome; the mechanism that provides it is deliberately replaceable. Cookies `HttpOnly`, `SameSite=Lax`, `Secure` when the scheme allows. `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, and a Content-Security-Policy without `unsafe-eval`.
 
@@ -1275,9 +1715,23 @@ These four were open at the end of Phase 1 and have since been decided. They are
 | # | Question | **Resolution** | Implemented in |
 |---|---|---|---|
 | R1 | Venue HTTPS / camera access | **Real camera scanning is mandatory.** The presentation environment must serve HTTPS acceptable to iPhone Safari and Android Chrome. No paid or vendor-specific tunnel is selected; the mechanism is defined by three properties and stays replaceable. Manual token entry is a development and emergency fallback only, never the primary flow. Milestone **M-CAM** verifies real-device camera access before presentation day | §13.5, §21.12 |
-| R2 | Match scores and the "94%" example | **Formula unchanged; displayed score is always the calculated score.** No cosmetic multiplier or transform of any kind. The 94% was illustrative. Strong headline matches come from seed data designed so real alignments score high under the real formula; expected fixture scores are asserted in tests | §11.3, §19.5, §24.5 |
+| R2 | Match scores and the "94%" example | **Formula unchanged; displayed score is always the calculated score.** No cosmetic multiplier or transform of any kind. The 94% was illustrative. Strong headline matches come from seed data designed so real alignments score high under the real formula; expected fixture scores are asserted in tests | §11.3, §19.7, §24.5 |
 | R3 | Public networking card contact exposure | **One server-chosen contact action:** LinkedIn when present, email as fallback. **Phone is never exposed publicly. Sponsor-consent state is never exposed publicly.** Staff QR resolution is unchanged and still returns name and profession only | §9.3, §9.3.1 |
 | R4 | `scan_ref` — keep or simplify | **Kept, with reliability treated as equal in weight to its security value.** The client obligation is to echo one opaque string — no parsing, no timers, no client-side expiry logic. A seven-case test matrix covering generation, expiry, tampering, wrong-staff use, repeat awards, the happy path, and presentation latency must pass before Phase 2 is complete | §13.3, §20.3 |
+
+### 23.2.1 RESOLVED — independent architecture review (Phase 1.1)
+
+Seven HIGH findings, each independently verified against the document before correction.
+
+| ID | Finding | Correction | Sections |
+|---|---|---|---|
+| **F01** | Award contract contradictory — schema omitted `scan_ref` while `extra="forbid"` would reject it | One canonical schema plus a field-authority table; full `scan_ref` envelope, canonical serialization, HMAC construction, expiry, future-timestamp rejection and **session** binding specified | §12.2, §13.3, §3.3, §13.1 |
+| **F02** | Idempotency did not deliver its promise — mutable validation ran first, key unbound to caller, ambiguous constraint reporting | `idempotency_records` keyed `(staff_account_id, key)` with an immutable fingerprint; resolved **before** all mutable validation; all eight scenarios defined; replay returns the **original snapshot**; savepoint behaviour specified | §7.12.1, §13.4, §14.3 |
+| **F03** | `points_log.id` used as a commit-ordered cursor — sequence order ≠ commit order, so events could be permanently discarded | Ledger identity, notification identity and state freshness separated. Cursors, resume tokens and high-water marks eliminated; animation uses **set membership**, which is order-independent | §7.12, §17.2, §17.6 |
+| **F04** | SSE recovery incomplete — no reconciliation while connected, no dead-stream detection, no buffering mitigation | Snapshot/subscribe/reconcile protocol with a **20 s reconciliation floor**, 15 s heartbeat, 45 s liveness cutoff, subscribe-before-snapshot ordering, anti-buffering headers, bounded stream age, and a required pre-summit proxy test | §17.4, §17.9 |
+| **F05** | Reset was a data operation, ignoring streams, sessions, broker state and orphaned rows | Coordinated maintenance sequence with maintenance mode, stream termination, session invalidation, broker clearing, **reconcile-not-upsert**, generation bump, and fail-safe halt behaviour | §19.3–19.5 |
+| **F06** | Full session issued before email ownership proven | `PROVISIONAL → ACTIVE` lifecycle; no session, public card, scanning, matching or leaderboard presence until verified; duplicate-email branches defined non-enumerably; 24 h purge | §8.1, §9.4, §16.1 |
+| **F07** | Per-IP limits hostile to a shared venue NAT | Per-identity primary limits with high shared-IP ceilings; per-token card limit; explicit trusted-proxy resolution that cannot be spoofed | §21.7, §21.7.1 |
 
 ### 23.3 Still open — needing a product answer
 
@@ -1305,7 +1759,7 @@ Non-negotiable. A change that violates one of these is an architecture change re
 7. **Point values are validated server-side against a stored allow-list.** Range checks are insufficient.
 8. **Demo reset is not publicly accessible** and refuses to run outside demo mode.
 9. **Business logic lives in the service/domain layer**, never in React components, route handlers, or repositories.
-10. **Realtime events are never the source of truth.** They notify; the database decides; the client reconciles.
+10. **Realtime events are never the source of truth.** They notify; the database decides; the client reconciles. **No SSE event carries authoritative state** — every displayed value comes from an HTTP snapshot.
 11. **Uniqueness invariants are enforced by database constraints**, never by read-then-write.
 12. **Realtime events are published only after the transaction commits.**
 13. **Passwords, OTP codes and session tokens are stored only as hashes.**
@@ -1317,3 +1771,10 @@ Non-negotiable. A change that violates one of these is an architecture change re
 19. **Phone numbers and sponsor-consent state never appear in any public response.** The public card exposes one server-chosen contact action — LinkedIn, or email as fallback — and nothing else (§9.3.1).
 20. **Staff card resolution returns name and profession only.** Widening the public card never widens what the staff scanner receives.
 21. **Real camera scanning is the primary staff flow**, and the presentation environment is served over HTTPS. Manual token entry exists only as a development and emergency fallback and is never the default path.
+22. **`points_log.id` is an identity, never a cursor.** It may be used for set membership and row references; it may never be used as a high-water mark, an ordering, or a resume token, because sequence allocation is not commit order.
+23. **Idempotency is resolved after authentication and before every mutable validation**, and its key is bound to `(staff_account_id, fingerprint)`. A completed request replays its original response snapshot verbatim.
+24. **Constraint violations are dispatched by constraint name**, never by which error the database happens to report first.
+25. **No attendee capability exists before email ownership is proven.** Registration creates a provisional record; sessions, public cards, scanning, matching and leaderboard presence all require `ACTIVE`.
+26. **Rate limits are primarily per identity, never primarily per IP**, because a venue shares one public IP. Forwarding headers are trusted only from configured proxies.
+27. **The UI cannot remain stale indefinitely.** Periodic reconciliation runs even while the realtime channel appears healthy.
+28. **A client can never confuse pre-reset and post-reset state**, because `dataset_generation` changes on every reset and a mismatch forces hard reinitialisation.
