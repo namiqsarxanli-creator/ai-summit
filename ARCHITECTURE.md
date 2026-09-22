@@ -116,15 +116,21 @@ Staff phone              Next.js          FastAPI                       PostgreS
     │   {card_token, points,                  │                               │
     │    idempotency_key, scan_ref}           │                               │
     ├──────────────────────►├───────────────►│ PointsService.award_task()    │
-    │                       │                │  1. authn + role              │
-    │                       │                │  2. IDEMPOTENCY FIRST ────────┼─► pk(staff,key)
-    │                       │                │     (completed? replay & stop)│
-    │                       │                │  3. booth_id ← staff session  │
-    │                       │                │  4. verify scan_ref           │
-    │                       │                │  5. points ∈ booth presets?   │
-    │                       │                │  6. INSERT points_log ────────┼─► unique(dedupe_key)
-    │                       │                │  7. complete idem record      │
-    │                       │                │  8. signal POST-COMMIT        │
+    │                       │                │  A. pure: parse, scan_ref     │
+    │                       │                │     HMAC + expiry (no DB)     │
+    │                       │                │ ┌─ BEGIN ────────────────────┐│
+    │                       │                │ │B0. SHARED RESET FENCE ─────┼┼─► advisory lock
+    │                       │                │ │    before any DB read      ││
+    │                       │                │ │B1. authn + role (authoritative)
+    │                       │                │ │B2. booth_id ← staff session││
+    │                       │                │ │B3. IDEMPOTENCY ────────────┼┼─► pk(staff,key)
+    │                       │                │ │    (completed? replay&stop)││
+    │                       │                │ │B4. resolve token → ACTIVE  ││
+    │                       │                │ │B5. points ∈ booth presets? ││
+    │                       │                │ │B8. INSERT points_log ──────┼┼─► unique(dedupe_key)
+    │                       │                │ │B11. persist snapshot       ││
+    │                       │                │ └─ COMMIT (fence releases) ──┘│
+    │                       │                │  C. signal POST-COMMIT        │
     │◄── {awarded: 15, new_total: 45} ────────┤                               │
                                              │
 Attendee phone ◄── SSE: state_changed (signal only) ──┘
@@ -1013,51 +1019,71 @@ The fingerprint deliberately **excludes** `scan_ref` (time-bound by design), the
 
 #### Protocol
 
-**Phase 1 — resolve (read-only, no transaction required).**
+> **Fence ordering (§19.4).** Every step that reads reset-sensitive data — including the idempotency lookup, the session lookup and the attendee resolution — happens **after** the shared reset fence is held. Only pure, dataset-independent work may precede it.
 
-```
-SELECT * FROM idempotency_records
- WHERE staff_account_id = :staff AND idempotency_key = :key
-```
+**Stage A — pre-fence: pure work only, no database.**
 
-| Outcome | Action |
-|---|---|
-| Row found, fingerprint **matches** | **Return the stored `response_snapshot` with `replayed: true`. Stop.** No mutable validation is run. No new award |
-| Row found, fingerprint **differs** | **409 `IDEMPOTENCY_KEY_REUSE`. Stop.** |
-| No row | Continue to Phase 2 |
+| Step | Work | Why it is safe before the fence |
+|---|---|---|
+| A1 | Parse and schema-validate the request body (§12.2) | Syntax only |
+| A2 | Extract the session cookie | A string; **not** yet an authenticated identity |
+| A3 | `scan_ref` structural + cryptographic checks — split, HMAC verify, version, future-`iat`, expiry (§13.3 checks 1–5) | Pure crypto and clock arithmetic against a configured secret. Touches no table |
+| A4 | `scan_ref` token binding — `sha256(request.card_token) == tok` (§13.3 check 8) | Compares two values already in hand |
+| A5 | Compute the request fingerprint | A hash of request fields |
 
-**Phase 2 — validate.** `scan_ref`, QR/attendee resolution and status, booth derivation, preset membership, repeat policy (§14.3 steps 5–9). A failure here aborts before any write, so the key remains unused and the client may legitimately retry after fixing the cause.
+Nothing in Stage A resolves an entity, and nothing in it can be invalidated by a reset. A maintenance-mode fast-path check may also run here; it is **advisory only** (§19.4) and never the authoritative gate.
 
-**Phase 3 — one atomic transaction.**
+**Stage B — inside one transaction, fence held first.**
 
 ```sql
 BEGIN;
+  -- B0. THE FENCE. First statement. Before ANY reset-sensitive read.
   SELECT pg_advisory_xact_lock_shared(FACEMARK_RESET_FENCE);   -- §19.4
 
-  -- (a) CLAIM the key. First write of the transaction.
+  -- B1. AUTHORITATIVE identity: session row → staff account → active?
+  --     scan_ref checks 6-7 (sid/ses binding) are evaluated here, because
+  --     they compare against this authenticated identity.
+  -- B2. booth_id := staff.booth_id                      (derived, §12.2)
+
+  -- B3. IDEMPOTENCY LOOKUP
+  SELECT * FROM idempotency_records
+   WHERE staff_account_id = :staff AND idempotency_key = :key;
+  --   fingerprint matches  → COMMIT (read-only) and return the stored
+  --                          snapshot with replayed = true.  STOP.
+  --   fingerprint differs  → 409 IDEMPOTENCY_KEY_REUSE.      STOP.
+  --   no row               → continue
+
+  -- B4. Resolve card_token → attendee; require status = ACTIVE
+  -- B5. points ∈ presets(booth)
+  -- B6. repeat policy → dedupe_key
+
+  -- B7. CLAIM the key (first write of the transaction)
   INSERT INTO idempotency_records
          (staff_account_id, idempotency_key, request_fingerprint, created_at)
   VALUES (:staff, :key, :fingerprint, now());
-  --  ↳ unique violation on pk_idempotency_records  ⇒  see "Concurrent same-key" below
+  --  ↳ unique violation on pk_idempotency_records ⇒ see "Concurrent same-key"
 
-  -- (b) INSERT the award
-  INSERT INTO points_log (...) RETURNING id;
-
-  -- (c) COMPUTE every value the canonical response needs
-  SELECT COALESCE(SUM(points), 0) FROM points_log WHERE user_id = :user;
-
-  -- (d) BUILD the complete response snapshot from (b) and (c)
-
-  -- (e) COMPLETE the record with that snapshot
-  UPDATE idempotency_records
-     SET points_log_id = :award_id, response_snapshot = :snapshot, completed_at = now()
-   WHERE staff_account_id = :staff AND idempotency_key = :key;
+  -- B8.  INSERT INTO points_log (...) RETURNING id;
+  -- B9.  SELECT COALESCE(SUM(points),0) FROM points_log WHERE user_id = :user;
+  -- B10. Build the complete canonical response from B8 and B9
+  -- B11. UPDATE idempotency_records
+  --         SET points_log_id, response_snapshot, completed_at
 COMMIT;
 ```
 
-**Phase 4 — after commit only.** Publish the realtime invalidation signal (best-effort, §17.7), then return the response.
+**Stage C — after commit only.** Publish the realtime invalidation signal (best-effort, §17.7), then return the response.
 
-The ordering inside Phase 3 is contractual: **the complete canonical response is computed at (c)–(d) and only then persisted at (e)**. An earlier draft persisted the snapshot before the returned total was calculated, which would have stored a snapshot that did not match what the caller received.
+**Why the replay path still commits.** A replay at B3 performs no writes, but its transaction is committed (or rolled back — either is correct) rather than left open, so the shared fence is released promptly and a waiting reset is not delayed by a read-only request.
+
+**The idempotency lookup moved inside the fence** because `idempotency_records` is truncated by reset (§19.5). Reading it before the fence would mean deciding "this is a new request" against a dataset that could be replaced before the write. The F02 guarantees are unaffected: the lookup still precedes every *mutable* validation (B3 before B4–B6), which is what makes a retry after `scan_ref` expiry replay rather than fail.
+
+**No deadlock with reset.** The fence is the **first** statement of the transaction, so a mutation never holds a row lock, table lock or any other resource while waiting for it. Reset waits only on the advisory lock and never on a mutation's row locks. There is no cycle, in either direction.
+
+**Ordering rules that remain contractual:**
+
+- **B4–B6 run only for a genuinely new logical request.** That is what makes "retried after `scan_ref` expired" return the original success rather than an error.
+- **The response is computed (B8–B10) before it is persisted (B11) and before commit.** A replay is byte-identical to the original reply.
+- A failure anywhere in Stage B rolls the whole transaction back: no award, no claimed key, nothing to reconcile.
 
 #### Concurrent same-key requests — one defined behaviour
 
@@ -1167,32 +1193,38 @@ def award_feedback(user: User, booth: Booth, feedback: Feedback) -> AwardResult 
 
 **The order is contractual, not merely an optimisation.** Identity checks come first, idempotency resolves before anything mutable, and only then does validation run. Reordering steps 3 and 4 would reintroduce F02.
 
-| # | Phase | Step | On failure |
+| # | Stage | Step | On failure |
 |---|---|---|---|
-| 1 | Identity | **Session → staff account.** Expired/revoked → | `UNAUTHENTICATED` |
-| 2 | Identity | **Role check.** Not `BOOTH_STAFF`, or inactive → | `STAFF_NOT_AUTHORIZED` |
-| 3 | Identity | **Maintenance mode check** (§19.4) → | `MAINTENANCE` |
-| 4 | **Resolve** | **▶ IDEMPOTENCY LOOKUP (§13.4 Phase 1)** — read-only. Record found + fingerprint matches → **return the stored snapshot with `replayed: true` and stop**. Fingerprint differs → | `IDEMPOTENCY_KEY_REUSE` |
-| 5 | Validate | **`booth_id = staff.booth_id`.** Derived, never read from input (§12.2) | — |
-| 6 | Validate | **Resolve the token** → attendee; unknown, revoked, or `PROVISIONAL` (§8.1) → | `INVALID_QR` |
-| 7 | Validate | **Validate `scan_ref`** — the eight ordered checks in §13.3 | `INVALID_QR` / `SCAN_EXPIRED` / `STAFF_NOT_AUTHORIZED` |
-| 8 | Validate | **`points ∈ presets(booth)`** — allow-list membership, not a range check. `12` is rejected even though it lies between 10 and 15 → | `INVALID_POINT_VALUE` |
-| 9 | Validate | **Compute `dedupe_key`** (§14.5) | — |
-| 10 | **Write** | **BEGIN.** Acquire the shared reset fence, `pg_advisory_xact_lock_shared` (§19.4) | `MAINTENANCE` on `lock_timeout` |
-| 11 | Write | **Claim the idempotency key** — first write of the transaction | conflict → wait-then-replay (§13.4) |
-| 12 | Write | **Insert `points_log`**; violations dispatched by constraint name (§7.14) | mapped domain error |
-| 13 | Write | **Compute the resulting total** | — |
-| 14 | Write | **Build the complete canonical response**, then **persist it** as the idempotency snapshot | — |
-| 15 | Write | **COMMIT** — award, claim and snapshot become visible together | — |
-| 16 | After | **Publish the realtime invalidation signal** (§17.7) | best-effort, never fails the award |
-| 17 | After | **Return the response** | — |
+| A1 | **Pre-fence — pure** | Parse and schema-validate the body (§12.2) | `VALIDATION_ERROR` |
+| A2 | Pre-fence — pure | Extract the session cookie (a string, **not** an identity) | — |
+| A3 | Pre-fence — pure | `scan_ref` structural + cryptographic checks (§13.3 checks 1–5) | `INVALID_QR` / `SCAN_EXPIRED` |
+| A4 | Pre-fence — pure | `scan_ref` token binding, `sha256(card_token) == tok` (§13.3 check 8) | `INVALID_QR` |
+| A5 | Pre-fence — pure | Compute the request fingerprint | — |
+| A6 | Pre-fence — advisory | Maintenance fast-path (§19.4) — a courtesy rejection, **never** the authoritative gate | `MAINTENANCE` |
+| **B0** | **▶ FENCE** | **BEGIN**, then `pg_advisory_xact_lock_shared(FACEMARK_RESET_FENCE)` as the **first statement, before any reset-sensitive read** | `MAINTENANCE` on `lock_timeout` |
+| B1 | Fenced — identity | **Authoritative** session → staff account → active check; `scan_ref` sid/ses binding (§13.3 checks 6–7) | `UNAUTHENTICATED` / `STAFF_NOT_AUTHORIZED` |
+| B2 | Fenced — identity | `booth_id = staff.booth_id`, derived, never read from input (§12.2) | — |
+| B3 | Fenced — **resolve** | **IDEMPOTENCY LOOKUP** — match → return the stored snapshot with `replayed: true` and **stop**; fingerprint differs → | `IDEMPOTENCY_KEY_REUSE` |
+| B4 | Fenced — validate | Resolve the token → attendee; unknown, revoked, or `PROVISIONAL` (§8.1) → | `INVALID_QR` |
+| B5 | Fenced — validate | `points ∈ presets(booth)` — allow-list membership, not a range check. `12` is rejected even though it lies between 10 and 15 → | `INVALID_POINT_VALUE` |
+| B6 | Fenced — validate | Repeat policy → compute `dedupe_key` (§14.5) | — |
+| B7 | Fenced — write | **Claim the idempotency key** — first write of the transaction | conflict → wait-then-replay (§13.4) |
+| B8 | Fenced — write | Insert `points_log`; violations dispatched by constraint name (§7.14) | mapped domain error |
+| B9 | Fenced — write | Compute the resulting total | — |
+| B10 | Fenced — write | Build the complete canonical response | — |
+| B11 | Fenced — write | **Persist it** as the idempotency snapshot | — |
+| B12 | Fenced — write | **COMMIT** — award, claim and snapshot become visible together; the fence releases here | — |
+| C1 | After commit | Publish the realtime invalidation signal (§17.7) | best-effort, never fails the award |
+| C2 | After commit | Return the response | — |
 
-Two ordering rules are contractual, not incidental:
+Four ordering rules are contractual, not incidental:
 
-- **Steps 5 onward run only for a genuinely new logical request.** That is what makes "retried after `scan_ref` expired" return the original success rather than an error.
-- **The response is computed (13–14) before it is persisted (14) and before commit (15).** The snapshot a replay returns is byte-identical to what the original caller received.
+- **The fence precedes every reset-sensitive database read** — including authentication (B1) and the idempotency lookup (B3). Nothing between B0 and B12 can observe a dataset that is replaced before the write. This is invariant §24.29.
+- **Authentication at A2 is not authentication.** Only B1, inside the fence, authorises the mutation. A pre-fence cookie read is a string extraction.
+- **B4–B6 run only for a genuinely new logical request**, which is what makes "retried after `scan_ref` expired" replay rather than fail.
+- **The response is computed (B9–B10) before it is persisted (B11) and before commit (B12).** A replay is byte-identical to the original reply.
 
-A failure anywhere in steps 10–15 rolls back the whole transaction: no award, no claimed key, nothing to reconcile.
+A failure anywhere in Stage B rolls back the whole transaction: no award, no claimed key, nothing to reconcile, and the fence released.
 
 ### 14.4 Feedback points
 
@@ -1264,7 +1296,9 @@ Changing this setting is an admin action and is written to the admin audit log w
 
 ```
 BEGIN
-  0. SELECT pg_advisory_xact_lock_shared(FACEMARK_RESET_FENCE)  -- §19.4, every mutation
+  0. SELECT pg_advisory_xact_lock_shared(FACEMARK_RESET_FENCE)  -- §19.4, FIRST statement
+  0b. AUTHORITATIVE auth: session → attendee, require status = ACTIVE
+      resolve booth by slug                                     -- both inside the fence
   1. INSERT feedback (user_id, booth_id, rating, comment)      -- always succeeds
   2. SAVEPOINT reward
      attempt INSERT points_log
@@ -1292,7 +1326,7 @@ Both are **`200`**. A repeat submission is not an error: submitting more feedbac
 
 Feedback requires an **ACTIVE** attendee session (§8.1), so an unverified registration cannot generate rewards.
 
-The reset fence at step 0 is not specific to awards: **every mutating transaction in the system acquires it** — feedback, registration, activation, admin configuration changes. A single omission would reopen the F05 race for that one path, so it belongs in the shared unit-of-work helper (`db/session.py`) rather than being written out per endpoint.
+The reset fence at step 0 is not specific to awards: **every mutating transaction in the system acquires it, before its first reset-sensitive read** — feedback, registration, OTP issuance and activation, login, card rotation, admin configuration changes (full table in §19.4). Note that the attendee lookup and booth resolution at step 0b are inside the fence for the same reason as the award path: they are reads the write depends on, and validating them against a dataset that is then replaced is exactly the race §19.4 exists to close. A single omission would reopen it for that one path, so the fence belongs in the shared unit-of-work helper (`db/session.py`) rather than being written out per endpoint.
 
 ---
 
@@ -1552,35 +1586,103 @@ Refuses to run unless **both** `DEMO_MODE=true` and `ENVIRONMENT != production`,
 
 This is what makes reused numeric ids safe. After a reset, `points_log.id = 481` refers to a different award than it did before, and `users.id = 3` to a different person — but any client still holding pre-reset state sees a generation mismatch on its very next request and discards everything. Without this counter, a phone left open across a reset could silently display stale values against reused ids, which is precisely the confusion a rehearsal→presentation reset would produce.
 
-### 19.4 The reset fence — why maintenance mode alone is not enough
+### 19.4 The reset fence
 
-> **Corrected (review finding F05).** Maintenance mode is an application-level check that runs when a request *enters*. It says nothing about a mutation that passed that check microseconds **before** the flag was set and is still executing. Such a request could resume after the dataset had been restored and commit an award against the new dataset — producing a row that belongs to no coherent state, attributed to a pre-reset attendee id that now names someone else.
+> **Corrected twice.** First: maintenance mode is an application check that runs when a request *enters*, and says nothing about a mutation that passed it microseconds before the flag was set — such a request could resume after the restore and commit into the new dataset. A database-level fence was added.
 >
-> A database-level fence closes this window. Maintenance mode remains, as the fast, friendly rejection; the fence is what makes the boundary actually impossible to cross.
+> Second, and the reason for this revision: the fence existed but was **acquired too late**. The award flow resolved the session, the attendee, the booth, the presets and the repeat policy *before* opening its transaction, leaving this race:
+>
+> ```
+> 1. Award passes the maintenance check          (generation N)
+> 2. Award validates attendee / preset / policy  (generation N)   ← no fence held
+> 3. Reset acquires the exclusive fence
+> 4. Reset restores the dataset, generation → N+1
+> 5. Reset releases the fence
+> 6. Award acquires the shared fence
+> 7. Award writes state validated against N into N+1
+> ```
+>
+> Holding the fence during the write is not enough. It must be held during the **reads the write depends on**.
 
-**Mechanism: one PostgreSQL advisory lock.** No new infrastructure — advisory locks are part of the database we already run.
+#### The architecture-wide rule
+
+> **Every transaction that mutates reset-sensitive application data must acquire the shared reset fence before its first reset-sensitive database read, and hold it continuously through commit or rollback.**
+
+"Reset-sensitive" means any table demo reset truncates, reconciles or reseeds (§19.5) — in practice all application data except immutable configuration loaded from the environment. Authentication reads `sessions`, so **authoritative authentication for a mutation is itself reset-sensitive work and belongs inside the fence.**
+
+What may precede the fence is only work whose result cannot be invalidated by a reset: request parsing, schema validation, cookie *extraction*, cryptographic verification against a configured secret, and hashing. The maintenance-mode fast-path check may also run there, but it is **advisory only** — a courtesy that returns `503` quickly. It is never the authoritative gate, because between reading the flag and acquiring the fence anything may change. The fence is the gate.
+
+#### Mechanism
+
+One PostgreSQL advisory lock. No new infrastructure — advisory locks are part of the database we already run.
 
 ```
 FACEMARK_RESET_FENCE  =  a single well-known bigint constant,
                          defined once in app.core.locks
 ```
 
-| Party | Lock mode | Scope | Acquired |
+| Party | Lock call | Scope | Acquired |
 |---|---|---|---|
-| **Any mutating transaction** | `pg_advisory_xact_lock_shared(FENCE)` | **transaction-scoped** | As the first statement of the transaction, before any write |
-| **Demo reset** | `pg_advisory_lock(FENCE)` (exclusive) | **session-scoped**, held by the CLI's own connection | After enabling maintenance mode, before touching anything |
+| **Any mutating transaction** | `pg_advisory_xact_lock_shared(FENCE)` | **transaction-scoped** | First statement of the transaction, before any reset-sensitive read |
+| **Demo reset** | `pg_advisory_lock(FENCE)` (exclusive) | **session-scoped**, on a dedicated connection | After enabling maintenance mode, before touching anything |
 
-**Why these scopes.** Mutations use the **transaction-scoped** variant so the lock is released automatically at commit *or* rollback — a crashed request, a timeout, or an unhandled exception cannot leak the fence and stall every future reset. Reset uses the **session-scoped** variant because it must hold the fence across several steps that are not one transaction (terminating streams, clearing broker state, then the restore transaction); it releases it explicitly at the end.
+**Why these scopes.** Mutations use the **transaction-scoped** variant so the lock is released automatically at commit *or* rollback — a crashed request, a timeout or an unhandled exception cannot leak the fence and stall every future reset. Reset uses the **session-scoped** variant because it must hold the fence across steps that are not a single transaction.
 
-Shared locks are mutually compatible, so ordinary awards never contend with each other — the fence costs nothing in normal operation. Shared and exclusive are incompatible, which is the entire mechanism:
+Shared locks are mutually compatible, so ordinary mutations never contend with each other and the fence costs nothing in normal operation. Shared and exclusive are incompatible, which is the entire mechanism.
 
-**Why a mutation cannot cross the reset boundary**
+#### Why a mutation can no longer cross the reset boundary
 
-- *Mutation already running when reset starts.* It holds the shared fence. Reset's exclusive acquire **blocks until that mutation commits or rolls back**. Reset therefore begins only after every in-flight mutation has finished — the drain is provided by the lock, with no polling and no arbitrary sleep.
-- *Mutation arriving while reset holds the fence.* Maintenance mode rejects it immediately with `503 MAINTENANCE` — the normal path. Should it somehow pass that check (it was read a moment earlier), its shared acquire **blocks** behind the exclusive holder, and its `lock_timeout` (2 s) expires, yielding `MAINTENANCE`. It never reaches a write.
-- Consequently no mutating transaction can have writes on both sides of the restore, and none can be in progress while the restore runs.
+- *Mutation already running when reset starts.* It holds the shared fence. Reset's exclusive acquire **blocks until it commits or rolls back**. The drain is provided by the lock — no polling, no arbitrary sleep.
+- *Mutation that passed the maintenance check but has not yet fenced.* Reset may win the fence. The mutation then blocks at B0 **before performing any resolution**, so it cannot validate against the old dataset. When it proceeds, it does all of its authoritative work — authentication included — against the **new** dataset, or its `lock_timeout` (2 s) expires and it returns `MAINTENANCE`. In neither case does stale validation reach a write.
+- *Mutation arriving while reset holds the fence.* Rejected immediately by maintenance mode; and even if it slipped past, it blocks at B0 as above.
 
-Reset bounds its own wait with `lock_timeout = 30 s` on the exclusive acquire. Exceeding it means a mutation is genuinely stuck; the command aborts **before** any destructive step, reports which backend holds the fence, and leaves the dataset untouched.
+Because every reset-sensitive read and the write that depends on it are inside one fence-holding transaction, **there is no interval in which validated state can go stale before being used.**
+
+**No deadlock.** The fence is the first statement of a mutating transaction, so a mutation never holds a row or table lock while waiting for it. Reset waits only on the advisory lock, never on a mutation's row locks. No cycle exists in either direction. Authentication cannot deadlock against reset for the same reason: it acquires nothing before the fence.
+
+Reset bounds its own wait with `lock_timeout = 30 s` on the exclusive acquire. Exceeding it means a mutation is genuinely stuck; the command aborts **before any destructive step**, reports which backend holds the fence, and leaves the dataset untouched.
+
+#### Coverage — every mutating path
+
+The fence belongs in the shared unit-of-work helper (`db/session.py`), acquired by the transaction context manager used by all mutating services, not written out per endpoint. A single omission would silently reopen this race for that one path.
+
+| Mutating path | Fence required | First reset-sensitive read it guards |
+|---|---|---|
+| Task point award | ✅ | session → staff, idempotency record, attendee, presets |
+| Feedback submission + reward | ✅ | session → attendee, booth, prior reward |
+| Registration / provisional user creation | ✅ | email uniqueness lookup, interest slug resolution |
+| OTP issuance | ✅ | user lookup, prior challenge supersession |
+| OTP verification / activation | ✅ | challenge row (`FOR UPDATE`), user activation, session creation |
+| Staff / admin login (creates a session) | ✅ | staff account lookup, failed-count update |
+| Logout / session revocation | ✅ | session row |
+| Contact-card rotation / revocation | ✅ | card row |
+| Booth / interest / preset / `event_config` admin mutations | ✅ | the rows being changed, plus the audit row |
+| Demo reset itself | exclusive side | — |
+| **Pure read-only requests** (leaderboard, score snapshot, public card, SSE stream) | ❌ | Not required. They mutate nothing, and a reader sees either the pre- or post-restore dataset — never a partial one, because the restore is one transaction. Forcing readers to queue behind a reset would make the whole site block during it, for no correctness gain |
+
+#### Reset lock lifecycle — dedicated connection, guaranteed cleanup
+
+A session-scoped advisory lock is owned by a **database session**. If that session were a pooled application connection, the lock could be returned to the pool still held, and a later unrelated request would inherit it. The reset therefore owns its connection outright.
+
+```
+ 1. CLI opens a DEDICATED, NON-POOLED connection            (its own engine /
+                                                             NullPool — never the
+                                                             application pool)
+ 2. Set and COMMIT maintenance_mode = true                  (fail-safe, §19.7)
+ 3. On that same dedicated connection:
+        SELECT pg_advisory_lock(FACEMARK_RESET_FENCE)       [lock_timeout 30s]
+    ── waits for every in-flight mutation to finish ──
+ 4. try:
+        run the entire reset critical section (§19.5) on that connection
+ 5. finally:
+        if the connection is still usable:
+            SELECT pg_advisory_unlock(FACEMARK_RESET_FENCE)
+        close / dispose the dedicated connection             ← final backstop
+```
+
+The `finally` block is mandatory, and **connection closure is the backstop**: PostgreSQL releases session-scoped advisory locks automatically when the owning session ends, so even an unlock that cannot run — a broken connection, a killed process — cannot leave the fence permanently held. The connection must **never** be returned to the application pool while it may still own the lock.
+
+Maintenance mode is deliberately *not* cleared in `finally`. It is persistent state and is cleared only on the success path (§19.5 step 7), so a failed reset leaves the system closed rather than open.
 
 ### 19.5 Sequence
 
@@ -1590,19 +1692,17 @@ Reset bounds its own wait with `lock_timeout = 30 s` on the exclusive acquire. E
  2. Reject new mutations   middleware returns 503 MAINTENANCE for every mutating
                            route; reads continue to serve
  3. ACQUIRE THE FENCE      pg_advisory_lock(FACEMARK_RESET_FENCE)   [exclusive,
-                           session-scoped, lock_timeout 30s]
+                           session-scoped, dedicated connection, lock_timeout 30s]
                            ── blocks until every in-flight mutation has finished ──
-                           From here on, no mutation can begin or commit.
- 4. Terminate streams      emit `dataset_reset`, then close every SSE connection
- 5. Invalidate sessions    revoke ALL sessions — attendee, staff AND admin,
-                           with no exceptions (§19.6)
- 6. Clear broker state     drop every queue and subscriber set in the in-process
-                           EventBus, so no queue outlives the dataset it refers to
- 7. ── SINGLE TRANSACTION ───────────────────────────────────────────────────
+                           From here on, no mutation can perform a reset-sensitive
+                           read, let alone a write.
+ 4. ── A/B. SINGLE ATOMIC RESTORE TRANSACTION ───────────────────────────────
       a. TRUNCATE ... RESTART IDENTITY CASCADE:
            points_log, idempotency_records, feedback, sessions,
            otp_challenges, consent_audit, user_interests,
            contact_cards, users
+         ↳ truncating `sessions` IS the authoritative invalidation of every
+           attendee, staff and admin session (§19.6)
       b. RECONCILE reference data to the fixture set — not merely upsert:
            DELETE booths / interests / booth_interests / tasks /
                   task_preset_points / staff_accounts
@@ -1613,12 +1713,30 @@ Reset bounds its own wait with `lock_timeout = 30 s` on the exclusive acquire. E
       e. Optionally seed baseline points so the leaderboard is not empty
       f. dataset_generation = dataset_generation + 1
     ── COMMIT ────────────────────────────────────────────────────────────────
- 8. Exit maintenance       maintenance_mode = false   (only on success)
- 9. RELEASE THE FENCE      pg_advisory_unlock(FACEMARK_RESET_FENCE)
-10. Report                 counts, staff logins, demo card URLs, new generation
+ 5. ── C. Post-restore in-process cleanup ─────────────────────────────────────
+      a. Emit `dataset_reset` to every open SSE stream, then close them all
+      b. Drop every queue and subscriber set in the in-process EventBus, so no
+         queue outlives the dataset it refers to
+ 6. Verify                 re-read dataset_generation and fixture counts;
+                           abort to the failure path if they disagree
+ 7. ── D. Exit maintenance  maintenance_mode = false   (ONLY on success)
+ 8. ── E. RELEASE THE FENCE pg_advisory_unlock(FACEMARK_RESET_FENCE), then
+                           close the dedicated connection   (in `finally`, §19.4)
+ 9. Report                 counts, staff logins, demo card URLs, new generation
 ```
 
-The release order in steps 8–9 matters: maintenance mode is cleared **before** the fence is released, so there is no instant in which the fence is free while the application still believes it is in maintenance. Sequences for truncated tables are restarted by 7a; reference tables keep theirs, which is harmless because `dataset_generation` disambiguates ids across resets (§19.3).
+**Why this order is safe — the two intervals that must not exist:**
+
+| Must never happen | Prevented by |
+|---|---|
+| Maintenance OFF while the dataset is still changing | Maintenance is cleared at step 7, strictly after the restore commits (4) **and** after in-process cleanup (5) and verification (6). Nothing mutates the dataset after step 4 |
+| The fence released while destructive work is unfinished | The fence is released at step 8, last. Every destructive action — restore, stream termination, broker clearing — is complete before it |
+
+The order maintenance-off (7) **then** fence-release (8) is deliberate. The reverse would open an instant in which the fence is free while the application still believes it is in maintenance: harmless in effect, but it would mean the two gates disagree, and a mutation that had already passed the advisory maintenance check could fence and proceed while the flag still read `true`. Clearing the flag first makes the transition monotonic — the system is fully ready before anything is allowed in.
+
+**Stream termination moved after the restore (step 5), not before it.** Terminating streams first is unnecessary: streams are read-only and cannot mutate, and the fence already excludes mutations from step 3 onward. A client reading during the restore sees either the pre- or post-restore dataset and never a partial one, because 4a–4f are one transaction. Terminating *after* the commit is strictly better, because it also catches any stream that connected during the restore window — a pre-restore termination could not.
+
+Sequences for truncated tables are restarted by 4a; reference tables keep theirs, which is harmless because `dataset_generation` disambiguates ids across resets (§19.3).
 
 **Step 7b is a correction from an earlier draft.** Upserting alone leaves behind anything an admin created during a rehearsal — an extra booth, a spare preset, a staff account — so the "known presentation state" would silently differ from the fixture set in exactly the way rehearsals cause. Reconciliation makes the outcome a function of the fixture file alone.
 
@@ -1628,21 +1746,36 @@ The release order in steps 8–9 matters: maintenance mode is cleared **before**
 
 **The rule: reset revokes every session — attendee, booth staff and admin alike.** There is no preserved-session exception anywhere in this document.
 
+The invalidation is the `TRUNCATE` of `sessions` inside the atomic restore transaction (§19.5 step 4a). It is deliberately **not** a separate pre-restore revoke step: a single mechanism inside the transaction means session invalidation either happens with the restore or not at all, and there is no window in which sessions have been revoked but the dataset was then rolled back.
+
 This is safe because **the reset operator does not need a web session**. Reset is a CLI command executed inside the backend container (§19.1); it authenticates through container access, not through the application. Preserving a web session would have bought nothing and cost the guarantee that no credential survives a dataset change.
 
 After reset, every browser client must reinitialise and authenticate again: attendees via OTP, staff and admins via password. Combined with the `dataset_generation` check (§19.3), a client that was open across the reset is forced to discard its state *and* re-authenticate before it can act, so no pre-reset identity or cached value can be reused against the new dataset.
 
+#### A pre-reset award retried after the reset
+
+This is the one case where reset and idempotency (§13.4) interact, so the outcome is stated explicitly rather than inferred:
+
+1. The retry carries a session cookie whose `sessions` row no longer exists. Authoritative authentication at **B1 — inside the fence** — fails with `UNAUTHENTICATED`. The request stops there, before the idempotency lookup at B3.
+2. The client sees `401` plus a changed `X-Dataset-Generation`, discards its state, and re-authenticates.
+3. Had it somehow authenticated, B3 would find no idempotency record — that table is truncated too — and would treat the request as new. **That is correct, not a double-award:** the original `points_log` row was truncated by the same transaction. There is no award to duplicate.
+
+The F02 guarantees are not weakened. They concern a stable dataset, and across a reset boundary the award, its idempotency record and the session that authorised it are removed **together, in one transaction**. Any other combination — for example truncating `points_log` while retaining `idempotency_records` — would let a replay assert an award that no longer exists, which is precisely why both tables are in the same truncate list (§19.5 step 4a).
+
 ### 19.7 Failure behaviour
 
-Step 7 is one transaction: a failure anywhere inside it rolls back completely, so the database is never left half-reset.
+Step 4 is one transaction: a failure anywhere inside it rolls back completely, so the database is never left half-reset.
 
-**Maintenance mode deliberately stays ON after a failure**, and the fence is released so the operator can investigate without a stuck lock. The command exits non-zero and reports that the system is held in maintenance. This is fail-safe rather than fail-open: a partially-reset or unverified system must not resume accepting awards on its own.
+**Maintenance mode deliberately stays ON after any failure.** The fence is released by the `finally` block (§19.4) so the operator can investigate without a stuck lock, but the maintenance flag is persistent state and is cleared only on the success path. The command exits non-zero and reports that the system is held in maintenance. This is fail-safe rather than fail-open: a partially-reset or unverified system must not resume accepting mutations on its own.
 
 | Failure point | State afterwards |
 |---|---|
-| Fence acquire times out (step 3) | Nothing touched; maintenance ON; operator investigates the stuck mutation |
-| Steps 4–6 | Streams/sessions possibly already cleared — all idempotent and destructive-only; maintenance ON; re-running is safe |
-| Step 7 (restore transaction) | **Full rollback**; dataset unchanged; generation unchanged; maintenance ON |
+| Fence acquire times out (step 3) | Nothing touched; dataset unchanged; maintenance **ON**; fence released; the report names the backend that holds it |
+| Restore transaction (step 4) | **Full rollback** — dataset, sessions and generation all unchanged; maintenance **ON**; fence released |
+| In-process cleanup (step 5) | Dataset is already correctly restored. Stream/broker clearing is idempotent and destructive-only; maintenance **ON**; re-running is safe. Clients are forced to reinitialise by the generation change regardless (§19.3) |
+| Verification (step 6) | Dataset restored but unverified; maintenance **ON** — deliberately not cleared, so nothing enters a state the operator has not confirmed |
+| Unexpected exception anywhere | `finally` unlocks and closes the dedicated connection; maintenance **ON** |
+| Process crash / SIGKILL | No `finally` runs, but PostgreSQL releases the session-scoped lock when the connection dies; `maintenance_mode = true` persists in the database |
 
 Recovery is an explicit operator action:
 
@@ -1855,7 +1988,7 @@ Seven HIGH findings, each independently verified against the document before cor
 | **F02** | Idempotency did not deliver its promise — mutable validation ran first, key unbound to caller, ambiguous constraint reporting. **Re-opened in verification:** the corrected text described an impossible crash state (committed award beside an `IN_PROGRESS` record under one transaction), persisted the snapshot before the total was computed, and proposed an unimplementable recovery lookup | Read-then-atomic-write model. `status`/`IN_PROGRESS` removed — a visible record is always complete. Claim, award, total, snapshot and completion in **one transaction**; response computed before it is persisted. Concurrency: **wait-then-replay**, from PostgreSQL's own primary-key blocking. Crash-recovery branch and `(staff, token, points, window)` lookup deleted | §7.12.1, §13.4, §14.3 |
 | **F03** | `points_log.id` used as a commit-ordered cursor — sequence order ≠ commit order, so events could be permanently discarded | Ledger identity, notification identity and state freshness separated. Cursors, resume tokens and high-water marks eliminated; animation uses **set membership**, which is order-independent | §7.12, §17.2, §17.6 |
 | **F04** | SSE recovery incomplete — no reconciliation while connected, no dead-stream detection, no buffering mitigation | Snapshot/subscribe/reconcile protocol with a **20 s reconciliation floor**, 15 s heartbeat, 45 s liveness cutoff, subscribe-before-snapshot ordering, anti-buffering headers, bounded stream age, and a required pre-summit proxy test | §17.4, §17.9 |
-| **F05** | Reset was a data operation, ignoring streams, sessions, broker state and orphaned rows. **Re-opened in verification:** maintenance mode did not fence a mutation that passed the middleware moments before reset began, and one step preserved an operator session that another step truncated | Adds a PostgreSQL **advisory-lock reset fence** — shared and transaction-scoped for mutations, exclusive and session-scoped for reset — so reset drains in-flight mutations and none can cross the boundary. Session rule settled: **all sessions revoked, no exception**, since the CLI operator needs no web session | §19.4–19.7 |
+| **F05** | Reset ignored streams, sessions, broker state and orphaned rows. **Re-opened once:** maintenance mode did not fence a mutation already past the middleware, and one step preserved an operator session another step truncated. **Re-opened again:** the fence existed but was acquired *after* authentication, attendee resolution, preset and policy lookup — so a mutation could validate against generation N and write into N+1 | Fence moved to the **first statement of the mutating transaction, before any reset-sensitive read** — authentication and the idempotency lookup included. Architecture-wide rule plus a per-path coverage table. Reset lock owns a **dedicated non-pooled connection** with `try/finally` unlock and close, connection death as the backstop. Release order fixed: restore → cleanup → verify → maintenance off → fence release | §13.4, §14.3, §19.4–19.7, §24.29 |
 | **F06** | Full session issued before email ownership proven | `PROVISIONAL → ACTIVE` lifecycle; no session, public card, scanning, matching or leaderboard presence until verified; duplicate-email branches defined non-enumerably; 24 h purge | §8.1, §9.4, §16.1 |
 | **F07** | Per-IP limits hostile to a shared venue NAT | Per-identity primary limits with high shared-IP ceilings; per-token card limit; explicit trusted-proxy resolution that cannot be spoofed | §21.7, §21.7.1 |
 
@@ -1904,5 +2037,5 @@ Non-negotiable. A change that violates one of these is an architecture change re
 26. **Rate limits are primarily per identity, never primarily per IP**, because a venue shares one public IP. Forwarding headers are trusted only from configured proxies.
 27. **The UI cannot remain stale indefinitely.** Periodic reconciliation runs even while the realtime channel appears healthy.
 28. **A client can never confuse pre-reset and post-reset state**, because `dataset_generation` changes on every reset and a mismatch forces hard reinitialisation.
-29. **Every mutating transaction holds the shared reset fence** (`pg_advisory_xact_lock_shared`) for its whole duration, so no mutation can span a demo reset.
+29. **No reset-sensitive mutation may perform authoritative database resolution or business validation before acquiring the shared reset fence.** The fence (`pg_advisory_xact_lock_shared`) is acquired as the first statement of the mutating transaction — before authentication, before entity resolution, before policy lookup — and is held continuously through commit or rollback. Only pure, dataset-independent work (parsing, schema validation, cookie extraction, cryptographic verification, hashing) may precede it. A maintenance-mode check outside the fence is advisory only and is never the authoritative gate.
 30. **Demo reset revokes every session, with no exception.** The operator runs the CLI and needs no web session.
