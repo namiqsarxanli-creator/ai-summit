@@ -34,6 +34,11 @@ services:
       # uses — a single source of truth for credentials, never
       # duplicated as a second literal in .env.
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      # Consumed only by `python -m app.cli seed` (M03) — no fallback,
+      # by design (ARCHITECTURE.md §19.8): the CLI fails loudly if unset
+      # rather than seeding a known password.
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-}
+      SEED_STAFF_PASSWORD: ${SEED_STAFF_PASSWORD:-}
     ports:
       - "${BACKEND_PORT:-8001}:8000"
     volumes:

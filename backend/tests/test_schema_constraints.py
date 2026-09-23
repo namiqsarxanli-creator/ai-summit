@@ -288,10 +288,12 @@ def test_session_principal_type_mismatch_rejected(db: Session, seeded_staff_id: 
 def test_duplicate_global_preset_rejected(db: Session) -> None:
     """The exact bug ARCHITECTURE.md §7.10 corrects: two booth_id=NULL
     rows with the same points must collide, unlike a plain
-    UNIQUE(booth_id, points)."""
-    db.execute(text("INSERT INTO task_preset_points (booth_id, points) VALUES (NULL, 5)"))
+    UNIQUE(booth_id, points). Uses points=7 rather than one of the M03
+    seed's permanent global presets (5/10/15, app/seed/demo_fixtures.py)
+    so the first insert here is the one under this test's own control."""
+    db.execute(text("INSERT INTO task_preset_points (booth_id, points) VALUES (NULL, 7)"))
     with pytest.raises(IntegrityError) as exc:
-        db.execute(text("INSERT INTO task_preset_points (booth_id, points) VALUES (NULL, 5)"))
+        db.execute(text("INSERT INTO task_preset_points (booth_id, points) VALUES (NULL, 7)"))
     assert _constraint_name(exc) == "uq_preset_global_points"
 
 
@@ -311,12 +313,14 @@ def test_duplicate_booth_specific_preset_rejected(db: Session, seeded_booth_id: 
 def test_same_points_value_global_and_booth_specific_coexist(
     db: Session, seeded_booth_id: int
 ) -> None:
-    """A global +5 and a booth-specific +5 are DIFFERENT rows under
+    """A global +8 and a booth-specific +8 are DIFFERENT rows under
     the two partial indexes — this must be ALLOWED, proving the two
-    partial indexes are independent, not one disguised full unique."""
-    db.execute(text("INSERT INTO task_preset_points (booth_id, points) VALUES (NULL, 5)"))
+    partial indexes are independent, not one disguised full unique.
+    Uses 8 rather than one of the M03 seed's permanent global presets
+    (5/10/15) so the global insert here is not itself a duplicate."""
+    db.execute(text("INSERT INTO task_preset_points (booth_id, points) VALUES (NULL, 8)"))
     db.execute(
-        text("INSERT INTO task_preset_points (booth_id, points) VALUES (:b, 5)"),
+        text("INSERT INTO task_preset_points (booth_id, points) VALUES (:b, 8)"),
         {"b": seeded_booth_id},
     )  # must not raise
 
@@ -824,7 +828,11 @@ def test_same_idempotency_key_allowed_for_different_staff(
 
 
 def test_event_config_second_row_rejected(db: Session) -> None:
-    db.execute(text("INSERT INTO event_config (id) VALUES (1)"))
+    """`ck_event_config_singleton` rejects any id other than the fixed
+    literal 1. Does not also insert id=1 itself: from M03 onward, id=1
+    is the seed's permanent singleton row, already present in any
+    migrated + seeded database — this test only needs to prove id≠2 is
+    unreachable, which holds regardless of whether id=1 is free."""
     with pytest.raises(IntegrityError) as exc:
         db.execute(text("INSERT INTO event_config (id) VALUES (2)"))
     assert _constraint_name(exc) == "ck_event_config_singleton"

@@ -60,8 +60,16 @@ def seeded_interest_id(db: Session) -> int:
 
 @pytest.fixture
 def seeded_booth_id(db: Session) -> int:
+    """A throwaway booth for constraint tests. Deliberately NOT
+    'aiworks': from M03 onward that slug is the seed's permanent demo
+    booth (app/seed/demo_fixtures.py), always present in a migrated +
+    seeded database, so a test-local row here must use a slug of its
+    own to avoid colliding with real, committed data."""
     row = db.execute(
-        text("INSERT INTO booths (slug, name) VALUES ('aiworks', 'AIWorks') RETURNING id")
+        text(
+            "INSERT INTO booths (slug, name) VALUES "
+            "('m02-test-booth', 'M02 Test Booth') RETURNING id"
+        )
     ).one()
     return int(row[0])
 
@@ -69,7 +77,10 @@ def seeded_booth_id(db: Session) -> int:
 @pytest.fixture
 def seeded_second_booth_id(db: Session) -> int:
     row = db.execute(
-        text("INSERT INTO booths (slug, name) VALUES ('quantumco', 'QuantumCo') RETURNING id")
+        text(
+            "INSERT INTO booths (slug, name) VALUES "
+            "('m02-test-booth-2', 'M02 Test Booth 2') RETURNING id"
+        )
     ).one()
     return int(row[0])
 
