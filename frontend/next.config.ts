@@ -20,6 +20,28 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+
+  // §21.11: card pages send `Referrer-Policy: no-referrer`, so the token
+  // in the path does not leak to LinkedIn on tap; §9.5: `noindex`.
+  async headers() {
+    return [
+      {
+        source: "/c/:token*",
+        headers: [
+          { key: "Referrer-Policy", value: "no-referrer" },
+          { key: "X-Robots-Tag", value: "noindex" },
+        ],
+      },
+    ];
+  },
+
+  // §21.11: a card token in a request log is a capability in plain
+  // text. Next.js logs incoming requests in development only, and can
+  // only omit a request from that log, not mask it — so card requests
+  // are omitted (the backend masks its own access log as /c/***).
+  logging: {
+    incomingRequests: { ignore: [/\/c\//, /\/api\/cards\//] },
+  },
 };
 
 export default nextConfig;

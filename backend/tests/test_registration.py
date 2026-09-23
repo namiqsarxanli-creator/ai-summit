@@ -7,6 +7,7 @@ and cleans up after itself.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import pytest
@@ -84,7 +85,8 @@ def test_registration_creates_an_inert_contact_card(
     client: TestClient, unique_email: str, otp_log: pytest.LogCaptureFixture
 ) -> None:
     """§8.1: "The card token is generated at registration but is inert
-    until activation." 256-bit hex, not derived from any attribute."""
+    until activation." 256-bit, 43 URL-safe chars (§9.1, reconciled in
+    M06), not derived from any attribute."""
     client.post(REGISTER, json=register_payload(unique_email))
     user = _user(unique_email)
     card = fetch_one(
@@ -92,8 +94,7 @@ def test_registration_creates_an_inert_contact_card(
     )
     assert card is not None
     assert card.revoked_at is None
-    assert len(card.public_token) == 64
-    assert all(c in "0123456789abcdef" for c in card.public_token)
+    assert re.fullmatch(r"[A-Za-z0-9_-]{43}", card.public_token)
     assert "grace" not in card.public_token.lower()
 
 

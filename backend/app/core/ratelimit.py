@@ -34,8 +34,7 @@ class RateLimit:
 
 
 # §21.7's table, verbatim. Only endpoints that exist so far are wired
-# up; staff login, card reads and scan resolution attach their own
-# rows in the milestones that build those endpoints.
+# up; staff login attaches its own rows in M09.
 OTP_REQUEST_PER_EMAIL = RateLimit("otp_request:email", 3, 15 * 60)
 OTP_REQUEST_PER_IP = RateLimit("otp_request:ip", 600, 15 * 60)
 OTP_VERIFY_PER_EMAIL = RateLimit("otp_verify:email", 10, 15 * 60)
@@ -43,6 +42,12 @@ OTP_VERIFY_PER_IP = RateLimit("otp_verify:ip", 1200, 15 * 60)
 # Registration's identity protection is UNIQUE(email) + the ACTIVE
 # branch (§8.1); only the blunt per-IP ceiling is a counter.
 REGISTER_PER_IP = RateLimit("register:ip", 600, 60 * 60)
+# "Card reads are now limited per token rather than per IP: that is the
+# resource actually worth protecting" (§21.7).
+CARD_READ_PER_TOKEN = RateLimit("card_read:token", 30, 60)
+CARD_READ_PER_IP = RateLimit("card_read:ip", 1200, 60)
+# Per staff account; §21.7 sets no shared-IP ceiling for this row.
+SCAN_RESOLVE_PER_STAFF = RateLimit("scan_resolve:staff", 120, 60)
 
 
 class RateLimitStore(Protocol):

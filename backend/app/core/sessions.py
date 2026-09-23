@@ -5,6 +5,8 @@ database only ever holds its SHA-256 hash. Everything that creates,
 resolves or revokes a session goes through this module, so those rules
 live in exactly one place.
 
+`resolve_staff_session` (M06) is its staff counterpart.
+
 `resolve_attendee_session` is also the contract M14's SSE streams will
 call on every heartbeat (§8.3 "Session death must propagate to open
 streams", §17.9): the same function, so a revoked or expired session
@@ -21,9 +23,14 @@ from sqlalchemy.orm import Session
 
 from app.core.auth_session import AuthSession, PrincipalType
 from app.core.config import get_settings
-from app.core.errors import RegistrationNotVerifiedError, UnauthenticatedError
+from app.core.errors import (
+    RegistrationNotVerifiedError,
+    StaffNotAuthorizedError,
+    UnauthenticatedError,
+)
 from app.core.security import generate_session_token, hash_session_token
 from app.modules.attendees.models import User, UserStatus
+from app.modules.staff.models import StaffAccount
 
 # No architecture-mandated name exists for the cookie (only its
 # attributes, §8.3) — fixed once here for every reader and writer.
@@ -76,6 +83,38 @@ def resolve_attendee_session(db: Session, raw_token: str | None) -> User:
     if user.status != UserStatus.ACTIVE:
         raise RegistrationNotVerifiedError("Please verify your email first.")
     return user
+
+
+def resolve_staff_session(db: Session, raw_token: str | None) -> StaffAccount:
+    """The authenticated staff member (booth staff OR admin), or an
+    exception — the staff counterpart of `resolve_attendee_session`.
+
+    Missing, unknown, expired, revoked, or an ATTENDEE session are all
+    UNAUTHENTICATED; a valid session on an inactive account is
+    STAFF_NOT_AUTHORIZED (§20.3: "inactive account").
+
+    M06 needs only this much, for the scan-resolve endpoint that §12.3
+    opens to booth staff and admins alike. Staff LOGIN, lockout and the
+    role-narrowing `current_booth_staff` / `current_admin` dependencies
+    are M09's, and build on this function rather than beside it.
+    """
+    if not raw_token:
+        raise UnauthenticatedError("Please sign in.")
+    staff = db.execute(
+        select(StaffAccount)
+        .join(AuthSession, AuthSession.staff_account_id == StaffAccount.id)
+        .where(
+            AuthSession.token_hash == hash_session_token(raw_token),
+            AuthSession.principal_type == PrincipalType.STAFF,
+            AuthSession.revoked_at.is_(None),
+            AuthSession.expires_at > func.now(),
+        )
+    ).scalar_one_or_none()
+    if staff is None:
+        raise UnauthenticatedError("Please sign in.")
+    if not staff.is_active:
+        raise StaffNotAuthorizedError("This staff account is not active.")
+    return staff
 
 
 def revoke_session(db: Session, raw_token: str | None) -> bool:

@@ -122,6 +122,29 @@ class RegistrationNotVerifiedError(DomainError):
     status_code = 403
 
 
+class InvalidQrError(DomainError):
+    """ARCHITECTURE.md §20.3: INVALID_QR, 404. §9.4: malformed, unknown,
+    revoked, provisional-attendee and deleted-attendee tokens all get
+    exactly this response — one class, one fixed message, so no branch
+    can word it differently. (M11 will also raise it for a `scan_ref`
+    whose signature does not verify.)"""
+
+    code = "INVALID_QR"
+    status_code = 404
+    MESSAGE = "This QR code isn't valid. Ask the attendee to reopen their card."
+
+    def __init__(self) -> None:
+        super().__init__(self.MESSAGE)
+
+
+class StaffNotAuthorizedError(DomainError):
+    """ARCHITECTURE.md §20.3: STAFF_NOT_AUTHORIZED, 403 — "Wrong role,
+    inactive account, or admin-only route"."""
+
+    code = "STAFF_NOT_AUTHORIZED"
+    status_code = 403
+
+
 class RateLimitedError(DomainError):
     """ARCHITECTURE.md §20.3: RATE_LIMITED, 429 — "Throttle exceeded".
     `retry_after` (seconds) is surfaced as a Retry-After header."""

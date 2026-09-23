@@ -53,6 +53,12 @@ export function SessionPanel() {
           <p className="text-sm text-slate-400">{attendee.profession}</p>
           <p className="text-sm text-slate-500">{attendee.email}</p>
         </div>
+        <Link
+          href="/my-card"
+          className="w-full rounded-lg bg-indigo-500 px-4 py-3 text-center font-semibold text-white transition-colors hover:bg-indigo-400"
+        >
+          My card &amp; QR
+        </Link>
         {logoutError && (
           <p role="alert" className="text-sm text-red-300">
             {logoutError}

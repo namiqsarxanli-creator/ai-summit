@@ -28,11 +28,14 @@ from sqlalchemy.exc import OperationalError
 from app.core.config import get_settings
 from app.core.csrf import OriginAssertionMiddleware
 from app.core.errors import DomainError, MaintenanceError, RateLimitedError, error_envelope
+from app.core.privacy import CardPrivacyHeadersMiddleware, install_card_token_log_filter
 from app.db import all_models  # noqa: F401 — full metadata, or cross-module FKs fail at flush
 from app.db.session import database_is_reachable
 from app.modules.attendees.routers import router as attendees_router
 from app.modules.auth.routers import router as auth_router
+from app.modules.contact_cards.routers import router as contact_cards_router
 from app.modules.interests.routers import router as interests_router
+from app.modules.staff.routers import router as staff_router
 
 logger = logging.getLogger(__name__)
 
@@ -132,13 +135,21 @@ def _configure_logging(demo_mode: bool) -> None:
     The DEMO_MODE OTP line (app/modules/auth/otp_delivery.py) carries a
     full email address, which §21.11 keeps out of INFO-level logs; it is
     written at DEBUG and that one logger is opened to DEBUG only in
-    DEMO_MODE, which config already forbids in production."""
+    DEMO_MODE, which config already forbids in production.
+
+    Card tokens are masked (§21.11) on uvicorn's access and error
+    loggers, where request paths are recorded, and on the app handler,
+    whose error lines name the request path."""
     app_logger = logging.getLogger("app")
     if not app_logger.handlers:
         handler = logging.StreamHandler()
         handler.setFormatter(logging.Formatter("%(levelname)s:     %(name)s - %(message)s"))
         app_logger.addHandler(handler)
     app_logger.setLevel(logging.INFO)
+    for app_handler in app_logger.handlers:
+        install_card_token_log_filter(app_handler)
+    install_card_token_log_filter(logging.getLogger("uvicorn.access"))
+    install_card_token_log_filter(logging.getLogger("uvicorn.error"))
     logging.getLogger("app.modules.auth.otp_delivery").setLevel(
         logging.DEBUG if demo_mode else logging.INFO
     )
@@ -163,10 +174,15 @@ def create_app() -> FastAPI:
     # §8.3.1 layer 2: Origin/Referer assertion on every mutating request,
     # before any handler (and therefore before any fence or read) runs.
     app.add_middleware(OriginAssertionMiddleware, allowed_origin=settings.app_origin)
+    # §21.11: added last, so it is outermost and stamps its headers on
+    # every card-path response, whichever layer produced it.
+    app.add_middleware(CardPrivacyHeadersMiddleware)
     app.include_router(api_router)
     app.include_router(attendees_router, prefix="/api")
     app.include_router(auth_router, prefix="/api")
+    app.include_router(contact_cards_router, prefix="/api")
     app.include_router(interests_router, prefix="/api")
+    app.include_router(staff_router, prefix="/api")
 
     return app
 

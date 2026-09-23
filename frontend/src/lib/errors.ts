@@ -11,6 +11,8 @@ const MESSAGES: Record<string, string> = {
   // so the UI must not pretend to know either.
   OTP_INVALID:
     "That code didn't work. It may be incorrect, expired, already used, or locked after too many attempts. Check it, or request a new code.",
+  // §9.4, verbatim: one message for every invalid-token cause.
+  INVALID_QR: "This QR code isn't valid. Ask the attendee to reopen their card.",
   MAINTENANCE: "The event system is briefly unavailable. Please try again in a moment.",
   UNAUTHENTICATED: "Your session has ended. Please sign in again.",
   REGISTRATION_NOT_VERIFIED: "Please verify your email to continue.",

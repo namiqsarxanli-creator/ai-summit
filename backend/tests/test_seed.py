@@ -26,6 +26,8 @@ matter how many times it runs — which is what "clean database" and
 
 from __future__ import annotations
 
+import re
+import string
 from collections.abc import Iterator
 from decimal import Decimal
 
@@ -49,6 +51,7 @@ from app.seed.seeder import SeedResult, seed_all
 
 _TEST_ADMIN_PASSWORD = "test-only-seed-admin-password"  # noqa: S105 — test fixture, not a real secret
 _TEST_STAFF_PASSWORD = "test-only-seed-staff-password"  # noqa: S105
+_URLSAFE_ALPHABET = frozenset(string.ascii_letters + string.digits + "-_")
 
 
 @pytest.fixture
@@ -309,7 +312,9 @@ def test_contact_card_tokens_are_stable_across_reseed(seed_session: Session) -> 
             .where(User.email == a.email)
         ).scalar_one()
         assert after == before[a.email] == a.public_token
-        assert len(a.public_token) == 64  # 256-bit, hex-encoded (§9.5)
+        # 256-bit, the same 43-char URL-safe format as runtime issuance
+        # (§7.6, §9.1 — reconciled from token_hex in M06).
+        assert re.fullmatch(r"[A-Za-z0-9_-]{43}", a.public_token)
 
 
 # --------------------------------------------------------------------------
@@ -352,12 +357,13 @@ def test_cli_seed_never_falls_back_to_a_guessed_password(monkeypatch: pytest.Mon
 
 
 # Sanity: ensure `text` import stays used even as tests evolve, and the
-# demo tokens really are opaque hex with no embedded PII.
+# demo tokens really are opaque URL-safe strings with no embedded PII.
 def test_public_tokens_contain_no_attendee_pii() -> None:
     for a in fx.ATTENDEES:
         assert a.first_name.lower() not in a.public_token.lower()
         assert a.last_name.lower() not in a.public_token.lower()
-        assert all(c in "0123456789abcdef" for c in a.public_token)
+        assert all(c in _URLSAFE_ALPHABET for c in a.public_token)
+    assert len({a.public_token for a in fx.ATTENDEES}) == len(fx.ATTENDEES)
 
 
 def test_event_config_row_is_the_fixed_singleton(seed_session: Session) -> None:

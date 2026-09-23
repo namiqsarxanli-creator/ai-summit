@@ -47,6 +47,15 @@ describe("SessionPanel", () => {
     expect(await screen.findByText("Marcus Lindqvist")).toBeInTheDocument();
     expect(screen.getByText("Data Platform Engineer")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
+    // M06: the way to the attendee's own card — no id in the link.
+    expect(screen.getByRole("link", { name: "My card & QR" })).toHaveAttribute("href", "/my-card");
+  });
+
+  it("offers no card link when signed out", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => errorResponse(401, "UNAUTHENTICATED")));
+    render(<SessionPanel />);
+    await screen.findByRole("link", { name: "Register as an attendee" });
+    expect(screen.queryByRole("link", { name: "My card & QR" })).not.toBeInTheDocument();
   });
 
   it("signs out, then confirms with the server that the session is gone", async () => {

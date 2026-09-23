@@ -58,10 +58,19 @@ def generate_otp_code() -> str:
 
 
 def generate_card_token() -> str:
-    """ARCHITECTURE.md §21.2: "256-bit CSPRNG, not derived from any
-    attendee attribute." Hex-encoded (64 chars) — the same format
-    M03's fixed demo tokens use (app/seed/demo_fixtures.py)."""
-    return secrets.token_hex(32)
+    """ARCHITECTURE.md §9.1: "public_token = secrets.token_urlsafe(32)
+    # 256 bits of entropy, 43 URL-safe chars". Takes no argument on
+    purpose: there is no function from attendee data to token (§9.1),
+    so this signature cannot even express deriving one."""
+    return secrets.token_urlsafe(32)
+
+
+def hash_card_token(token: str) -> str:
+    """SHA-256 hex of a card token, for places that must key on a
+    token without holding a second copy of it — the per-token rate-limit
+    bucket (M06), and later `scan_ref`'s `tok` field (§13.3, M10).
+    `errors="replace"`: a malformed path token may hold anything."""
+    return hashlib.sha256(token.encode("utf-8", errors="replace")).hexdigest()
 
 
 def generate_session_token() -> str:

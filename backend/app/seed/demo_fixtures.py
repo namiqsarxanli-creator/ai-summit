@@ -82,10 +82,13 @@ class AttendeeFixture:
     phone: str
     profession: str
     interest_slugs: tuple[str, ...]
-    # Fixed, opaque, 256-bit (64 hex chars) — ARCHITECTURE.md §19.8:
-    # "pre-printed QR cards and slide screenshots must keep working
-    # after every reset." Generated once with `secrets.token_hex(32)`
-    # and hardcoded here; never regenerated at seed time.
+    # Fixed, opaque, 256-bit — ARCHITECTURE.md §19.8: "pre-printed QR
+    # cards and slide screenshots must keep working after every reset."
+    # Same format as runtime issuance (§7.6, §9.1: 43 URL-safe chars):
+    # generated once with `secrets.token_urlsafe(32)` and hardcoded
+    # here; never regenerated at seed time. (M03 first shipped these as
+    # token_hex(32); M06, which owns card issuance, reconciled them to
+    # §9.1 before any QR was printed.)
     public_token: str
 
 
@@ -288,7 +291,7 @@ ATTENDEES: tuple[AttendeeFixture, ...] = (
         phone="+1-555-0101",
         profession="AI Research Lead",
         interest_slugs=("artificial-intelligence", "generative-ai"),
-        public_token="a2bcfd25864965ab7c204bdfa6c3d66b05983a26099475d9365246ef358fa55e",
+        public_token="YGNasg-eVR42rUp_bKbockSk2RLE26A2g9bfCUHvXj8",
     ),
     # Mid match vs AIWorks: reproduces ARCHITECTURE.md §11.3's hand-worked
     # example verbatim -> raw=1.8, coverage=0.9, focus=1.8/3.5=0.5143 ->
@@ -300,7 +303,7 @@ ATTENDEES: tuple[AttendeeFixture, ...] = (
         phone="+1-555-0102",
         profession="Data Platform Engineer",
         interest_slugs=("generative-ai", "data-analytics"),
-        public_token="c7fe5b1f4f2de172e2ebd1873d57565774662f2eddd59b538b22a422a0e4606e",
+        public_token="GsQFmpQcGo84C7lq3NsnX7UA-DTaWZNbu-wres2bYlE",
     ),
     # Low match vs AIWorks (only "automation" overlaps, weight 0.70) ->
     # raw=0.7, coverage=0.35, focus=0.7/3.5=0.2 -> score01=0.7*0.35+
@@ -316,7 +319,7 @@ ATTENDEES: tuple[AttendeeFixture, ...] = (
         phone="+1-555-0103",
         profession="Robotics Founder",
         interest_slugs=("robotics", "automation"),
-        public_token="75b5a2a3b4dba78b141fa32a86d7e7be1deba4744f230e213f6222e43c7a0ca1",
+        public_token="mXimCyQMbnV8TZh35CCioFsyv0zoqPe8CXffxeWsQew",
     ),
     # Zero match vs AIWorks: interests share no rows with AIWorks' profile
     # at all (M = ∅ -> score 0, excluded from AIWorks' recommendations per
@@ -329,7 +332,7 @@ ATTENDEES: tuple[AttendeeFixture, ...] = (
         phone="+1-555-0104",
         profession="Sustainable Fintech Advisor",
         interest_slugs=("fintech", "sustainability"),
-        public_token="365d7fac5e3536f1881472397e0d2a6b04888b94c4a66fe6eca50c28f708d109",
+        public_token="s2oiCdKto4pseDLY4YHOtaOxEg1dRP6hGWk8qVy0-kw",
     ),
 )
 

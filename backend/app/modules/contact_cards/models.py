@@ -1,9 +1,9 @@
 """The opaque public networking token — ARCHITECTURE.md §7.6, §9.
 
-Storage only in M02: no token GENERATION service, no QR rendering, no
-public resolution endpoint (M06). The token itself is just an opaque
-``text`` column here — it carries no structure to decode, matching
-§9.1: "not derived from any attendee attribute."
+The token itself is just an opaque ``text`` column — it carries no
+structure to decode, matching §9.1: "not derived from any attendee
+attribute." Issuance is ``app.core.security.generate_card_token``;
+resolution is ``app.modules.contact_cards.service`` (M06).
 """
 
 from __future__ import annotations
