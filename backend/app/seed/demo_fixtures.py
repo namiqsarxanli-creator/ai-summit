@@ -208,8 +208,7 @@ BOOTHS: tuple[BoothFixture, ...] = (
         slug="greengrid-systems",
         name="GreenGrid Systems",
         description=(
-            "Predictive load-balancing and emissions analytics for "
-            "renewable energy grid operators."
+            "Predictive load-balancing and emissions analytics for renewable energy grid operators."
         ),
         location_label="Hall C · 2",
         interests=(
@@ -244,9 +243,7 @@ PRESET_POINTS: tuple[PresetPointFixture, ...] = (
 # ---------------------------------------------------------------------------
 
 STAFF: tuple[StaffFixture, ...] = (
-    StaffFixture(
-        "aiworks@staff.facemark.demo", "Noah Bergström", StaffRole.BOOTH_STAFF, "aiworks"
-    ),
+    StaffFixture("aiworks@staff.facemark.demo", "Noah Bergström", StaffRole.BOOTH_STAFF, "aiworks"),
     StaffFixture(
         "quantumleap-robotics@staff.facemark.demo",
         "Yuki Tanaka",

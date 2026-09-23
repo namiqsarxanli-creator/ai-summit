@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -41,9 +41,25 @@ class Settings(BaseSettings):
     # running under Docker Compose (the supported M01 workflow).
     database_url: str = Field(...)
 
+    # ARCHITECTURE.md §8.2: "when DEMO_MODE=true, the OTP is written to
+    # the server log ... instead of being emailed." Defaults to False
+    # (production-safe by default) — this is a mode switch, not a
+    # secret, so unlike the fields above it is allowed a default.
+    demo_mode: bool = False
+
     @property
     def is_production(self) -> bool:
         return self.environment.lower() == "production"
+
+    @model_validator(mode="after")
+    def _demo_mode_never_in_production(self) -> Settings:
+        # ARCHITECTURE.md §8.2: "config.py raises at startup if
+        # DEMO_MODE=true while ENVIRONMENT=production." — the OTP-in-log
+        # demo adapter must be structurally unreachable in production,
+        # not merely undocumented.
+        if self.demo_mode and self.is_production:
+            raise ValueError("DEMO_MODE=true is not permitted when ENVIRONMENT=production")
+        return self
 
 
 @lru_cache

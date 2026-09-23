@@ -64,6 +64,40 @@ class DuplicateTaskRewardError(DomainError):
     status_code = 409
 
 
+class UnknownInterestError(DomainError):
+    """A submitted interest slug does not match any active `interests`
+    row. ARCHITECTURE.md §20.3: UNKNOWN_INTEREST, 400. §8.1: "unknown
+    slug -> UNKNOWN_INTEREST, rather than silently dropped, so an
+    attendee is never told they matched on something that does not
+    exist."
+    """
+
+    code = "UNKNOWN_INTEREST"
+    status_code = 400
+
+
+class OtpInvalidError(DomainError):
+    """Wrong, expired, consumed, or attempt-exhausted OTP code.
+    ARCHITECTURE.md §20.3: OTP_INVALID, 400 — "one code for all four"
+    outcomes, so the API cannot be used as an oracle distinguishing a
+    wrong guess from an expired or already-used code.
+    """
+
+    code = "OTP_INVALID"
+    status_code = 400
+
+
+class MaintenanceError(DomainError):
+    """A fenced mutation's `lock_timeout` expired waiting on the reset
+    fence (PostgreSQL SQLSTATE 55P03, lock_not_available).
+    ARCHITECTURE.md §19.4: "or its lock_timeout (2 s) expires and it
+    returns MAINTENANCE". §20.3: MAINTENANCE, 503.
+    """
+
+    code = "MAINTENANCE"
+    status_code = 503
+
+
 class UnexpectedConstraintViolationError(DomainError):
     """A named, business-critical constraint was violated in a shape
     that should be structurally impossible for a correctly written

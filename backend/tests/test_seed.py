@@ -153,9 +153,7 @@ def test_catalogue_matches_fixture_counts(seed_session: Session) -> None:
             ).scalar_one()
             assert staff_row.booth_id == booth_row.id
 
-    event_config = seed_session.execute(
-        select(EventConfig).where(EventConfig.id == 1)
-    ).scalar_one()
+    event_config = seed_session.execute(select(EventConfig).where(EventConfig.id == 1)).scalar_one()
     assert event_config.feedback_points == fx.EVENT_CONFIG_DEFAULTS["feedback_points"]
     assert (
         event_config.allow_repeat_task_points_default
@@ -197,9 +195,7 @@ def test_no_task_duplicates_across_reseed(seed_session: Session) -> None:
     _run_seed(seed_session)
     for b in fx.BOOTHS:
         booth_row = seed_session.execute(select(Booth).where(Booth.slug == b.slug)).scalar_one()
-        titles = seed_session.execute(
-            select(Task.title).where(Task.booth_id == booth_row.id)
-        ).all()
+        titles = seed_session.execute(select(Task.title).where(Task.booth_id == booth_row.id)).all()
         title_list = [t[0] for t in titles]
         assert len(title_list) == len(set(title_list)) == len(b.tasks)
 

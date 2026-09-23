@@ -30,6 +30,7 @@ services:
     restart: unless-stopped
     environment:
       ENVIRONMENT: ${ENVIRONMENT:-development}
+      DEMO_MODE: ${DEMO_MODE:-false}
       # Assembled here from the same POSTGRES_* values the `db` service
       # uses — a single source of truth for credentials, never
       # duplicated as a second literal in .env.

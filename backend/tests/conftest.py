@@ -1,7 +1,8 @@
-"""Shared pytest fixtures for the foundation and M02 schema test suite."""
+"""Shared pytest fixtures for the backend test suite."""
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterator
 
 import pytest
@@ -11,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.db import all_models  # noqa: F401 — registers every model with Base.metadata
 from app.db.session import SessionLocal
+from tests.m04_support import OTP_LOGGER, cleanup_email, new_email
 
 
 @pytest.fixture
@@ -19,6 +21,23 @@ def client() -> Iterator[TestClient]:
 
     with TestClient(app) as c:
         yield c
+
+
+@pytest.fixture
+def unique_email() -> Iterator[str]:
+    """A fresh address per test; every row it produced is deleted
+    afterwards, since M04 endpoints genuinely commit."""
+    email = new_email()
+    yield email
+    cleanup_email(email)
+
+
+@pytest.fixture
+def otp_log(caplog: pytest.LogCaptureFixture) -> pytest.LogCaptureFixture:
+    """Captures the DEMO_MODE delivery adapter's log line — the only
+    place a plaintext OTP ever exists outside the request that made it."""
+    caplog.set_level(logging.INFO, logger=OTP_LOGGER)
+    return caplog
 
 
 @pytest.fixture

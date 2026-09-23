@@ -203,9 +203,7 @@ def _seed_preset_points(db: Session) -> int:
         stmt = (
             pg_insert(TaskPresetPoint)
             .values(booth_id=None, points=p.points, label=p.label, sort_order=p.sort_order)
-            .on_conflict_do_nothing(
-                index_elements=["points"], index_where=text("booth_id IS NULL")
-            )
+            .on_conflict_do_nothing(index_elements=["points"], index_where=text("booth_id IS NULL"))
         )
         created += _execute_on_conflict_do_nothing(db, stmt, TaskPresetPoint.id)
     return created

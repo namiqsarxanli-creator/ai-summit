@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 // Matches the documented backend contract exactly (ARCHITECTURE.md /
@@ -54,9 +55,14 @@ export default function Home() {
   return (
     <main className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center gap-6 px-6 text-center">
       <h1 className="text-3xl font-semibold tracking-tight text-slate-50">FACEMARK</h1>
-      <p className="text-sm text-slate-400">
-        Project foundation — no business functionality yet.
-      </p>
+      <p className="text-sm text-slate-400">AI Summit networking — attendee registration is open.</p>
+
+      <Link
+        href="/register"
+        className="w-full rounded-lg bg-indigo-500 px-4 py-3 font-semibold text-white transition-colors hover:bg-indigo-400"
+      >
+        Register as an attendee
+      </Link>
 
       <div className="w-full rounded-lg border border-slate-800 bg-slate-900 p-4 text-left text-sm">
         <p className="mb-2 font-medium text-slate-300">Backend connectivity (/api/health)</p>
