@@ -48,7 +48,7 @@ WHERE rel.locktype = 'relation' AND rel.granted
   AND rel.relation IN (
       'users'::regclass, 'otp_challenges'::regclass, 'interests'::regclass,
       'user_interests'::regclass, 'contact_cards'::regclass, 'consent_audit'::regclass,
-      'sessions'::regclass
+      'sessions'::regclass, 'staff_accounts'::regclass
   )
 """
 

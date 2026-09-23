@@ -145,6 +145,26 @@ class StaffNotAuthorizedError(DomainError):
     status_code = 403
 
 
+class InvalidCredentialsError(DomainError):
+    """ARCHITECTURE.md §12.1 / §20.3: INVALID_CREDENTIALS, 401 —
+    "no distinction between unknown email and wrong password." The
+    same generic outcome also covers a correct password on an inactive
+    account (§7.7: "deactivation kills future logins") — deactivation
+    is never a distinguishable response either, for the same
+    enumeration-resistance reason."""
+
+    code = "INVALID_CREDENTIALS"
+    status_code = 401
+
+
+class AccountLockedError(DomainError):
+    """ARCHITECTURE.md §21.8: ACCOUNT_LOCKED, 429 — "further attempts
+    return ACCOUNT_LOCKED without evaluating the password"."""
+
+    code = "ACCOUNT_LOCKED"
+    status_code = 429
+
+
 class BoothNotFoundError(DomainError):
     """No catalogue entry in ARCHITECTURE.md §20.3 names an unknown or
     inactive booth specifically. M07 adds this code, following the

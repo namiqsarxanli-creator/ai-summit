@@ -14,6 +14,11 @@ const MESSAGES: Record<string, string> = {
   // §9.4, verbatim: one message for every invalid-token cause.
   INVALID_QR: "This QR code isn't valid. Ask the attendee to reopen their card.",
   BOOTH_NOT_FOUND: "This booth couldn't be found. It may have been removed or renamed.",
+  // §12.1, verbatim: never distinguishes unknown email from wrong
+  // password (or, as this implementation extends it, a deactivated
+  // account with the correct one).
+  INVALID_CREDENTIALS: "Incorrect email or password.",
+  ACCOUNT_LOCKED: "Too many failed attempts. Please wait 15 minutes and try again.",
   MAINTENANCE: "The event system is briefly unavailable. Please try again in a moment.",
   UNAUTHENTICATED: "Your session has ended. Please sign in again.",
   REGISTRATION_NOT_VERIFIED: "Please verify your email to continue.",

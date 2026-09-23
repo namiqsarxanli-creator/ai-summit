@@ -48,6 +48,15 @@ CARD_READ_PER_TOKEN = RateLimit("card_read:token", 30, 60)
 CARD_READ_PER_IP = RateLimit("card_read:ip", 1200, 60)
 # Per staff account; §21.7 sets no shared-IP ceiling for this row.
 SCAN_RESOLVE_PER_STAFF = RateLimit("scan_resolve:staff", 120, 60)
+# Keyed by the submitted (normalised) email, exactly like the OTP
+# rows — never by a resolved staff id, so an unknown email is limited
+# too and cannot be used to distinguish "no such account" from "wrong
+# password" by hammering one bucket differently. This is BESIDES the
+# persistent failed_login_count/locked_until brute-force gate (§21.8):
+# two independent defenses, mirroring OTP's own attempt-cap +
+# rate-limit pair.
+STAFF_LOGIN_PER_EMAIL = RateLimit("staff_login:email", 10, 15 * 60)
+STAFF_LOGIN_PER_IP = RateLimit("staff_login:ip", 600, 15 * 60)
 
 
 class RateLimitStore(Protocol):

@@ -39,6 +39,16 @@ def hash_otp_code(code: str) -> str:
     return _hasher.hash(code)
 
 
+def password_needs_rehash(hash_: str) -> bool:
+    """ARCHITECTURE.md §21.1: "verify_and_update rehashes on parameter
+    change." Checked only after a successful `verify_secret` — never
+    for OTP codes, which are single-use and never re-hashed. If the
+    stored hash's parameters no longer match `_hasher`'s (e.g. the
+    memory/time cost was tuned), the caller re-hashes the same
+    plaintext it already verified and persists the fresh encoding."""
+    return _hasher.check_needs_rehash(hash_)
+
+
 def verify_secret(hash_: str, candidate: str) -> bool:
     """Constant-time-safe verification for an Argon2id hash produced by
     either `hash_password` or `hash_otp_code`. Never raises on a

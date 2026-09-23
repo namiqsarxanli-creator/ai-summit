@@ -54,6 +54,24 @@ def create_attendee_session(db: Session, *, user_id: int, now: datetime) -> str:
     return raw_token
 
 
+def create_staff_session(db: Session, *, staff_account_id: int, now: datetime) -> str:
+    """The staff counterpart of `create_attendee_session` — same shape,
+    same TTL (§8.3 sets one session lifetime, not one per principal
+    type). Called only after a successful login (M09)."""
+    raw_token = generate_session_token()
+    db.add(
+        AuthSession(
+            token_hash=hash_session_token(raw_token),
+            principal_type=PrincipalType.STAFF,
+            staff_account_id=staff_account_id,
+            issued_at=now,
+            expires_at=now + SESSION_TTL,
+        )
+    )
+    db.flush()
+    return raw_token
+
+
 def resolve_attendee_session(db: Session, raw_token: str | None) -> User:
     """The authenticated attendee, or an exception — never a guess.
 

@@ -556,13 +556,15 @@ def _count_mutating_api_routes(routes: list[Any]) -> int:
     return total
 
 
-def test_the_mutating_route_inventory_is_what_m06_expects() -> None:
+def test_the_mutating_route_inventory_is_what_m09_expects() -> None:
     assert _count_mutating_api_routes(app.routes) == len(_mutating_routes())
     assert _mutating_routes() == [
         ("POST", "/api/attendees/register"),
         ("POST", "/api/auth/logout"),
         ("POST", "/api/auth/otp/request"),
         ("POST", "/api/auth/otp/verify"),
+        ("POST", "/api/staff/auth/login"),
+        ("POST", "/api/staff/auth/logout"),
         # M06: a read, but a POST by definition (§13.1), so it is under
         # the Origin assertion like every other POST.
         ("POST", "/api/staff/scan/resolve"),
