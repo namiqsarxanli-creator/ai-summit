@@ -838,13 +838,15 @@ None.
 - **Integration:** a `PROVISIONAL` attendee cannot submit.
 - **Concurrency (real PostgreSQL):** two simultaneous first-submissions → exactly one reward row, **both feedback rows committed**.
 - **Integration:** reward row satisfies the `source='FEEDBACK'` CHECK triple and carries `dedupe_key = NULL`.
-- **Integration:** reversing a feedback award frees the partial unique index, making the attendee eligible again.
+- **Integration:** reversing a feedback award does **not** free the partial unique index — the attendee remains ineligible for a second reward at that booth; the `REVERSAL` only adjusts net points.
 - **Unit:** frontend button disabling is cosmetic — the server refuses regardless.
 
 ### Acceptance Criteria
-1. Exactly one feedback reward per `(attendee, booth)` under concurrency.
-2. Duplicate submission is a `200`, never an error.
-3. Feedback text is never lost because the reward was refused.
+1. First eligible feedback submission at a booth succeeds and is awarded.
+2. Duplicate feedback at the same booth does not produce another reward (`200`, `already_rewarded: true`, never an error).
+3. Reversal of the original reward adjusts the attendee's net points via the append-only ledger.
+4. Feedback submitted again after that reversal still does **not** produce another reward — reward eligibility is lifetime once-per-`(attendee, booth)`, not restored by reversal.
+5. Feedback text is never lost because the reward was refused.
 
 ### Explicitly Out of Scope
 Feedback moderation, per-booth reward amounts, analytics.

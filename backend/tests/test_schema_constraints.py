@@ -642,35 +642,28 @@ def test_duplicate_feedback_reward_rejected(
 def test_reversing_a_feedback_award_does_not_free_the_uniqueness_index(
     db: Session, seeded_user_id: int, seeded_booth_id: int
 ) -> None:
-    """DOCUMENTED ARCHITECTURE DISCREPANCY — reported, not silently
-    fixed (see the M02 phase report's "Deviations/clarifications").
+    """Confirms the architecture rule (ARCHITECTURE.md §7.12, corrected
+    in Phase 4.1): feedback-reward eligibility is historical/lifetime
+    once-per-`(user, booth)` within the current dataset generation, and
+    a `REVERSAL` does not restore it.
 
-    ARCHITECTURE.md §7.12 claims: "the entry_type predicate keeps
-    reversal rows out of the feedback-uniqueness index — so reversing
-    a feedback award correctly makes the attendee eligible again."
-
-    Verified against real PostgreSQL: this is NOT what happens, and
-    cannot happen with a plain partial index. The partial unique index
-    is `UNIQUE (user_id, booth_id) WHERE source='FEEDBACK' AND
-    entry_type='AWARD'`. Reversing an award does not delete or alter
-    the ORIGINAL award row — points_log is append-only by design — so
-    that original row keeps entry_type='AWARD' forever and keeps
-    occupying the (user_id, booth_id) slot in the index regardless of
-    any REVERSAL rows referencing it. A PostgreSQL partial index
-    predicate can only reference the row's OWN column values (plus
-    immutable functions/constants) — it cannot express "AWARD rows
-    that don't currently have a REVERSAL referencing them", because
-    that depends on the EXISTENCE of a different row, not on this
-    row's own data.
-
-    Re-enabling a reversed feedback reward with the current schema
-    would need a SELECT-based eligibility check before the INSERT —
-    which ARCHITECTURE.md §7.14 explicitly forbids as an enforcement
-    mechanism ("explicitly forbidden... may only be used to produce a
-    nicer message"). Resolving this needs an architecture decision
-    (e.g. scoping the index differently, or accepting that a reversed
-    feedback reward is permanently spent), not a schema change made
-    unilaterally here.
+    The partial unique index is `UNIQUE (user_id, booth_id) WHERE
+    source='FEEDBACK' AND entry_type='AWARD'`. Reversing an award does
+    not delete or alter the ORIGINAL award row — points_log is
+    append-only by design — so that original row keeps
+    entry_type='AWARD' forever and keeps occupying the (user_id,
+    booth_id) slot in the index regardless of any REVERSAL rows
+    referencing it. A PostgreSQL partial index predicate can only
+    reference the row's OWN column values (plus immutable
+    functions/constants) — it cannot express "AWARD rows that don't
+    currently have a REVERSAL referencing them", because that depends
+    on the EXISTENCE of a different row, not on this row's own data.
+    This is why "reversal frees the slot" was never implementable
+    under §7.14's constraint-only enforcement rule (no SELECT-based
+    eligibility check before the INSERT), and why the product decision
+    is instead: a reversed feedback reward is permanently spent for
+    that `(user, booth)` pair until a full demo reset replaces the
+    dataset.
     """
     row = db.execute(
         text(
@@ -688,8 +681,8 @@ def test_reversing_a_feedback_award_does_not_free_the_uniqueness_index(
         {"u": seeded_user_id, "b": seeded_booth_id, "orig": int(row[0])},
     )
     # The original AWARD row is untouched by the reversal, so it still
-    # occupies the partial index slot — a second AWARD attempt STILL
-    # collides, contrary to the architecture prose quoted above.
+    # occupies the partial index slot — a second AWARD attempt still
+    # collides, per the corrected §7.12 rule.
     with pytest.raises(IntegrityError) as exc:
         db.execute(
             text(

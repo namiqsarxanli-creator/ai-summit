@@ -106,10 +106,11 @@ class PointsLog(IdentityPKMixin, Base):
         # Structural feedback-reward uniqueness (F, ARCHITECTURE.md
         # §7.12) — NOT string-based like dedupe_key, so a bug in key
         # construction can never disable the invariant it protects.
-        # Restricted to entry_type='AWARD' so a REVERSAL of a feedback
-        # award frees the index again, correctly making the attendee
-        # eligible once more rather than being blocked by their own
-        # reversed row.
+        # Restricted to entry_type='AWARD' so REVERSAL rows never
+        # collide with each other; the original AWARD row is never
+        # mutated or deleted, so it keeps occupying the slot even
+        # after being reversed — eligibility is lifetime once-per-
+        # (user, booth), not restored by a REVERSAL.
         Index(
             "uq_points_feedback_user_booth",
             "user_id",
