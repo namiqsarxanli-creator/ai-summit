@@ -28,6 +28,17 @@ export function fetchBooths(): Promise<ApiResult<Booth[]>> {
   return apiGet<Booth[]>("/api/booths");
 }
 
+// M08's booth detail screen ("tasks and location"). A task carries no
+// point value — that is a staff-side preset allow-list, not part of
+// its own description, and not this milestone's to expose.
+export type BoothTask = { title: string; description: string | null };
+
+export type BoothDetail = Booth & { description: string | null; tasks: BoothTask[] };
+
+export function fetchBoothDetail(slug: string): Promise<ApiResult<BoothDetail>> {
+  return apiGet<BoothDetail>(`/api/booths/${encodeURIComponent(slug)}`);
+}
+
 // Homogeneous by construction on the server: when interests are unset,
 // EVERY recommendation carries `match: null`; otherwise none do
 // (§11.4). This only names that fact — it computes nothing.

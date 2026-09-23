@@ -66,6 +66,37 @@ class AttendeeMe(BaseModel):
     profession: str
 
 
+class ProfileInterest(BaseModel):
+    slug: str
+    name: str
+
+
+class AttendeeProfile(BaseModel):
+    """`GET /api/attendees/me/profile` (M08) — the signed-in attendee's
+    OWN private profile screen: "registration data, selected interests,
+    consent state (private view only)" (IMPLEMENTATION_PLAN.md M08).
+
+    Deliberately a SEPARATE schema from `AttendeeMe`, never derived from
+    it — the same discipline §9.3's `CardIdentity`/`PublicCard` split
+    uses: each consumer gets exactly the fields it needs, so widening
+    one can never silently widen the other. `AttendeeMe` stays exactly
+    as M05 defined it (§21.4: "deliberately minimal ... no phone, no
+    consent state") for the lightweight session-check widgets that use
+    it; this schema exists only for the one screen that is explicitly
+    the attendee's own private view of their full registration record —
+    never returned about anyone but the caller, and never part of any
+    public response (§24.19 governs PUBLIC responses only)."""
+
+    first_name: str
+    last_name: str
+    email: str
+    phone: str
+    profession: str
+    linkedin_url: str | None
+    sponsor_consent: bool
+    interests: list[ProfileInterest]
+
+
 class RegisterResponse(BaseModel):
     """Deliberately the ONLY response shape for /register, regardless
     of which of the three duplicate-email branches ran (ARCHITECTURE.md

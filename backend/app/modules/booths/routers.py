@@ -12,8 +12,12 @@ from fastapi import APIRouter
 
 from app.core.errors import BoothNotFoundError
 from app.db.session import DbSession
-from app.modules.booths.schemas import BoothDetail, BoothOut
-from app.modules.booths.service import get_active_booth_by_slug, list_active_booths
+from app.modules.booths.schemas import BoothDetail, BoothOut, BoothTask
+from app.modules.booths.service import (
+    get_active_booth_by_slug,
+    list_active_booths,
+    list_active_tasks,
+)
 
 router = APIRouter(prefix="/booths", tags=["booths"])
 
@@ -31,9 +35,11 @@ def get_booth(slug: str, db: DbSession) -> BoothDetail:
     booth = get_active_booth_by_slug(db, slug)
     if booth is None:
         raise BoothNotFoundError("No such booth.")
+    tasks = list_active_tasks(db, booth.id)
     return BoothDetail(
         slug=booth.slug,
         name=booth.name,
         description=booth.description,
         location_label=booth.location_label,
+        tasks=[BoothTask(title=t.title, description=t.description) for t in tasks],
     )

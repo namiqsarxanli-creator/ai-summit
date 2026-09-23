@@ -1,5 +1,5 @@
-"""`POST /api/attendees/register` (§8.1) and `GET /api/attendees/me`
-(M05)."""
+"""`POST /api/attendees/register` (§8.1), `GET /api/attendees/me` (M05),
+and `GET /api/attendees/me/profile` (M08)."""
 
 from __future__ import annotations
 
@@ -8,8 +8,13 @@ from fastapi import APIRouter
 from app.core.deps import ClientIp, CurrentAttendee
 from app.core.ratelimit import REGISTER_PER_IP, limiter
 from app.db.session import DbSession, mutating_transaction
-from app.modules.attendees.schemas import AttendeeMe, RegisterRequest, RegisterResponse
-from app.modules.attendees.service import register_attendee
+from app.modules.attendees.schemas import (
+    AttendeeMe,
+    AttendeeProfile,
+    RegisterRequest,
+    RegisterResponse,
+)
+from app.modules.attendees.service import attendee_profile, register_attendee
 from app.modules.auth.otp_delivery import deliver_otp
 
 router = APIRouter(prefix="/attendees", tags=["attendees"])
@@ -48,3 +53,11 @@ def me(attendee: CurrentAttendee) -> AttendeeMe:
         email=attendee.email,
         profession=attendee.profession,
     )
+
+
+@router.get("/me/profile", response_model=AttendeeProfile)
+def my_profile(attendee: CurrentAttendee, db: DbSession) -> AttendeeProfile:
+    """M08's Profile surface: "registration data, selected interests,
+    consent state (private view only)". Same session-only identity rule
+    as `/me` — read-only, no reset fence (§19.4)."""
+    return attendee_profile(db, attendee)

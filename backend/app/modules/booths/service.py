@@ -8,7 +8,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.modules.booths.models import Booth
+from app.modules.booths.models import Booth, Task
 
 # "Curated order": ARCHITECTURE.md §11.4 says booths without a
 # personalised score are shown "in curated order" and gives no other
@@ -31,3 +31,15 @@ def get_active_booth_by_slug(db: Session, slug: str) -> Booth | None:
     return db.execute(
         select(Booth).where(Booth.slug == slug, Booth.is_active.is_(True))
     ).scalar_one_or_none()
+
+
+def list_active_tasks(db: Session, booth_id: int) -> list[Task]:
+    """M08's booth detail screen (§7.9: "tasks exist so the booth
+    detail screen can tell attendees what to do")."""
+    return list(
+        db.execute(
+            select(Task)
+            .where(Task.booth_id == booth_id, Task.is_active.is_(True))
+            .order_by(Task.sort_order, Task.id)
+        ).scalars()
+    )

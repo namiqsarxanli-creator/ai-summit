@@ -6,6 +6,14 @@ import { useEffect, useState } from "react";
 import { messageFor } from "@/lib/errors";
 import { fetchSession, logout, type SessionState } from "@/lib/session";
 
+// M08 gives the signed-in attendee a proper tab bar (Home · Booths ·
+// My QR · Leaderboard · Profile — see AttendeeTabBar, rendered by
+// HomeDashboard below this panel on "/"), which supersedes the ad hoc
+// quick-link buttons this component used to carry on its own — two
+// separate ways to the same two destinations is exactly the
+// "disconnected pages" feel M08 replaces, not a redesign of what this
+// component is FOR (identity summary + sign out, unchanged).
+
 export function SessionPanel() {
   const [state, setState] = useState<SessionState>({ kind: "loading" });
   const [signingOut, setSigningOut] = useState(false);
@@ -53,18 +61,6 @@ export function SessionPanel() {
           <p className="text-sm text-slate-400">{attendee.profession}</p>
           <p className="text-sm text-slate-500">{attendee.email}</p>
         </div>
-        <Link
-          href="/my-card"
-          className="w-full rounded-lg bg-indigo-500 px-4 py-3 text-center font-semibold text-white transition-colors hover:bg-indigo-400"
-        >
-          My card &amp; QR
-        </Link>
-        <Link
-          href="/booths"
-          className="w-full rounded-lg border border-slate-700 px-4 py-3 text-center font-semibold text-slate-200 transition-colors hover:bg-slate-800"
-        >
-          Booth matches
-        </Link>
         {logoutError && (
           <p role="alert" className="text-sm text-red-300">
             {logoutError}

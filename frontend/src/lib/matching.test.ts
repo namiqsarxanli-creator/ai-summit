@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { fetchBooths, fetchRecommendations, isGeneralListing, type Recommendation } from "./matching";
+import {
+  fetchBoothDetail,
+  fetchBooths,
+  fetchRecommendations,
+  isGeneralListing,
+  type Recommendation,
+} from "./matching";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -40,6 +46,16 @@ describe("fetchBooths", () => {
     await fetchBooths();
     const [url] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("/api/booths");
+  });
+});
+
+describe("fetchBoothDetail", () => {
+  it("calls the same-origin booth detail endpoint, slug URL-encoded", async () => {
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await fetchBoothDetail("some slug/weird");
+    const [url] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("/api/booths/some%20slug%2Fweird");
   });
 });
 

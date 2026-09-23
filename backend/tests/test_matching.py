@@ -330,9 +330,24 @@ def test_booth_detail_includes_description_and_no_internal_fields(client: TestCl
     response = client.get(f"{BOOTHS}/aiworks")
     assert response.status_code == 200
     body = response.json()
-    assert set(body) == {"slug", "name", "description", "location_label"}
+    assert set(body) == {"slug", "name", "description", "location_label", "tasks"}
     for leaked in ("id", "is_active", "allow_repeat_task_points"):
         assert leaked not in body
+
+
+def test_booth_detail_tasks_match_the_seeded_catalogue(client: TestClient) -> None:
+    """M08: "booth detail with tasks and location" — real seed data,
+    not a placeholder list, and no point value on a task (that is a
+    staff-side preset allow-list, not owned by this screen)."""
+    response = client.get(f"{BOOTHS}/aiworks")
+    assert response.status_code == 200
+    tasks = response.json()["tasks"]
+    aiworks = fx.BOOTHS[0]
+    assert aiworks.slug == "aiworks"
+    assert [t["title"] for t in tasks] == [t.title for t in aiworks.tasks]
+    for task in tasks:
+        assert set(task) == {"title", "description"}
+        assert "points" not in task
 
 
 def test_unknown_booth_slug_is_404(client: TestClient) -> None:

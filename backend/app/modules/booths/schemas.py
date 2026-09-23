@@ -22,12 +22,23 @@ class BoothOut(_Strict):
     location_label: str | None
 
 
+class BoothTask(_Strict):
+    """A descriptive activity at the booth (§7.9: "tasks exist so the
+    booth detail screen can tell attendees what to do") — never a point
+    value, which is a staff-side preset allow-list, not part of a
+    task's own description, and not owned by M08."""
+
+    title: str
+    description: str | None
+
+
 class BoothDetail(_Strict):
-    """`GET /api/booths/{slug}` — the list shape plus the description a
-    detail view needs. No tasks yet: task listing is not part of M07's
-    scope (tasks are booth-authored config consumed starting M10/M11)."""
+    """`GET /api/booths/{slug}` — the list shape plus the description
+    and task list IMPLEMENTATION_PLAN.md M08's booth detail screen
+    needs ("booth detail with tasks and location")."""
 
     slug: str
     name: str
     description: str | None
     location_label: str | None
+    tasks: list[BoothTask]

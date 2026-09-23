@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import type { Recommendation } from "@/lib/matching";
 
 // Renders exactly what the server sent for one booth: no score is ever
@@ -9,7 +11,11 @@ export function RecommendationCard({ recommendation }: { recommendation: Recomme
     <li className="flex flex-col gap-3 rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h3 className="text-lg font-semibold text-slate-50">{booth.name}</h3>
+          <h3 className="text-lg font-semibold text-slate-50">
+            <Link href={`/booths/${encodeURIComponent(booth.slug)}`} className="hover:text-indigo-300">
+              {booth.name}
+            </Link>
+          </h3>
           {booth.location_label && <p className="text-sm text-slate-500">{booth.location_label}</p>}
         </div>
         {match && <ScoreBadge score={match.score} />}

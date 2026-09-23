@@ -33,7 +33,7 @@ from app.modules.attendees.models import (
     UserInterest,
     UserStatus,
 )
-from app.modules.attendees.schemas import RegisterRequest
+from app.modules.attendees.schemas import AttendeeProfile, ProfileInterest, RegisterRequest
 from app.modules.contact_cards.models import ContactCard
 from app.modules.interests.models import Interest
 
@@ -319,6 +319,35 @@ def verify_otp(db: Session, *, email: str, code: str) -> VerifyOutcome:
 
     raw_token = create_attendee_session(db, user_id=user.id, now=now)
     return VerifyOutcome(ok=True, user=user, session_token=raw_token)
+
+
+def attendee_profile(db: Session, user: User) -> AttendeeProfile:
+    """`GET /api/attendees/me/profile` (M08) — the ONE exception to this
+    module's "every function takes an already-fenced session" rule: a
+    pure read, so it takes NO fence (§19.4 exempts pure reads). `user`
+    comes from the caller's already-resolved session; this never
+    resolves an identity of its own.
+
+    Interests are NOT filtered by `Interest.is_active` — an attendee's
+    own historical selection stays visible on their profile even if
+    that interest is later retired from the catalogue, the same choice
+    M07's matching explanation makes for the same reason."""
+    rows = db.execute(
+        select(Interest.slug, Interest.name)
+        .join(UserInterest, UserInterest.interest_id == Interest.id)
+        .where(UserInterest.user_id == user.id)
+        .order_by(Interest.sort_order, Interest.name)
+    ).all()
+    return AttendeeProfile(
+        first_name=user.first_name,
+        last_name=user.last_name,
+        email=user.email,
+        phone=user.phone,
+        profession=user.profession,
+        linkedin_url=user.linkedin_url,
+        sponsor_consent=user.sponsor_consent,
+        interests=[ProfileInterest(slug=slug, name=name) for slug, name in rows],
+    )
 
 
 def purge_provisional(db: Session) -> int:

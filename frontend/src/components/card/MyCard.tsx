@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { AttendeeTabBar } from "@/components/nav/AttendeeTabBar";
 import type { ApiResult } from "@/lib/api";
 import { fetchMyCard, isCardUrl, type OwnCard } from "@/lib/card";
 import { messageFor } from "@/lib/errors";
@@ -89,6 +90,8 @@ export function MyCard() {
         </h2>
         <CardView card={card} heading="h2" />
       </section>
+
+      <AttendeeTabBar active="qr" />
     </div>
   );
 }

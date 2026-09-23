@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { SessionPanel } from "@/components/auth/SessionPanel";
+import { HomeDashboard } from "@/components/dashboard/HomeDashboard";
 
 // Matches the documented backend contract exactly (ARCHITECTURE.md /
 // IMPLEMENTATION_PLAN.md M01): GET /api/health -> {"status": "ok"}.
@@ -54,11 +55,13 @@ export default function Home() {
   const health = useBackendHealth();
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center gap-6 px-6 text-center">
+    <main className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center gap-6 px-6 pb-24 text-center">
       <h1 className="text-3xl font-semibold tracking-tight text-slate-50">FACEMARK</h1>
       <p className="text-sm text-slate-400">AI Summit networking — attendee registration is open.</p>
 
       <SessionPanel />
+
+      <HomeDashboard />
 
       <div className="w-full rounded-lg border border-slate-800 bg-slate-900 p-4 text-left text-sm">
         <p className="mb-2 font-medium text-slate-300">Backend connectivity (/api/health)</p>

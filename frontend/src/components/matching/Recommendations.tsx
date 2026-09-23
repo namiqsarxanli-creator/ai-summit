@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { AttendeeTabBar } from "@/components/nav/AttendeeTabBar";
 import type { ApiResult } from "@/lib/api";
 import { messageFor } from "@/lib/errors";
 import { fetchRecommendations, isGeneralListing, type Recommendation } from "@/lib/matching";
@@ -70,7 +71,12 @@ export function Recommendations() {
   const { recommendations } = state;
 
   if (recommendations.length === 0) {
-    return <p className="text-sm text-slate-500">No booths are available yet. Check back soon.</p>;
+    return (
+      <div className="flex flex-col gap-4">
+        <p className="text-sm text-slate-500">No booths are available yet. Check back soon.</p>
+        <AttendeeTabBar active="booths" />
+      </div>
+    );
   }
 
   const general = isGeneralListing(recommendations);
@@ -93,6 +99,7 @@ export function Recommendations() {
           <RecommendationCard key={r.booth.slug} recommendation={r} />
         ))}
       </ul>
+      <AttendeeTabBar active="booths" />
     </div>
   );
 }
