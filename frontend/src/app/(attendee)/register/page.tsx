@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 
 import { RegisterForm } from "@/components/registration/RegisterForm";
 
@@ -19,6 +20,12 @@ export default function RegisterPage() {
         <p className="text-sm text-slate-400">
           Register once to get your networking card and personalised booth recommendations.
           We&apos;ll email you a code to confirm it&apos;s really you.
+        </p>
+        <p className="text-sm text-slate-400">
+          Already registered?{" "}
+          <Link href="/login" className="font-medium text-indigo-300 hover:text-indigo-200">
+            Sign in
+          </Link>
         </p>
       </header>
       <RegisterForm />

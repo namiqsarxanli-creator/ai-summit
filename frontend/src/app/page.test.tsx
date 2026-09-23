@@ -7,11 +7,19 @@ describe("Home", () => {
   beforeEach(() => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () =>
-        new Response(JSON.stringify({ status: "ok" }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        })
+      vi.fn(async (url: string) =>
+        url === "/api/attendees/me"
+          ? // The home page also resolves the session (M05); signed out here.
+            new Response(
+              JSON.stringify({
+                error: { code: "UNAUTHENTICATED", message: "", details: {}, correlation_id: "c" },
+              }),
+              { status: 401, headers: { "Content-Type": "application/json" } },
+            )
+          : new Response(JSON.stringify({ status: "ok" }), {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            })
       )
     );
   });

@@ -1,0 +1,183 @@
+"use client";
+
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { type ChangeEvent, type FormEvent, useState } from "react";
+
+import { isSixDigitCode } from "@/components/registration/validation";
+import { TextField } from "@/components/ui/TextField";
+import { apiPost } from "@/lib/api";
+import { messageFor } from "@/lib/errors";
+
+const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Mirrors the server's non-enumerating copy (§8.2): the UI never claims
+// to know whether the address is registered.
+const CODE_SENT = "If this email is registered, we've sent a 6-digit sign-in code.";
+
+type Step = "email" | "code";
+
+export function LoginForm() {
+  const router = useRouter();
+  const [step, setStep] = useState<Step>("email");
+  const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
+  const [fieldError, setFieldError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function requestCode(): Promise<boolean> {
+    setBusy(true);
+    const result = await apiPost<{ message: string }>("/api/auth/otp/request", {
+      email: email.trim(),
+    });
+    setBusy(false);
+    if (!result.ok) {
+      setFormError(messageFor(result.error.code));
+      return false;
+    }
+    setNotice(CODE_SENT);
+    return true;
+  }
+
+  async function onRequest(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setFormError(null);
+    setNotice(null);
+    if (!EMAIL_SHAPE.test(email.trim())) {
+      setFieldError("Enter the email you registered with.");
+      return;
+    }
+    setFieldError(null);
+    if (await requestCode()) setStep("code");
+  }
+
+  async function onVerify(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setFormError(null);
+    if (!isSixDigitCode(code)) {
+      setFieldError("Enter the 6-digit code from your email.");
+      return;
+    }
+    setFieldError(null);
+    setBusy(true);
+    const result = await apiPost<{ status: string }>("/api/auth/otp/verify", {
+      email: email.trim(),
+      code,
+    });
+    setBusy(false);
+    if (result.ok) {
+      router.push("/");
+      return;
+    }
+    if (result.error.code === "OTP_INVALID") setCode("");
+    setNotice(null);
+    setFormError(messageFor(result.error.code));
+  }
+
+  async function onResend() {
+    setFormError(null);
+    setNotice(null);
+    setCode("");
+    await requestCode();
+  }
+
+  const banners = (
+    <>
+      {notice && (
+        <p role="status" className="rounded-lg border border-indigo-500/40 bg-indigo-500/10 p-3 text-sm text-indigo-200">
+          {notice}
+        </p>
+      )}
+      {formError && (
+        <p role="alert" className="rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-300">
+          {formError}
+        </p>
+      )}
+    </>
+  );
+
+  if (step === "email") {
+    return (
+      <form noValidate onSubmit={onRequest} className="flex flex-col gap-6" aria-busy={busy}>
+        <TextField
+          id="email"
+          label="Email"
+          type="email"
+          autoComplete="email"
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+          error={fieldError ?? undefined}
+        />
+        {banners}
+        <button
+          type="submit"
+          disabled={busy}
+          className="rounded-lg bg-indigo-500 px-4 py-3 font-semibold text-white transition-colors hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {busy ? "Sending…" : "Send me a sign-in code"}
+        </button>
+        <p className="text-center text-sm text-slate-400">
+          New here?{" "}
+          <Link href="/register" className="font-medium text-indigo-300 hover:text-indigo-200">
+            Register as an attendee
+          </Link>
+        </p>
+      </form>
+    );
+  }
+
+  return (
+    <form noValidate onSubmit={onVerify} className="flex flex-col gap-6" aria-busy={busy}>
+      <p className="text-sm text-slate-400">
+        Signing in as <span className="font-medium text-slate-200">{email.trim()}</span>
+      </p>
+      <TextField
+        id="code"
+        label="Sign-in code"
+        inputMode="numeric"
+        autoComplete="one-time-code"
+        placeholder="000000"
+        maxLength={6}
+        value={code}
+        onChange={(event: ChangeEvent<HTMLInputElement>) =>
+          setCode(event.target.value.replace(/\D/g, "").slice(0, 6))
+        }
+        error={fieldError ?? undefined}
+        hint="The code expires 10 minutes after it was sent."
+        className="text-center font-mono text-2xl tracking-[0.5em]"
+      />
+      {banners}
+      <button
+        type="submit"
+        disabled={busy}
+        className="rounded-lg bg-indigo-500 px-4 py-3 font-semibold text-white transition-colors hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {busy ? "Signing in…" : "Sign in"}
+      </button>
+      <div className="flex justify-between text-sm">
+        <button
+          type="button"
+          onClick={() => {
+            setStep("email");
+            setCode("");
+            setNotice(null);
+            setFormError(null);
+            setFieldError(null);
+          }}
+          className="font-medium text-slate-400 hover:text-slate-200"
+        >
+          Use a different email
+        </button>
+        <button
+          type="button"
+          onClick={onResend}
+          disabled={busy}
+          className="font-medium text-indigo-300 hover:text-indigo-200 disabled:opacity-60"
+        >
+          Send a new code
+        </button>
+      </div>
+    </form>
+  );
+}

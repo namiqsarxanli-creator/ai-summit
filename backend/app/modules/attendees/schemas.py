@@ -53,6 +53,19 @@ class RegisterRequest(BaseModel):
         return v
 
 
+class AttendeeMe(BaseModel):
+    """`GET /api/attendees/me` — the signed-in attendee's own identity,
+    for the frontend's authenticated state. Deliberately minimal:
+    no internal id, no phone, no consent state, nothing about the
+    session itself (§21.4: "Output schemas are explicit, so a model
+    gaining a sensitive column does not silently start leaking it")."""
+
+    first_name: str
+    last_name: str
+    email: str
+    profession: str
+
+
 class RegisterResponse(BaseModel):
     """Deliberately the ONLY response shape for /register, regardless
     of which of the three duplicate-email branches ran (ARCHITECTURE.md

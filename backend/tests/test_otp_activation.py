@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import hashlib
 import threading
-import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -25,7 +24,8 @@ from pydantic import ValidationError
 from sqlalchemy.exc import OperationalError
 
 from app import cli as app_cli
-from app.core.config import Settings, get_settings
+from app.core import sessions as sessions_module
+from app.core.config import Settings
 from app.core.locks import FACEMARK_RESET_FENCE
 from app.db.session import SessionLocal, mutating_transaction
 from app.modules.attendees import service as attendees_service
@@ -34,15 +34,18 @@ from app.modules.attendees.service import (
     OTP_MAX_ATTEMPTS,
     PendingOtpDelivery,
     VerifyOutcome,
-    verify_activation_otp,
+    verify_otp,
 )
 from app.modules.auth import otp_delivery
 from tests.m04_support import (
+    PSYCOPG_URL,
+    assert_fenced_before_any_read,
     captured_otp,
     cleanup_email,
     execute,
     fetch_all,
     fetch_one,
+    make_client,
     new_email,
     register_payload,
 )
@@ -50,8 +53,6 @@ from tests.m04_support import (
 REGISTER = "/api/attendees/register"
 OTP_REQUEST = "/api/auth/otp/request"
 VERIFY = "/api/auth/otp/verify"
-
-_PSYCOPG_URL = get_settings().database_url.replace("postgresql+psycopg://", "postgresql://")
 
 
 def _register(client: TestClient, email: str, **overrides: Any) -> None:
@@ -349,22 +350,28 @@ def test_malformed_code_is_a_validation_error(
         assert bad_code not in str(response.json()["error"]["details"])
 
 
-def test_login_code_cannot_activate_through_this_endpoint(
+def test_login_code_from_the_active_branch_signs_in_without_reactivating(
     client: TestClient, unique_email: str, otp_log: pytest.LogCaptureFixture
 ) -> None:
-    """§8.2: "purpose exists so an activation code cannot be replayed as
-    a login code, or vice versa". Completing a LOGIN-purpose code is
-    M05 scope; M04's verify only ever consumes ACTIVATION challenges."""
+    """Supersedes M04's scope-boundary test ("a LOGIN code is refused —
+    completing login is M05 scope"): M05 completes it. The LOGIN code
+    that registration's ACTIVE branch sends (§8.1 Step 2) now signs the
+    attendee in with a new session — and does NOT re-run activation
+    (activated_at is untouched). Cross-purpose refusal (§8.2) is proven
+    in test_auth_session.py."""
     _register(client, unique_email)
-    code = captured_otp(otp_log.records, unique_email)
-    client.post(VERIFY, json={"email": unique_email, "code": code})
+    client.post(
+        VERIFY, json={"email": unique_email, "code": captured_otp(otp_log.records, unique_email)}
+    )
+    activated_at = _user(unique_email).activated_at
     _register(client, unique_email)  # ACTIVE branch -> LOGIN code
     login_code = captured_otp(otp_log.records, unique_email, purpose="LOGIN")
 
     response = client.post(VERIFY, json={"email": unique_email, "code": login_code})
-    assert _error(response)[:2] == (400, "OTP_INVALID")
-    assert _challenge(unique_email, purpose="LOGIN").consumed_at is None
-    assert len(_sessions(_user(unique_email).id)) == 1  # only the activation session
+    assert response.status_code == 200
+    assert _challenge(unique_email, purpose="LOGIN").consumed_at is not None
+    assert len(_sessions(_user(unique_email).id)) == 2  # activation session + login session
+    assert _user(unique_email).activated_at == activated_at
 
 
 # --------------------------------------------------------------------------
@@ -431,7 +438,7 @@ def _verify_in_own_transaction(email: str, code: str, barrier: threading.Barrier
     try:
         barrier.wait()
         with mutating_transaction(session) as tx:
-            return verify_activation_otp(tx, email=email, code=code)
+            return verify_otp(tx, email=email, code=code)
     finally:
         session.close()
 
@@ -505,63 +512,11 @@ def test_parallel_wrong_guesses_cannot_race_past_the_attempt_cap(
 # Reset fence: acquired before the first reset-sensitive read (§19.4, #29)
 # --------------------------------------------------------------------------
 
-_APP_TABLE_LOCKS_WHILE_WAITING_ON_FENCE = """
-SELECT count(*) FROM pg_locks rel
-JOIN pg_locks adv ON adv.pid = rel.pid AND adv.locktype = 'advisory' AND NOT adv.granted
-WHERE rel.locktype = 'relation' AND rel.granted
-  AND rel.relation IN (
-      'users'::regclass, 'otp_challenges'::regclass, 'interests'::regclass,
-      'user_interests'::regclass, 'contact_cards'::regclass, 'consent_audit'::regclass,
-      'sessions'::regclass
-  )
-"""
-
-
-def _assert_fenced_before_any_read(call: Callable[[], Response]) -> Response:
-    """Holds the EXCLUSIVE side of the reset fence (as demo reset will,
-    M15), fires the request, and — while it is blocked — inspects
-    pg_locks: the blocked backend must hold no lock on ANY application
-    table. Merely blocking would prove the fence exists; holding zero
-    relation locks while blocked proves it comes BEFORE the first
-    reset-sensitive read, which is exactly invariant #29. The lock is
-    then released and the request must complete normally."""
-    holder = psycopg.connect(_PSYCOPG_URL)
-    holder.autocommit = True
-    with holder.cursor() as cur:
-        cur.execute("SELECT pg_advisory_lock(%s)", (FACEMARK_RESET_FENCE,))
-
-    result: dict[str, Response] = {}
-    worker = threading.Thread(target=lambda: result.setdefault("r", call()))
-    try:
-        worker.start()
-        with psycopg.connect(_PSYCOPG_URL, autocommit=True) as probe, probe.cursor() as cur:
-            deadline = time.monotonic() + 1.5
-            waiting = 0
-            while time.monotonic() < deadline and not waiting:
-                cur.execute(
-                    "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND NOT granted"
-                )
-                row = cur.fetchone()
-                waiting = row[0] if row else 0
-                time.sleep(0.02)
-            assert waiting >= 1, "request never reached the fence"
-            cur.execute(_APP_TABLE_LOCKS_WHILE_WAITING_ON_FENCE)
-            row = cur.fetchone()
-            assert row is not None and row[0] == 0, (
-                "a reset-sensitive table was read before the fence was acquired"
-            )
-    finally:
-        with holder.cursor() as cur:
-            cur.execute("SELECT pg_advisory_unlock(%s)", (FACEMARK_RESET_FENCE,))
-        holder.close()
-        worker.join(timeout=15)
-    return result["r"]
-
 
 def test_register_acquires_the_fence_before_any_read(
     client: TestClient, unique_email: str, otp_log: pytest.LogCaptureFixture
 ) -> None:
-    response = _assert_fenced_before_any_read(
+    response = assert_fenced_before_any_read(
         lambda: client.post(REGISTER, json=register_payload(unique_email))
     )
     assert response.status_code == 200
@@ -572,7 +527,7 @@ def test_otp_request_acquires_the_fence_before_any_read(
     client: TestClient, unique_email: str, otp_log: pytest.LogCaptureFixture
 ) -> None:
     _register(client, unique_email)
-    response = _assert_fenced_before_any_read(
+    response = assert_fenced_before_any_read(
         lambda: client.post(OTP_REQUEST, json={"email": unique_email})
     )
     assert response.status_code == 200
@@ -583,7 +538,7 @@ def test_otp_verify_acquires_the_fence_before_any_read(
 ) -> None:
     _register(client, unique_email)
     code = captured_otp(otp_log.records, unique_email)
-    response = _assert_fenced_before_any_read(
+    response = assert_fenced_before_any_read(
         lambda: client.post(VERIFY, json={"email": unique_email, "code": code})
     )
     assert response.status_code == 200
@@ -595,7 +550,7 @@ def test_fence_timeout_maps_to_maintenance_and_writes_nothing(
 ) -> None:
     """§19.4: a mutation whose lock_timeout (2 s) expires while reset
     holds the fence "returns MAINTENANCE" — and has written nothing."""
-    holder = psycopg.connect(_PSYCOPG_URL)
+    holder = psycopg.connect(PSYCOPG_URL)
     holder.autocommit = True
     try:
         with holder.cursor() as cur:
@@ -621,13 +576,12 @@ def test_registration_rolls_back_completely_on_failure(
     """User, interests, consent audit and card are one transaction
     (§8.1) — a failure while issuing the OTP must leave none of them
     behind, and the client sees only the generic INTERNAL_ERROR."""
-    from app.main import app
 
     def boom(*args: Any, **kwargs: Any) -> None:
         raise RuntimeError("simulated failure after the user row was written")
 
     monkeypatch.setattr(attendees_service, "issue_otp", boom)
-    with TestClient(app, raise_server_exceptions=False) as c:
+    with make_client(raise_server_exceptions=False) as c:
         response = c.post(REGISTER, json=register_payload(unique_email, sponsor_consent=True))
 
     assert _error(response) == (500, "INTERNAL_ERROR", "An unexpected error occurred.")
@@ -652,7 +606,6 @@ def test_activation_rolls_back_completely_on_failure(
     """§8.1 Step 3: "Either everything commits or nothing does" — a
     failure while creating the session must leave the challenge
     unconsumed and the attendee PROVISIONAL."""
-    from app.main import app
 
     _register(client, unique_email)
     code = captured_otp(otp_log.records, unique_email)
@@ -660,8 +613,8 @@ def test_activation_rolls_back_completely_on_failure(
     def boom() -> str:
         raise RuntimeError("simulated failure while creating the session")
 
-    monkeypatch.setattr(attendees_service, "generate_session_token", boom)
-    with TestClient(app, raise_server_exceptions=False) as c:
+    monkeypatch.setattr(sessions_module, "generate_session_token", boom)
+    with make_client(raise_server_exceptions=False) as c:
         response = c.post(VERIFY, json={"email": unique_email, "code": code})
 
     assert response.status_code == 500
@@ -727,7 +680,7 @@ def test_purge_provisional_goes_through_the_fence() -> None:
     """Run standalone, purge can race live registrations, so it takes
     the shared fence too: with reset holding it, purge times out
     rather than deleting anything."""
-    holder = psycopg.connect(_PSYCOPG_URL)
+    holder = psycopg.connect(PSYCOPG_URL)
     holder.autocommit = True
     try:
         with holder.cursor() as cur:

@@ -1,24 +1,26 @@
 """Application configuration.
 
-M01 scope only: the handful of settings the foundation actually needs
-(app environment awareness and database connectivity). Later milestones
-add their own required settings here as those features are built —
-never with a fallback default for anything security-sensitive
-(ARCHITECTURE.md invariant #14: "No secret has a source-code fallback
-default. Missing configuration fails at startup.").
+Each milestone adds the settings its features need — never with a
+fallback default for anything security-sensitive (ARCHITECTURE.md
+invariant #14: "No secret has a source-code fallback default. Missing
+configuration fails at startup.").
 
-Both fields below are REQUIRED (no default). Removing either from the
-environment causes Settings() to raise a pydantic ValidationError,
-which FastAPI's app-factory lets propagate — the process refuses to
-start rather than silently falling back to a guessed value.
+ENVIRONMENT, DATABASE_URL and APP_ORIGIN are REQUIRED (no default).
+Removing any of them causes Settings() to raise a pydantic
+ValidationError, which FastAPI's app-factory lets propagate — the
+process refuses to start rather than silently guessing. DEMO_MODE and
+TRUSTED_PROXY_CIDRS default to their safe values (off / trust nothing).
 """
 
 from __future__ import annotations
 
 from functools import lru_cache
+from urllib.parse import urlsplit
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from app.core.proxy import Network, parse_trusted_cidrs
 
 
 class Settings(BaseSettings):
@@ -47,9 +49,48 @@ class Settings(BaseSettings):
     # secret, so unlike the fields above it is allowed a default.
     demo_mode: bool = False
 
+    # The browser-facing origin, e.g. "http://localhost:3000" or
+    # "https://summit.example.org". ARCHITECTURE.md §8.3.1: every
+    # mutating request's Origin/Referer must match "the configured
+    # application origin". No default: a guessed origin would either
+    # reject every legitimate request or accept a forged one.
+    app_origin: str = Field(...)
+
+    # ARCHITECTURE.md §21.7.1: "TRUSTED_PROXY_CIDRS defaults to empty —
+    # trust nothing until it is configured." Comma-separated CIDRs.
+    trusted_proxy_cidrs: str = ""
+
+    @field_validator("app_origin")
+    @classmethod
+    def _normalise_origin(cls, value: str) -> str:
+        parts = urlsplit(value.strip())
+        if parts.scheme not in ("http", "https") or not parts.netloc:
+            raise ValueError("APP_ORIGIN must look like https://host[:port]")
+        if parts.path not in ("", "/") or parts.query or parts.fragment:
+            raise ValueError("APP_ORIGIN must be an origin only — no path, query or fragment")
+        return f"{parts.scheme}://{parts.netloc}".lower()
+
+    @field_validator("trusted_proxy_cidrs")
+    @classmethod
+    def _validate_cidrs(cls, value: str) -> str:
+        parse_trusted_cidrs(value)  # raises on anything malformed — fail at startup
+        return value
+
     @property
     def is_production(self) -> bool:
         return self.environment.lower() == "production"
+
+    @property
+    def trusted_proxies(self) -> tuple[Network, ...]:
+        return parse_trusted_cidrs(self.trusted_proxy_cidrs)
+
+    @property
+    def serves_https(self) -> bool:
+        """§8.3: the session cookie is `Secure` "when served over
+        HTTPS". The browser reaches the app at APP_ORIGIN, so its scheme
+        is what decides — not the scheme of the internal proxy hop,
+        which is plain HTTP even when the public site is HTTPS."""
+        return self.app_origin.startswith("https://")
 
     @model_validator(mode="after")
     def _demo_mode_never_in_production(self) -> Settings:

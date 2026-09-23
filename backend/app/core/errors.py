@@ -16,11 +16,28 @@ own ad hoc constraint-name comparison.
 from __future__ import annotations
 
 import logging
+import uuid
 from typing import Final
 
 from sqlalchemy.exc import IntegrityError
 
 logger = logging.getLogger(__name__)
+
+
+def error_envelope(
+    code: str, message: str, *, details: dict[str, object] | None = None
+) -> dict[str, object]:
+    """ARCHITECTURE.md §20.2's single failure shape. `correlation_id`
+    lets a developer find the server-side log entry from what the
+    client saw, without the client ever seeing internals."""
+    return {
+        "error": {
+            "code": code,
+            "message": message,
+            "details": details or {},
+            "correlation_id": str(uuid.uuid4()),
+        }
+    }
 
 
 class DomainError(Exception):
@@ -85,6 +102,36 @@ class OtpInvalidError(DomainError):
 
     code = "OTP_INVALID"
     status_code = 400
+
+
+class UnauthenticatedError(DomainError):
+    """ARCHITECTURE.md §20.3: UNAUTHENTICATED, 401 — "Missing, expired
+    or revoked session." Deliberately one code for all three, and for a
+    session of the wrong principal type: which of them it was is not
+    the client's business."""
+
+    code = "UNAUTHENTICATED"
+    status_code = 401
+
+
+class RegistrationNotVerifiedError(DomainError):
+    """ARCHITECTURE.md §20.3: REGISTRATION_NOT_VERIFIED, 403 — "Action
+    requires an ACTIVE attendee (§8.1)"."""
+
+    code = "REGISTRATION_NOT_VERIFIED"
+    status_code = 403
+
+
+class RateLimitedError(DomainError):
+    """ARCHITECTURE.md §20.3: RATE_LIMITED, 429 — "Throttle exceeded".
+    `retry_after` (seconds) is surfaced as a Retry-After header."""
+
+    code = "RATE_LIMITED"
+    status_code = 429
+
+    def __init__(self, retry_after: int, message: str | None = None) -> None:
+        super().__init__(message or "Too many requests. Please wait and try again.")
+        self.retry_after = retry_after
 
 
 class MaintenanceError(DomainError):

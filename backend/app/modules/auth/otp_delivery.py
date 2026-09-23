@@ -43,8 +43,11 @@ def deliver_otp(delivery: PendingOtpDelivery) -> None:
     # path, gated on DEMO_MODE and unreachable in production (see
     # Settings._demo_mode_never_in_production). ARCHITECTURE.md §21.11
     # forbids logging OTP codes in general — this is the one, explicit,
-    # documented exception, never active outside DEMO_MODE.
-    logger.info(
+    # documented exception, never active outside DEMO_MODE. DEBUG, not
+    # INFO: §21.11 also keeps full email addresses out of INFO-level
+    # logs; main._configure_logging opens this logger to DEBUG only in
+    # DEMO_MODE.
+    logger.debug(
         "[DEMO_MODE] OTP for %s (purpose=%s): %s",
         delivery.email,
         delivery.purpose.value,

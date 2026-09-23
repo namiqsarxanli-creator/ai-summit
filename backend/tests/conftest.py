@@ -10,17 +10,33 @@ from fastapi.testclient import TestClient
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.core.ratelimit import limiter
 from app.db import all_models  # noqa: F401 — registers every model with Base.metadata
 from app.db.session import SessionLocal
-from tests.m04_support import OTP_LOGGER, cleanup_email, new_email
+from tests.m04_support import OTP_LOGGER, cleanup_email, make_client, new_email
 
 
 @pytest.fixture
 def client() -> Iterator[TestClient]:
-    from app.main import app
-
-    with TestClient(app) as c:
+    """Behaves like the real same-origin frontend: every request carries
+    the configured `Origin`, as a browser on APP_ORIGIN does (§8.3.1).
+    CSRF tests that need a foreign or missing origin override it."""
+    with make_client() as c:
         yield c
+
+
+@pytest.fixture(autouse=True)
+def isolated_rate_limiter() -> Iterator[None]:
+    """The limiter is in-process state (§21.7's demo adapter): reset it
+    around every test, and freeze its clock so no window can roll over
+    mid-test and make a limit assertion flaky. Tests that need time to
+    move set `limiter.clock` themselves."""
+    real_clock = limiter.clock
+    limiter.reset()
+    limiter.clock = lambda: 1_800_000_000.0
+    yield
+    limiter.reset()
+    limiter.clock = real_clock
 
 
 @pytest.fixture
@@ -35,8 +51,9 @@ def unique_email() -> Iterator[str]:
 @pytest.fixture
 def otp_log(caplog: pytest.LogCaptureFixture) -> pytest.LogCaptureFixture:
     """Captures the DEMO_MODE delivery adapter's log line — the only
-    place a plaintext OTP ever exists outside the request that made it."""
-    caplog.set_level(logging.INFO, logger=OTP_LOGGER)
+    place a plaintext OTP ever exists outside the request that made it.
+    DEBUG: the line carries a full email, which §21.11 keeps out of INFO."""
+    caplog.set_level(logging.DEBUG, logger=OTP_LOGGER)
     return caplog
 
 

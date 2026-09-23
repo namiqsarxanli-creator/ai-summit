@@ -1,14 +1,30 @@
-"""`POST /api/auth/otp/request` and `POST /api/auth/otp/verify` —
-ARCHITECTURE.md §8.2, §8.1 Step 3, §8.3.
+"""`POST /api/auth/otp/request`, `POST /api/auth/otp/verify`,
+`POST /api/auth/logout` — ARCHITECTURE.md §8.1-§8.3, §21.7.
+
+Ordering in every handler: rate-limit checks (in-memory, touch no
+application data) -> `mutating_transaction` (the reset fence is its
+first statement) -> every authoritative read and write -> commit ->
+post-commit side effects (OTP delivery, cookie). §19.4 permits only
+dataset-independent work before the fence; nothing here reads the
+database outside it.
 """
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, Response
 
+from app.core.deps import ClientIp, SessionToken
 from app.core.errors import OtpInvalidError
+from app.core.ratelimit import (
+    OTP_REQUEST_PER_EMAIL,
+    OTP_REQUEST_PER_IP,
+    OTP_VERIFY_PER_EMAIL,
+    OTP_VERIFY_PER_IP,
+    limiter,
+)
+from app.core.sessions import clear_session_cookie, revoke_session, set_session_cookie
 from app.db.session import DbSession, mutating_transaction
-from app.modules.attendees.service import SESSION_TTL_HOURS, verify_activation_otp
+from app.modules.attendees.service import verify_otp
 from app.modules.auth.otp_delivery import deliver_otp
 from app.modules.auth.schemas import (
     OtpRequestRequest,
@@ -20,17 +36,17 @@ from app.modules.auth.service import request_otp
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-# No architecture-mandated name exists for the cookie itself (only its
-# attributes are specified, §8.3) — chosen once here so M05 has a
-# single, already-established name for logout/session-resolution to
-# reference rather than inventing its own.
-SESSION_COOKIE_NAME = "session"
-
 
 @router.post("/otp/request", response_model=OtpRequestResponse)
-def otp_request(payload: OtpRequestRequest, db: DbSession) -> OtpRequestResponse:
+def otp_request(payload: OtpRequestRequest, db: DbSession, ip: ClientIp) -> OtpRequestResponse:
+    """Returning-attendee login step 1 (and activation re-send). The
+    per-email limit applies whether or not the address is registered,
+    so the throttle itself is no membership oracle."""
+    email = payload.email.strip().lower()
+    limiter.check([(OTP_REQUEST_PER_EMAIL, email), (OTP_REQUEST_PER_IP, ip)])
+
     with mutating_transaction(db) as tx:
-        delivery = request_otp(tx, payload.email)
+        delivery = request_otp(tx, email)
 
     if delivery is not None:
         deliver_otp(delivery)
@@ -40,16 +56,18 @@ def otp_request(payload: OtpRequestRequest, db: DbSession) -> OtpRequestResponse
 
 @router.post("/otp/verify", response_model=OtpVerifyResponse)
 def otp_verify(
-    payload: OtpVerifyRequest, request: Request, response: Response, db: DbSession
+    payload: OtpVerifyRequest, response: Response, db: DbSession, ip: ClientIp
 ) -> OtpVerifyResponse:
-    """ARCHITECTURE.md §8.1 Step 3: consume the challenge, activate the
-    attendee and create the session, all in one transaction. A wrong
-    code still commits (its `attempt_count` increment must persist,
-    §8.2) — only AFTER the transaction exits does a failed outcome
-    become the client-visible `OTP_INVALID` (see VerifyOutcome's
-    docstring for why this can't be raised from inside the fence)."""
+    """Completes activation (PROVISIONAL, §8.1 Step 3) or login
+    (ACTIVE, M05) — the server picks which from the attendee's state.
+    A wrong code still commits its `attempt_count` increment (§8.2), so
+    failure becomes the client-visible OTP_INVALID only AFTER the
+    transaction has committed."""
+    email = payload.email.strip().lower()
+    limiter.check([(OTP_VERIFY_PER_EMAIL, email), (OTP_VERIFY_PER_IP, ip)])
+
     with mutating_transaction(db) as tx:
-        outcome = verify_activation_otp(tx, email=payload.email, code=payload.code)
+        outcome = verify_otp(tx, email=email, code=payload.code)
 
     if not outcome.ok:
         raise OtpInvalidError(
@@ -57,14 +75,17 @@ def otp_verify(
         )
 
     assert outcome.session_token is not None  # ok=True always carries one
-
-    response.set_cookie(
-        key=SESSION_COOKIE_NAME,
-        value=outcome.session_token,
-        httponly=True,
-        samesite="lax",
-        secure=request.url.scheme == "https",
-        path="/",
-        max_age=SESSION_TTL_HOURS * 3600,
-    )
+    set_session_cookie(response, outcome.session_token)
     return OtpVerifyResponse()
+
+
+@router.post("/logout", status_code=204)
+def logout(response: Response, db: DbSession, token: SessionToken) -> None:
+    """§8.3: "Logout revokes server-side (revoked_at), so the token is
+    dead immediately." Idempotent: with no live session there is
+    nothing to revoke, and the cookie is cleared either way. The token
+    is taken from the cookie before the fence (extraction is pure work,
+    §19.4); the session row is only read and revoked inside it."""
+    with mutating_transaction(db) as tx:
+        revoke_session(tx, token)
+    clear_session_cookie(response)

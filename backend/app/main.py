@@ -19,7 +19,6 @@ need appears.
 from __future__ import annotations
 
 import logging
-import uuid
 
 from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
@@ -27,7 +26,8 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.exc import OperationalError
 
 from app.core.config import get_settings
-from app.core.errors import DomainError, MaintenanceError
+from app.core.csrf import OriginAssertionMiddleware
+from app.core.errors import DomainError, MaintenanceError, RateLimitedError, error_envelope
 from app.db import all_models  # noqa: F401 — full metadata, or cross-module FKs fail at flush
 from app.db.session import database_is_reachable
 from app.modules.attendees.routers import router as attendees_router
@@ -59,23 +59,6 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-def _envelope(
-    code: str, message: str, *, details: dict[str, object] | None = None
-) -> dict[str, object]:
-    """ARCHITECTURE.md §20.2's exact envelope shape. `correlation_id`
-    lets a developer find the server-side log entry (and, for
-    INTERNAL_ERROR, the full traceback) from what the client saw,
-    without the client ever seeing internals itself."""
-    return {
-        "error": {
-            "code": code,
-            "message": message,
-            "details": details or {},
-            "correlation_id": str(uuid.uuid4()),
-        }
-    }
-
-
 def _register_exception_handlers(app: FastAPI) -> None:
     """ARCHITECTURE.md §20: one JSON envelope for every failure, three
     handlers wide enough to cover it. Introduced with the first
@@ -85,12 +68,15 @@ def _register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(DomainError)
     async def _domain_error_handler(request: Request, exc: DomainError) -> JSONResponse:
-        body = _envelope(exc.code, str(exc))
+        body = error_envelope(exc.code, str(exc))
         if exc.status_code >= 500:
             logger.error(
                 "Unhandled domain error %s on %s", exc.code, request.url.path, exc_info=exc
             )
-        return JSONResponse(status_code=exc.status_code, content=body)
+        headers = (
+            {"Retry-After": str(exc.retry_after)} if isinstance(exc, RateLimitedError) else None
+        )
+        return JSONResponse(status_code=exc.status_code, content=body, headers=headers)
 
     @app.exception_handler(RequestValidationError)
     async def _validation_error_handler(
@@ -105,7 +91,7 @@ def _register_exception_handlers(app: FastAPI) -> None:
             {"loc": list(e.get("loc", ())), "msg": e.get("msg", ""), "type": e.get("type", "")}
             for e in exc.errors()
         ]
-        body = _envelope(
+        body = error_envelope(
             "VALIDATION_ERROR",
             "The request body failed validation.",
             details={"errors": errors},
@@ -121,9 +107,9 @@ def _register_exception_handlers(app: FastAPI) -> None:
             maintenance = MaintenanceError(
                 "The service is briefly unavailable. Please try again in a moment."
             )
-            body = _envelope(maintenance.code, str(maintenance))
+            body = error_envelope(maintenance.code, str(maintenance))
             return JSONResponse(status_code=maintenance.status_code, content=body)
-        body = _envelope("INTERNAL_ERROR", "An unexpected error occurred.")
+        body = error_envelope("INTERNAL_ERROR", "An unexpected error occurred.")
         logger.error("Unhandled operational error on %s", request.url.path, exc_info=exc)
         return JSONResponse(status_code=500, content=body)
 
@@ -133,27 +119,34 @@ def _register_exception_handlers(app: FastAPI) -> None:
         # to INTERNAL_ERROR with a generic message. Stack traces are
         # never serialised to a client." — also §7.14: a raw
         # IntegrityError reaching here is a bug, logged as one.
-        body = _envelope("INTERNAL_ERROR", "An unexpected error occurred.")
+        body = error_envelope("INTERNAL_ERROR", "An unexpected error occurred.")
         logger.error("Unhandled exception on %s", request.url.path, exc_info=exc)
         return JSONResponse(status_code=500, content=body)
 
 
-def _configure_logging() -> None:
+def _configure_logging(demo_mode: bool) -> None:
     """uvicorn configures only its own loggers; without this, INFO
-    records from `app.*` (including the DEMO_MODE OTP delivery line,
-    app/modules/auth/otp_delivery.py) are silently dropped by Python's
-    WARNING-level default. Idempotent — `--reload` re-imports main."""
+    records from `app.*` are silently dropped by Python's WARNING-level
+    default. Idempotent — `--reload` re-imports main.
+
+    The DEMO_MODE OTP line (app/modules/auth/otp_delivery.py) carries a
+    full email address, which §21.11 keeps out of INFO-level logs; it is
+    written at DEBUG and that one logger is opened to DEBUG only in
+    DEMO_MODE, which config already forbids in production."""
     app_logger = logging.getLogger("app")
     if not app_logger.handlers:
         handler = logging.StreamHandler()
         handler.setFormatter(logging.Formatter("%(levelname)s:     %(name)s - %(message)s"))
         app_logger.addHandler(handler)
     app_logger.setLevel(logging.INFO)
+    logging.getLogger("app.modules.auth.otp_delivery").setLevel(
+        logging.DEBUG if demo_mode else logging.INFO
+    )
 
 
 def create_app() -> FastAPI:
     settings = get_settings()  # fails fast here if required config is missing
-    _configure_logging()
+    _configure_logging(settings.demo_mode)
 
     app = FastAPI(
         title="FACEMARK API",
@@ -167,6 +160,9 @@ def create_app() -> FastAPI:
     )
 
     _register_exception_handlers(app)
+    # §8.3.1 layer 2: Origin/Referer assertion on every mutating request,
+    # before any handler (and therefore before any fence or read) runs.
+    app.add_middleware(OriginAssertionMiddleware, allowed_origin=settings.app_origin)
     app.include_router(api_router)
     app.include_router(attendees_router, prefix="/api")
     app.include_router(auth_router, prefix="/api")

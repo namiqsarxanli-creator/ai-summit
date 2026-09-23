@@ -17,16 +17,14 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.auth_session import AuthSession, PrincipalType
-from app.core.errors import UnexpectedConstraintViolationError, UnknownInterestError
+from app.core.errors import UnknownInterestError
 from app.core.security import (
     generate_card_token,
     generate_otp_code,
-    generate_session_token,
     hash_otp_code,
-    hash_session_token,
     verify_secret,
 )
+from app.core.sessions import create_attendee_session
 from app.modules.attendees.models import (
     ConsentAudit,
     OtpChallenge,
@@ -41,7 +39,6 @@ from app.modules.interests.models import Interest
 
 OTP_EXPIRY_MINUTES = 10
 OTP_MAX_ATTEMPTS = 5
-SESSION_TTL_HOURS = 12
 PROVISIONAL_TTL_HOURS = 24
 
 # No consent-text versioning system exists yet (out of scope for M04) —
@@ -252,19 +249,31 @@ def register_attendee(db: Session, payload: RegisterRequest) -> PendingOtpDelive
     return issue_otp(db, email=email, user_id=existing.id, purpose=OtpPurpose.LOGIN)
 
 
-def verify_activation_otp(db: Session, *, email: str, code: str) -> VerifyOutcome:
-    """ARCHITECTURE.md §8.2 / §8.1 Step 3. Only ACTIVATION-purpose
-    challenges are handled here — verifying a LOGIN-purpose challenge
-    for a returning attendee is explicitly M05 scope
-    (IMPLEMENTATION_PLAN.md M04 "Explicitly Out of Scope": "login-by-OTP
-    for returning attendees beyond issuing the challenge")."""
+def verify_otp(db: Session, *, email: str, code: str) -> VerifyOutcome:
+    """ARCHITECTURE.md §8.2 verification, completing either §8.1 Step 3
+    (activation) or the returning-attendee login (M05).
+
+    The purpose is decided by the SERVER from the attendee's state,
+    never supplied by the client: a PROVISIONAL attendee can only
+    consume an ACTIVATION challenge, an ACTIVE one only a LOGIN
+    challenge. That is what §8.2 means by "verification matches on
+    purpose as well as value" — an activation code can never be
+    replayed as a login code, or vice versa. An unknown email fails
+    exactly like a wrong code (OTP_INVALID), so this is no oracle.
+    """
     normalized_email = email.strip().lower()
+
+    user = db.execute(select(User).where(User.email == normalized_email)).scalar_one_or_none()
+    if user is None:
+        return VerifyOutcome(ok=False)
+    purpose = OtpPurpose.ACTIVATION if user.status == UserStatus.PROVISIONAL else OtpPurpose.LOGIN
 
     challenge = db.execute(
         select(OtpChallenge)
         .where(
             OtpChallenge.email == normalized_email,
-            OtpChallenge.purpose == OtpPurpose.ACTIVATION,
+            OtpChallenge.user_id == user.id,
+            OtpChallenge.purpose == purpose,
             OtpChallenge.consumed_at.is_(None),
         )
         .with_for_update()
@@ -300,28 +309,15 @@ def verify_activation_otp(db: Session, *, email: str, code: str) -> VerifyOutcom
         # described pattern exactly.
         return VerifyOutcome(ok=False)
 
-    user = db.get(User, challenge.user_id)
-    if user is None:
-        raise UnexpectedConstraintViolationError("otp_challenges.user_id referenced a missing user")
-    user.status = UserStatus.ACTIVE
-    user.activated_at = now
+    if purpose == OtpPurpose.ACTIVATION:
+        user.status = UserStatus.ACTIVE
+        user.activated_at = now
+        # "Activate the contact card": the card issued at registration
+        # becomes resolvable purely because users.status is now ACTIVE —
+        # card resolution (M06) gates on that via a join, so no row in
+        # contact_cards itself needs to change here.
 
-    # "Activate the contact card": the card issued at registration
-    # becomes resolvable purely because users.status is now ACTIVE —
-    # card resolution (M06) gates on that via a join, so no row in
-    # contact_cards itself needs to change here.
-
-    raw_token = generate_session_token()
-    session = AuthSession(
-        token_hash=hash_session_token(raw_token),
-        principal_type=PrincipalType.ATTENDEE,
-        user_id=user.id,
-        issued_at=now,
-        expires_at=now + timedelta(hours=SESSION_TTL_HOURS),
-    )
-    db.add(session)
-    db.flush()
-
+    raw_token = create_attendee_session(db, user_id=user.id, now=now)
     return VerifyOutcome(ok=True, user=user, session_token=raw_token)
 
 

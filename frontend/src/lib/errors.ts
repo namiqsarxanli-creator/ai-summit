@@ -12,6 +12,9 @@ const MESSAGES: Record<string, string> = {
   OTP_INVALID:
     "That code didn't work. It may be incorrect, expired, already used, or locked after too many attempts. Check it, or request a new code.",
   MAINTENANCE: "The event system is briefly unavailable. Please try again in a moment.",
+  UNAUTHENTICATED: "Your session has ended. Please sign in again.",
+  REGISTRATION_NOT_VERIFIED: "Please verify your email to continue.",
+  CSRF_REJECTED: "This request couldn't be verified. Please reload the page and try again.",
   RATE_LIMITED: "Too many attempts. Please wait a moment and try again.",
   INTERNAL_ERROR: "Something went wrong on our side. Please try again.",
   NETWORK_ERROR: "We couldn't reach the server. Check your connection and try again.",
