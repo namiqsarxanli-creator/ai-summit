@@ -2,10 +2,10 @@
 
 The database URL comes from the same Settings object the running
 application uses (app.core.config.get_settings), not from a value
-duplicated in alembic.ini. `target_metadata` points at app.db.base.Base
-so that once M02 declares models, `alembic revision --autogenerate`
-has something to diff against; in M01 it is empty, which is correct —
-the baseline revision here is intentionally a no-op.
+duplicated in alembic.ini. `target_metadata` points at app.db.base.Base,
+fully populated by importing app.db.all_models (M02) — every domain
+module's models, imported in the one place autogenerate and the drift
+check both rely on.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ from sqlalchemy import engine_from_config, pool
 
 from alembic import context
 from app.core.config import get_settings
+from app.db import all_models  # noqa: F401 — registers every model with Base.metadata
 from app.db.base import Base
 
 config = context.config
