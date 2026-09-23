@@ -49,13 +49,16 @@ describe("SessionPanel", () => {
     expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
     // M06: the way to the attendee's own card — no id in the link.
     expect(screen.getByRole("link", { name: "My card & QR" })).toHaveAttribute("href", "/my-card");
+    // M07: the way to the attendee's personalised booth matches.
+    expect(screen.getByRole("link", { name: "Booth matches" })).toHaveAttribute("href", "/booths");
   });
 
-  it("offers no card link when signed out", async () => {
+  it("offers no card or booth-match link when signed out", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => errorResponse(401, "UNAUTHENTICATED")));
     render(<SessionPanel />);
     await screen.findByRole("link", { name: "Register as an attendee" });
     expect(screen.queryByRole("link", { name: "My card & QR" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Booth matches" })).not.toBeInTheDocument();
   });
 
   it("signs out, then confirms with the server that the session is gone", async () => {

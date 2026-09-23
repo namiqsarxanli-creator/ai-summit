@@ -59,6 +59,12 @@ export function SessionPanel() {
         >
           My card &amp; QR
         </Link>
+        <Link
+          href="/booths"
+          className="w-full rounded-lg border border-slate-700 px-4 py-3 text-center font-semibold text-slate-200 transition-colors hover:bg-slate-800"
+        >
+          Booth matches
+        </Link>
         {logoutError && (
           <p role="alert" className="text-sm text-red-300">
             {logoutError}

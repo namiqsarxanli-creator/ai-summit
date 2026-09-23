@@ -11,6 +11,8 @@ actually writes.
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
@@ -60,7 +62,9 @@ class BoothInterest(Base):
         ForeignKey("interests.id", name="fk_booth_interests_interest_id_interests"),
         primary_key=True,
     )
-    weight: Mapped[float] = mapped_column(Numeric(3, 2), nullable=False)
+    # Decimal, not float: numeric(3,2) round-trips exactly, and matching
+    # sums these weights (ARCHITECTURE.md §11.3 — no float drift).
+    weight: Mapped[Decimal] = mapped_column(Numeric(3, 2), nullable=False)
 
     __table_args__ = (CheckConstraint("weight > 0 AND weight <= 1", name="weight_range"),)
 

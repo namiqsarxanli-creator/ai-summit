@@ -33,8 +33,10 @@ from app.db import all_models  # noqa: F401 — full metadata, or cross-module F
 from app.db.session import database_is_reachable
 from app.modules.attendees.routers import router as attendees_router
 from app.modules.auth.routers import router as auth_router
+from app.modules.booths.routers import router as booths_router
 from app.modules.contact_cards.routers import router as contact_cards_router
 from app.modules.interests.routers import router as interests_router
+from app.modules.matching.routers import router as matching_router
 from app.modules.staff.routers import router as staff_router
 
 logger = logging.getLogger(__name__)
@@ -180,8 +182,10 @@ def create_app() -> FastAPI:
     app.include_router(api_router)
     app.include_router(attendees_router, prefix="/api")
     app.include_router(auth_router, prefix="/api")
+    app.include_router(booths_router, prefix="/api")
     app.include_router(contact_cards_router, prefix="/api")
     app.include_router(interests_router, prefix="/api")
+    app.include_router(matching_router, prefix="/api")
     app.include_router(staff_router, prefix="/api")
 
     return app

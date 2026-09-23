@@ -145,6 +145,19 @@ class StaffNotAuthorizedError(DomainError):
     status_code = 403
 
 
+class BoothNotFoundError(DomainError):
+    """No catalogue entry in ARCHITECTURE.md §20.3 names an unknown or
+    inactive booth specifically. M07 adds this code, following the
+    naming of the catalogue's own USER_NOT_FOUND ("referenced but
+    absent") rather than reusing a code that names the wrong entity —
+    reported in M07's final response as a documented, additive
+    gap-fill, the same category as GET /api/interests (M04) and
+    GET /api/attendees/me/card (M06)."""
+
+    code = "BOOTH_NOT_FOUND"
+    status_code = 404
+
+
 class RateLimitedError(DomainError):
     """ARCHITECTURE.md §20.3: RATE_LIMITED, 429 — "Throttle exceeded".
     `retry_after` (seconds) is surfaced as a Retry-After header."""
