@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { ScoreSummary } from "@/components/dashboard/ScoreSummary";
 import { RecommendationCard } from "@/components/matching/RecommendationCard";
 import { AttendeeTabBar } from "@/components/nav/AttendeeTabBar";
 import type { ApiResult } from "@/lib/api";
@@ -27,11 +28,14 @@ function stateFrom(result: ApiResult<Recommendation[]>): State {
 
 // M08's Home surface: "welcome/profile summary and matched booths".
 // The identity/profile summary is `SessionPanel` (M05, already on this
-// page); this component adds the matched-booths preview, an honest
-// points placeholder, and the tab bar. It fetches its OWN data — the
-// same recommendations M07 already exposes — rather than sharing
-// SessionPanel's session fetch, mirroring how every other M06/M07
-// surface independently authenticates itself from its own endpoint.
+// page); this component adds the matched-booths preview and the tab
+// bar. The points summary (M13, `ScoreSummary`) fetches its own real
+// score independently, the same way `FeedbackForm` (M12) independently
+// checks its own session — this component's recommendations fetch is
+// unrelated. It fetches its OWN recommendations data — the same M07
+// already exposes — rather than sharing SessionPanel's session fetch,
+// mirroring how every other M06/M07 surface independently
+// authenticates itself from its own endpoint.
 export function HomeDashboard() {
   const [state, setState] = useState<State>({ kind: "loading" });
 
@@ -71,18 +75,7 @@ export function HomeDashboard() {
 
   return (
     <div className="flex w-full flex-col gap-6 text-left">
-      <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-          Your points
-        </p>
-        {/* IMPLEMENTATION_PLAN.md M08: "score/leaderboard placeholders
-            state honestly that data is not yet available — no zeros
-            presented as real, no mock data." Points come from M11/M13,
-            not yet built. */}
-        <p className="mt-1 text-sm text-slate-400">
-          Points tracking starts once the summit opens — check back soon.
-        </p>
-      </section>
+      <ScoreSummary />
 
       <section className="flex flex-col gap-3">
         <div className="flex items-center justify-between gap-3">

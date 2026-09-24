@@ -257,6 +257,23 @@ class AwardInProgressError(DomainError):
         super().__init__("This award is already being processed. Please try again.")
 
 
+class InvalidCursorError(DomainError):
+    """M13: the `cursor` query parameter on `GET /api/leaderboard`
+    (show-all view) failed to decode. Not in ARCHITECTURE.md's §20.3
+    catalogue — no locked code names this specific failure — so this
+    reuses the existing generic VALIDATION_ERROR code/status rather
+    than inventing a new catalogue entry for a value that is always
+    server-issued and opaque to a well-behaved client; a genuinely
+    malformed value (tampered or hand-typed) is a request-shape
+    problem, exactly what VALIDATION_ERROR already means."""
+
+    code = "VALIDATION_ERROR"
+    status_code = 422
+
+    def __init__(self) -> None:
+        super().__init__("The pagination cursor is invalid.")
+
+
 class UnexpectedConstraintViolationError(DomainError):
     """A named, business-critical constraint was violated in a shape
     that should be structurally impossible for a correctly written

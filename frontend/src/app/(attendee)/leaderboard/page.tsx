@@ -1,17 +1,17 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { LeaderboardView } from "@/components/leaderboard/LeaderboardView";
 import { AttendeeTabBar } from "@/components/nav/AttendeeTabBar";
 
 export const metadata: Metadata = {
   title: "Leaderboard · FACEMARK",
 };
 
-// IMPLEMENTATION_PLAN.md M08: "the Leaderboard tab ... ships as a
-// defined, disabled placeholder that renders an honest 'not yet
-// available' state, and M13 wires it to real data." Score and rank
-// require points_log (M11) and its aggregation (M13) — neither exists
-// yet, so there is nothing here to fetch, and nothing to fabricate.
+// M13 wires M08's honest "not yet available" placeholder to the real
+// leaderboard (§16) — `LeaderboardView` does its own fetching/session
+// handling, the same independent-per-surface pattern every other
+// M06+ page uses.
 export default function LeaderboardPage() {
   return (
     <main className="mx-auto flex min-h-screen max-w-md flex-col gap-8 px-4 py-10 pb-24 sm:px-6">
@@ -26,10 +26,7 @@ export default function LeaderboardPage() {
           </Link>
         </p>
       </header>
-      <p className="rounded-xl border border-slate-800 bg-slate-900/60 p-5 text-sm text-slate-400">
-        The leaderboard isn&apos;t available yet. Points start counting once the summit opens —
-        check back soon.
-      </p>
+      <LeaderboardView />
       <AttendeeTabBar active="leaderboard" />
     </main>
   );

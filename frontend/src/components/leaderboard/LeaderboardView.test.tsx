@@ -1,0 +1,261 @@
+import { act, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { messageFor } from "@/lib/errors";
+
+import { LeaderboardView } from "./LeaderboardView";
+
+function jsonResponse(status: number, body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+function errorResponse(status: number, code: string): Response {
+  return jsonResponse(status, { error: { code, message: "", details: {}, correlation_id: "c" } });
+}
+
+function entry(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    user_id: 1,
+    first_name: "Ada",
+    last_name: "Lovelace",
+    profession: "Engineer",
+    total_points: 45,
+    rank: 3,
+    ...overrides,
+  };
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+describe("LeaderboardView — top view", () => {
+  it("shows a loading state before data arrives", () => {
+    vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
+    render(<LeaderboardView />);
+    expect(screen.getByText("Loading leaderboard…")).toBeInTheDocument();
+  });
+
+  it("offers a sign-in link when signed out", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => errorResponse(401, "UNAUTHENTICATED")));
+    render(<LeaderboardView />);
+    expect(await screen.findByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/login");
+  });
+
+  it("reports other failures", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => errorResponse(503, "MAINTENANCE")));
+    render(<LeaderboardView />);
+    expect(await screen.findByText(messageFor("MAINTENANCE"))).toBeInTheDocument();
+  });
+
+  it("shows a neutral message when nobody has joined yet", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse(200, {
+          entries: [],
+          current_user: null,
+          as_of: "2026-09-22T17:04:11Z",
+          dataset_generation: 1,
+          next_cursor: null,
+        }),
+      ),
+    );
+    render(<LeaderboardView />);
+    expect(await screen.findByText("No attendees have joined the leaderboard yet.")).toBeInTheDocument();
+  });
+
+  it("renders ranked entries with name, profession and points", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse(200, {
+          entries: [
+            entry({ user_id: 1, first_name: "Ada", last_name: "Lovelace", rank: 1, total_points: 90 }),
+            entry({ user_id: 2, first_name: "Grace", last_name: "Hopper", rank: 2, total_points: 80 }),
+          ],
+          current_user: null,
+          as_of: "2026-09-22T17:04:11Z",
+          dataset_generation: 1,
+          next_cursor: null,
+        }),
+      ),
+    );
+    render(<LeaderboardView />);
+    expect(await screen.findByText("Ada Lovelace")).toBeInTheDocument();
+    expect(screen.getByText("Grace Hopper")).toBeInTheDocument();
+    expect(screen.getByText("90 pts")).toBeInTheDocument();
+    expect(screen.getByText("#1")).toBeInTheDocument();
+  });
+
+  it("shows the caller's own position separately when outside the top N", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse(200, {
+          entries: [entry({ user_id: 1, first_name: "Ada", last_name: "Lovelace", rank: 1 })],
+          current_user: entry({ user_id: 99, first_name: "Outside", last_name: "Attendee", rank: 42, total_points: 2 }),
+          as_of: "2026-09-22T17:04:11Z",
+          dataset_generation: 1,
+          next_cursor: null,
+        }),
+      ),
+    );
+    render(<LeaderboardView />);
+    expect(await screen.findByText("Your position")).toBeInTheDocument();
+    expect(screen.getByText("Outside Attendee")).toBeInTheDocument();
+    expect(screen.getByText("#42")).toBeInTheDocument();
+  });
+
+  it("does not duplicate the caller's row when they are already inside the top N", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse(200, {
+          entries: [entry({ user_id: 1, first_name: "Ada", last_name: "Lovelace", rank: 1 })],
+          current_user: entry({ user_id: 1, first_name: "Ada", last_name: "Lovelace", rank: 1 }),
+          as_of: "2026-09-22T17:04:11Z",
+          dataset_generation: 1,
+          next_cursor: null,
+        }),
+      ),
+    );
+    render(<LeaderboardView />);
+    await screen.findByText("Ada Lovelace");
+    expect(screen.queryByText("Your position")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Ada Lovelace")).toHaveLength(1);
+  });
+});
+
+describe("LeaderboardView — show all", () => {
+  function topResponse() {
+    return jsonResponse(200, {
+      entries: [entry({ user_id: 1, rank: 1 })],
+      current_user: null,
+      as_of: "2026-09-22T17:04:11Z",
+      dataset_generation: 5,
+      next_cursor: null,
+    });
+  }
+
+  it("loads the full list on demand, showing as_of", async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === "/api/leaderboard") return topResponse();
+      return jsonResponse(200, {
+        entries: [entry({ user_id: 2, first_name: "Grace", last_name: "Hopper", rank: 2 })],
+        current_user: null,
+        as_of: "2026-09-22T18:00:00Z",
+        dataset_generation: 5,
+        next_cursor: null,
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<LeaderboardView />);
+    await screen.findByRole("button", { name: "Show all" });
+
+    await act(async () => {
+      screen.getByRole("button", { name: "Show all" }).click();
+    });
+
+    expect(await screen.findByText("Grace Hopper")).toBeInTheDocument();
+    expect(screen.getByText(/As of/)).toBeInTheDocument();
+  });
+
+  it("loads more pages and stops offering the button once next_cursor is null", async () => {
+    let call = 0;
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === "/api/leaderboard") return topResponse();
+      call += 1;
+      if (call === 1) {
+        return jsonResponse(200, {
+          entries: [entry({ user_id: 2, first_name: "Page", last_name: "One", rank: 2 })],
+          current_user: null,
+          as_of: "2026-09-22T18:00:00Z",
+          dataset_generation: 5,
+          next_cursor: "cursor-1",
+        });
+      }
+      return jsonResponse(200, {
+        entries: [entry({ user_id: 3, first_name: "Page", last_name: "Two", rank: 3 })],
+        current_user: null,
+        as_of: "2026-09-22T18:01:00Z",
+        dataset_generation: 5,
+        next_cursor: null,
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<LeaderboardView />);
+    await screen.findByRole("button", { name: "Show all" });
+    await act(async () => {
+      screen.getByRole("button", { name: "Show all" }).click();
+    });
+    await screen.findByText("Page One");
+    expect(screen.getByRole("button", { name: "Load more" })).toBeInTheDocument();
+
+    await act(async () => {
+      screen.getByRole("button", { name: "Load more" }).click();
+    });
+    await screen.findByText("Page Two");
+    // Both pages' rows remain — accumulated, not replaced.
+    expect(screen.getByText("Page One")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Load more" })).not.toBeInTheDocument();
+
+    // The cursor from page 1 was passed through verbatim to fetch page 2.
+    expect(fetchMock.mock.calls.some(([u]) => u === "/api/leaderboard?view=all&cursor=cursor-1")).toBe(
+      true,
+    );
+  });
+
+  it("discards accumulated pages and restarts when dataset_generation changes mid-pagination", async () => {
+    let call = 0;
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === "/api/leaderboard") return topResponse();
+      call += 1;
+      if (call === 1) {
+        return jsonResponse(200, {
+          entries: [entry({ user_id: 2, first_name: "Stale", last_name: "Page", rank: 2 })],
+          current_user: null,
+          as_of: "2026-09-22T18:00:00Z",
+          dataset_generation: 5,
+          next_cursor: "cursor-1",
+        });
+      }
+      if (call === 2) {
+        // A reset happened: generation jumped from 5 to 6.
+        return jsonResponse(200, {
+          entries: [entry({ user_id: 9, first_name: "Post", last_name: "Reset", rank: 1 })],
+          current_user: null,
+          as_of: "2026-09-22T19:00:00Z",
+          dataset_generation: 6,
+          next_cursor: null,
+        });
+      }
+      return jsonResponse(200, {
+        entries: [entry({ user_id: 9, first_name: "Post", last_name: "Reset", rank: 1 })],
+        current_user: null,
+        as_of: "2026-09-22T19:00:00Z",
+        dataset_generation: 6,
+        next_cursor: null,
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<LeaderboardView />);
+    await screen.findByRole("button", { name: "Show all" });
+    await act(async () => {
+      screen.getByRole("button", { name: "Show all" }).click();
+    });
+    await screen.findByText("Stale Page");
+
+    await act(async () => {
+      screen.getByRole("button", { name: "Load more" }).click();
+    });
+
+    // The stale-generation page's rows are discarded, not appended —
+    // the listing restarts from a fresh first page instead.
+    expect(await screen.findByText("Post Reset")).toBeInTheDocument();
+    expect(screen.queryByText("Stale Page")).not.toBeInTheDocument();
+  });
+});

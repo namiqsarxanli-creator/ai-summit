@@ -16,6 +16,19 @@ function errorResponse(status: number, code: string): Response {
   return jsonResponse(status, { error: { code, message: "", details: {}, correlation_id: "c" } });
 }
 
+const SCORE = { total_points: 45, rank: 3, recent_awards: [], as_of: "2026-09-22T17:04:11Z", dataset_generation: 7 };
+
+// Recommendations and score are two independent fetches once signed
+// in (HomeDashboard's own `fetchRecommendations`, and its child
+// `ScoreSummary`'s `fetchMyScore`) — routed by URL like
+// BoothDetailView.test.tsx's `signedOutRouter`.
+function router(recommendationsResponse: () => Response, scoreResponse: () => Response = () => jsonResponse(200, SCORE)) {
+  return vi.fn(async (url: string) => {
+    if (url === "/api/attendees/me/score") return scoreResponse();
+    return recommendationsResponse();
+  });
+}
+
 const SCORED = [
   {
     booth: { slug: "aiworks", name: "AIWorks", location_label: "Hall B · 14" },
@@ -60,25 +73,24 @@ afterEach(() => {
 });
 
 describe("HomeDashboard", () => {
-  it("shows only the top 3 matches, plus a See all link and an honest points placeholder", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(200, SCORED)));
+  it("shows only the top 3 matches, plus a See all link and the real score/rank", async () => {
+    vi.stubGlobal("fetch", router(() => jsonResponse(200, SCORED)));
     render(<HomeDashboard />);
     expect(await screen.findByRole("heading", { name: "AIWorks" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "FinPulse" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "MediSync AI" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "SecureStack" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "See all →" })).toHaveAttribute("href", "/booths");
-    expect(
-      screen.getByText("Points tracking starts once the summit opens — check back soon."),
-    ).toBeInTheDocument();
-    // No fabricated number stands in for the missing score.
-    expect(screen.queryByText(/^\d+ pts?$/)).not.toBeInTheDocument();
+    // M13 wires the real, server-computed score/rank in place of M08's
+    // placeholder — see ScoreSummary.test.tsx for its own detailed cases.
+    expect(await screen.findByText("45")).toBeInTheDocument();
+    expect(screen.getByText("Rank #3")).toBeInTheDocument();
   });
 
   it("shows the general-listing banner when interests are unset", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () =>
+      router(() =>
         jsonResponse(200, [
           { booth: { slug: "aiworks", name: "AIWorks", location_label: null }, match: null },
         ]),
