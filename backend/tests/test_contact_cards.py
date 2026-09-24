@@ -447,7 +447,12 @@ def test_five_invalid_public_cases_run_the_identical_queries(
         for case, t in invalid_tokens.items()
     }
     assert len({tuple(trace) for trace in traces.values()}) == 1, traces
-    assert len(traces["unknown"]) == 1
+    # M14: `DatasetGenerationHeaderMiddleware` runs one extra, identical
+    # `SELECT` on every request regardless of outcome (§19.3, "every
+    # API response carries X-Dataset-Generation") — it is counted here
+    # too, since it is part of the same identical-across-cases trace
+    # the assertion above already confirmed.
+    assert len(traces["unknown"]) == 2
 
 
 def test_a_provisional_attendees_token_resolves_on_neither_endpoint(

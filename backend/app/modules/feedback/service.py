@@ -8,6 +8,8 @@ numbered to match §15's own pseudocode exactly.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -25,9 +27,22 @@ from app.modules.feedback.schemas import FeedbackRequest, FeedbackResponse
 from app.modules.points.models import PointsLog, PointsSource
 
 
+@dataclass(frozen=True)
+class FeedbackOutcome:
+    """Wraps the canonical `FeedbackResponse` with the M14 realtime
+    publish target — kept OUT of `FeedbackResponse` itself, the same
+    reasoning as `points.service.AwardOutcome`. `newly_rewarded_user_id`
+    is `None` when `already_rewarded` (nothing new committed for
+    anyone to be notified about) — the feedback row itself is always
+    inserted either way, but only a fresh REWARD is realtime-worthy."""
+
+    response: FeedbackResponse
+    newly_rewarded_user_id: int | None
+
+
 def submit_feedback(
     db: Session, *, raw_session_token: str | None, payload: FeedbackRequest
-) -> FeedbackResponse:
+) -> FeedbackOutcome:
     # 0b — AUTHORITATIVE auth: session -> attendee, require ACTIVE
     # (built into resolve_attendee_session: PROVISIONAL raises
     # RegistrationNotVerifiedError). Booth resolution is also inside
@@ -97,9 +112,13 @@ def submit_feedback(
         select(func.coalesce(func.sum(PointsLog.points), 0)).where(PointsLog.user_id == attendee.id)
     ).scalar_one()
 
-    return FeedbackResponse(
+    response = FeedbackResponse(
         feedback_id=feedback.id,
         awarded_points=awarded_points,
         already_rewarded=already_rewarded,
         total_points=int(resulting_total),
+    )
+    return FeedbackOutcome(
+        response=response,
+        newly_rewarded_user_id=None if already_rewarded else attendee.id,
     )

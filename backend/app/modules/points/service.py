@@ -16,6 +16,7 @@ with the `points_log` insert.
 from __future__ import annotations
 
 import hashlib
+from dataclasses import dataclass
 from datetime import datetime
 
 from sqlalchemy import func, select
@@ -77,6 +78,20 @@ def maintenance_fast_path_check(db: Session) -> None:
         raise MaintenanceError("The service is briefly unavailable. Please try again in a moment.")
 
 
+@dataclass(frozen=True)
+class AwardOutcome:
+    """Wraps the canonical `AwardResponse` with the realtime publish
+    target (M14) — kept OUT of `AwardResponse` itself, since that is
+    the locked §13.4 response contract, not a place for internal
+    plumbing. `newly_awarded_user_id` is `None` on a replay: nothing
+    committed that anyone needs to be notified about (§17.7.1's "a
+    rolled-back award cannot emit one" applies just as much to a
+    replay, which changes nothing new either)."""
+
+    response: AwardResponse
+    newly_awarded_user_id: int | None
+
+
 def complete_award(
     db: Session,
     *,
@@ -85,12 +100,13 @@ def complete_award(
     request: AwardTaskPointsRequest,
     fingerprint: str,
     now: datetime,
-) -> AwardResponse:
+) -> AwardOutcome:
     """B1-B11. Called inside the caller's `mutating_transaction(db)`
     block — the fence (B0) is already held by the time this runs.
-    Returns the canonical response; the caller's context manager
-    commits (B12) on a normal return and rolls back on any exception,
-    so a failure anywhere below leaves no award and no claimed key."""
+    Returns the canonical response wrapped with the M14 publish target;
+    the caller's context manager commits (B12) on a normal return and
+    rolls back on any exception, so a failure anywhere below leaves no
+    award and no claimed key."""
     # B1 — AUTHORITATIVE identity. A pre-fence cookie read (A2) is a
     # string extraction, not authentication (§14.3) — this is the real
     # check, and it happens only now, inside the fence.
@@ -125,7 +141,7 @@ def complete_award(
         # A completed record is always whole (§7.12.1) — claim and
         # completion are the same transaction. Replayed verbatim;
         # `scan_ref` freshness is NOT evaluated on this path.
-        return _replay(existing)
+        return AwardOutcome(response=_replay(existing), newly_awarded_user_id=None)
 
     # B3a — scan_ref EXPIRY (check 8), new awards only, reached only
     # because B3 found no record.
@@ -180,7 +196,7 @@ def complete_award(
             ).scalar_one()
             if winner.request_fingerprint != fingerprint:
                 raise IdempotencyKeyReuseError() from err
-            return _replay(winner)
+            return AwardOutcome(response=_replay(winner), newly_awarded_user_id=None)
         raise translated from err
     except OperationalError as err:
         savepoint.rollback()
@@ -239,10 +255,11 @@ def complete_award(
     record.response_snapshot = response.model_dump(mode="json")
     record.completed_at = now
 
-    return response
+    return AwardOutcome(response=response, newly_awarded_user_id=attendee.id)
     # B12 — COMMIT happens in the caller's `with mutating_transaction`
     # block on normal return; award, claim and snapshot become visible
-    # together, and the fence releases here.
+    # together, and the fence releases here. The router publishes the
+    # M14 realtime signal only AFTER that commit — see points/routers.py.
 
 
 def _replay(record: IdempotencyRecord) -> AwardResponse:

@@ -1,9 +1,20 @@
 import { act, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { messageFor } from "@/lib/errors";
+import { realtimeStore } from "@/lib/realtime";
+import { installMockEventSource, MockEventSource } from "@/test-utils/mockEventSource";
 
 import { LeaderboardView } from "./LeaderboardView";
+
+// M14 wires the default top-N view to the shared realtime owner
+// (`lib/realtime.ts`): mounting opens an EventSource, and the
+// leaderboard snapshot is only fetched once `ready` arrives — these
+// tests drive that mock connection explicitly. "Show all" pagination
+// is untouched local component state (still its own direct fetch).
+function openReady(): void {
+  MockEventSource.latest().emit("ready", { dataset_generation: 1, heartbeat_seconds: 15 });
+}
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -28,12 +39,17 @@ function entry(overrides: Partial<Record<string, unknown>> = {}) {
   };
 }
 
+beforeEach(() => {
+  installMockEventSource();
+});
+
 afterEach(() => {
+  realtimeStore.resetForTests();
   vi.unstubAllGlobals();
 });
 
 describe("LeaderboardView — top view", () => {
-  it("shows a loading state before data arrives", () => {
+  it("shows a loading state before `ready` arrives", () => {
     vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
     render(<LeaderboardView />);
     expect(screen.getByText("Loading leaderboard…")).toBeInTheDocument();
@@ -42,12 +58,14 @@ describe("LeaderboardView — top view", () => {
   it("offers a sign-in link when signed out", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => errorResponse(401, "UNAUTHENTICATED")));
     render(<LeaderboardView />);
+    openReady();
     expect(await screen.findByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/login");
   });
 
   it("reports other failures", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => errorResponse(503, "MAINTENANCE")));
     render(<LeaderboardView />);
+    openReady();
     expect(await screen.findByText(messageFor("MAINTENANCE"))).toBeInTheDocument();
   });
 
@@ -65,6 +83,7 @@ describe("LeaderboardView — top view", () => {
       ),
     );
     render(<LeaderboardView />);
+    openReady();
     expect(await screen.findByText("No attendees have joined the leaderboard yet.")).toBeInTheDocument();
   });
 
@@ -85,6 +104,7 @@ describe("LeaderboardView — top view", () => {
       ),
     );
     render(<LeaderboardView />);
+    openReady();
     expect(await screen.findByText("Ada Lovelace")).toBeInTheDocument();
     expect(screen.getByText("Grace Hopper")).toBeInTheDocument();
     expect(screen.getByText("90 pts")).toBeInTheDocument();
@@ -105,6 +125,7 @@ describe("LeaderboardView — top view", () => {
       ),
     );
     render(<LeaderboardView />);
+    openReady();
     expect(await screen.findByText("Your position")).toBeInTheDocument();
     expect(screen.getByText("Outside Attendee")).toBeInTheDocument();
     expect(screen.getByText("#42")).toBeInTheDocument();
@@ -124,9 +145,43 @@ describe("LeaderboardView — top view", () => {
       ),
     );
     render(<LeaderboardView />);
+    openReady();
     await screen.findByText("Ada Lovelace");
     expect(screen.queryByText("Your position")).not.toBeInTheDocument();
     expect(screen.getAllByText("Ada Lovelace")).toHaveLength(1);
+  });
+
+  it("refetches when another attendee's score changes the leaderboard (broadcast)", async () => {
+    let call = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        call += 1;
+        return jsonResponse(200, {
+          entries: [
+            entry({
+              user_id: 1,
+              first_name: call === 1 ? "Ada" : "Ada-Updated",
+              last_name: "Lovelace",
+              rank: call === 1 ? 2 : 1,
+              total_points: call === 1 ? 50 : 90,
+            }),
+          ],
+          current_user: null,
+          as_of: "2026-09-22T17:04:11Z",
+          dataset_generation: 1,
+          next_cursor: null,
+        });
+      }),
+    );
+    render(<LeaderboardView />);
+    openReady();
+    await screen.findByText("#2");
+
+    MockEventSource.latest().emit("leaderboard_changed", {});
+
+    expect(await screen.findByText("#1")).toBeInTheDocument();
+    expect(screen.getByText("90 pts")).toBeInTheDocument();
   });
 });
 
@@ -154,6 +209,7 @@ describe("LeaderboardView — show all", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     render(<LeaderboardView />);
+    openReady();
     await screen.findByRole("button", { name: "Show all" });
 
     await act(async () => {
@@ -188,6 +244,7 @@ describe("LeaderboardView — show all", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     render(<LeaderboardView />);
+    openReady();
     await screen.findByRole("button", { name: "Show all" });
     await act(async () => {
       screen.getByRole("button", { name: "Show all" }).click();
@@ -243,6 +300,7 @@ describe("LeaderboardView — show all", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     render(<LeaderboardView />);
+    openReady();
     await screen.findByRole("button", { name: "Show all" });
     await act(async () => {
       screen.getByRole("button", { name: "Show all" }).click();

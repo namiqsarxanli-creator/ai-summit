@@ -1,20 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { messageFor } from "@/lib/errors";
-import {
-  fetchLeaderboardPage,
-  fetchLeaderboardTop,
-  type LeaderboardEntry,
-} from "@/lib/leaderboard";
-
-type TopState =
-  | { kind: "loading" }
-  | { kind: "signed-out" }
-  | { kind: "error"; code: string }
-  | { kind: "ok"; entries: LeaderboardEntry[]; currentUser: LeaderboardEntry | null };
+import { fetchLeaderboardPage, type LeaderboardEntry } from "@/lib/leaderboard";
+import { useLeaderboardStore } from "@/lib/realtime";
 
 type AllState =
   | { kind: "closed" }
@@ -50,35 +41,22 @@ function Row({ entry, highlight }: { entry: LeaderboardEntry; highlight: boolean
   );
 }
 
-// M13 wires the leaderboard tab to real data (§16). `current_user` is
-// always returned by `/api/leaderboard`'s default view whether the
-// attendee is inside or outside the top N (§16.3) — that is what
-// spares this component a second fetch, not identical markup for both
-// cases: inside the top N their row is simply highlighted in place;
-// outside it, the same row is additionally shown as "Your position".
+// M13 wired the leaderboard tab to real data (§16); M14 wires the
+// default top-N view to the shared realtime owner (`lib/realtime.ts`)
+// instead of its own one-shot fetch, so it updates live when another
+// attendee scores (§17.4: "another attendee scoring can change the
+// current attendee's rank" — a personal `state_changed` event alone
+// would never tell this view that). `current_user` is always returned
+// by `/api/leaderboard`'s default view whether the attendee is inside
+// or outside the top N (§16.3) — that is what spares this component a
+// second fetch, not identical markup for both cases: inside the top N
+// their row is simply highlighted in place; outside it, the same row
+// is additionally shown as "Your position". The "show all" view below
+// keeps its own independent pagination state, untouched by realtime
+// reconciliation (§16.3's keyset contract is preserved as-is).
 export function LeaderboardView() {
-  const [top, setTop] = useState<TopState>({ kind: "loading" });
+  const top = useLeaderboardStore();
   const [all, setAll] = useState<AllState>({ kind: "closed" });
-
-  useEffect(() => {
-    let cancelled = false;
-    fetchLeaderboardTop().then((result) => {
-      if (cancelled) return;
-      if (!result.ok) {
-        const { code } = result.error;
-        setTop(
-          code === "UNAUTHENTICATED" || code === "REGISTRATION_NOT_VERIFIED"
-            ? { kind: "signed-out" }
-            : { kind: "error", code },
-        );
-        return;
-      }
-      setTop({ kind: "ok", entries: result.data.entries, currentUser: result.data.current_user });
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   function loadAllFromStart() {
     setAll({ kind: "loading" });
@@ -124,11 +102,11 @@ export function LeaderboardView() {
     });
   }
 
-  if (top.kind === "loading") {
+  if (top.status === "loading") {
     return <p className="text-sm text-slate-500">Loading leaderboard…</p>;
   }
 
-  if (top.kind === "signed-out") {
+  if (top.status === "signed-out") {
     return (
       <p className="rounded-xl border border-slate-800 bg-slate-900/60 p-5 text-sm text-slate-400">
         <Link href="/login" className="font-medium text-indigo-300 hover:text-indigo-200">
@@ -139,7 +117,7 @@ export function LeaderboardView() {
     );
   }
 
-  if (top.kind === "error") {
+  if (top.status === "error") {
     return (
       <p
         role="alert"
@@ -150,7 +128,7 @@ export function LeaderboardView() {
     );
   }
 
-  const { entries, currentUser } = top;
+  const { entries, current_user: currentUser } = top.leaderboard;
   const currentUserInTop =
     currentUser !== null && entries.some((e) => e.user_id === currentUser.user_id);
 

@@ -556,10 +556,12 @@ def _count_mutating_api_routes(routes: list[Any]) -> int:
     return total
 
 
-def test_the_mutating_route_inventory_is_what_m13_expects() -> None:
+def test_the_mutating_route_inventory_is_what_m14_expects() -> None:
     # M13 adds only reads (GET /api/leaderboard, GET
     # /api/attendees/me/score) — neither is a mutating method, so this
-    # inventory is unchanged from M12.
+    # inventory is unchanged from M12. M14 adds one more read (GET
+    # /api/realtime/stream) — also not a mutating method, so still
+    # unchanged.
     assert _count_mutating_api_routes(app.routes) == len(_mutating_routes())
     assert _mutating_routes() == [
         # M12: attendee feedback submission + automatic reward.

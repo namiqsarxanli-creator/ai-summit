@@ -25,6 +25,7 @@ from app.modules.points.service import (
     compute_award_fingerprint,
     maintenance_fast_path_check,
 )
+from app.modules.realtime.service import publish_award_signals
 from app.modules.staff.scan_ref import verify_scan_ref_signature, verify_token_binding
 
 router = APIRouter(prefix="/staff/points", tags=["points"])
@@ -51,7 +52,7 @@ def award(payload: AwardTaskPointsRequest, token: SessionToken, db: DbSession) -
     maintenance_fast_path_check(db)
 
     with mutating_transaction(db) as tx:
-        return complete_award(
+        outcome = complete_award(
             tx,
             raw_session_token=token,
             scan_payload=scan_payload,
@@ -59,3 +60,9 @@ def award(payload: AwardTaskPointsRequest, token: SessionToken, db: DbSession) -
             fingerprint=fingerprint,
             now=now,
         )
+    # B12 has already committed by this point — `with` has exited.
+    # M14, §17.7.1: "signals are published AFTER the database
+    # transaction commits." Never for a replay (nothing new committed).
+    if outcome.newly_awarded_user_id is not None:
+        publish_award_signals(outcome.newly_awarded_user_id)
+    return outcome.response

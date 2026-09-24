@@ -1,10 +1,16 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { realtimeStore } from "@/lib/realtime";
+import { installMockEventSource } from "@/test-utils/mockEventSource";
+
 import Home from "./page";
 
 describe("Home", () => {
   beforeEach(() => {
+    // HomeDashboard's child ScoreSummary (M14) opens an EventSource on
+    // mount; jsdom has no native implementation.
+    installMockEventSource();
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string) =>
@@ -27,6 +33,7 @@ describe("Home", () => {
   });
 
   afterEach(() => {
+    realtimeStore.resetForTests();
     vi.unstubAllGlobals();
   });
 

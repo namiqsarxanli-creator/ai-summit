@@ -18,7 +18,10 @@ need appears.
 
 from __future__ import annotations
 
+import asyncio
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
@@ -40,6 +43,12 @@ from app.modules.interests.routers import router as interests_router
 from app.modules.leaderboard.routers import router as leaderboard_router
 from app.modules.matching.routers import router as matching_router
 from app.modules.points.routers import router as points_router
+from app.modules.realtime.broker import event_bus
+from app.modules.realtime.middleware import (
+    DatasetGenerationHeaderMiddleware,
+    RealtimeStreamHeadersMiddleware,
+)
+from app.modules.realtime.routers import router as realtime_router
 from app.modules.staff.routers import router as staff_router
 
 logger = logging.getLogger(__name__)
@@ -160,6 +169,25 @@ def _configure_logging(demo_mode: bool) -> None:
     )
 
 
+@asynccontextmanager
+async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """M14: `event_bus` bridges sync publishers (every mutating route
+    is a plain `def`, run in FastAPI's threadpool) to the async
+    `asyncio.Queue`s each open stream owns, via
+    `loop.call_soon_threadsafe` — which needs the actual running event
+    loop, obtainable only once one exists, i.e. here, not at
+    `EventBus.__init__` (construction happens at import time, before
+    any loop is running — including during test collection). Unbound
+    again on shutdown so a publish after that is the documented
+    best-effort no-op (§17.7.2) rather than a call into a dead loop.
+    """
+    event_bus.bind_loop(asyncio.get_running_loop())
+    try:
+        yield
+    finally:
+        event_bus.unbind_loop()
+
+
 def create_app() -> FastAPI:
     settings = get_settings()  # fails fast here if required config is missing
     _configure_logging(settings.demo_mode)
@@ -173,15 +201,19 @@ def create_app() -> FastAPI:
         # more broadly — least exposure by default).
         docs_url="/docs" if not settings.is_production else None,
         redoc_url=None,
+        lifespan=_lifespan,
     )
 
     _register_exception_handlers(app)
     # §8.3.1 layer 2: Origin/Referer assertion on every mutating request,
     # before any handler (and therefore before any fence or read) runs.
     app.add_middleware(OriginAssertionMiddleware, allowed_origin=settings.app_origin)
-    # §21.11: added last, so it is outermost and stamps its headers on
-    # every card-path response, whichever layer produced it.
+    # §21.11: added before the dataset-generation header, so THAT one is
+    # outermost and stamps every response — a card response, an error
+    # envelope, a health check, all of it (§19.3).
     app.add_middleware(CardPrivacyHeadersMiddleware)
+    app.add_middleware(RealtimeStreamHeadersMiddleware)
+    app.add_middleware(DatasetGenerationHeaderMiddleware)
     app.include_router(api_router)
     app.include_router(attendees_router, prefix="/api")
     app.include_router(auth_router, prefix="/api")
@@ -192,6 +224,7 @@ def create_app() -> FastAPI:
     app.include_router(leaderboard_router, prefix="/api")
     app.include_router(matching_router, prefix="/api")
     app.include_router(points_router, prefix="/api")
+    app.include_router(realtime_router, prefix="/api")
     app.include_router(staff_router, prefix="/api")
 
     return app

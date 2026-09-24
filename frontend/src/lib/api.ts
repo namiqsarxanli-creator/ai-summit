@@ -16,6 +16,31 @@ export type ApiResult<T> =
 // server is never dressed up as a fictional HTTP response.
 export const NETWORK_ERROR = "NETWORK_ERROR";
 
+// ARCHITECTURE.md §19.3: "Every API response carries
+// X-Dataset-Generation... the client stores the value it first saw and
+// compares it on every response." M14's realtime owner is the single
+// subscriber that acts on this (hard reinitialisation on mismatch) —
+// this file only observes and reports every response's value, exactly
+// once per request, success or failure alike, since a stale response
+// to ANY call (not only a score/leaderboard fetch) must be detectable.
+type DatasetGenerationListener = (generation: number) => void;
+const generationListeners = new Set<DatasetGenerationListener>();
+
+export function onDatasetGeneration(listener: DatasetGenerationListener): () => void {
+  generationListeners.add(listener);
+  return () => {
+    generationListeners.delete(listener);
+  };
+}
+
+function notifyDatasetGeneration(response: Response): void {
+  const raw = response.headers.get("X-Dataset-Generation");
+  if (raw === null) return;
+  const generation = Number(raw);
+  if (!Number.isFinite(generation)) return;
+  for (const listener of generationListeners) listener(generation);
+}
+
 function parseError(body: unknown): ApiError {
   if (typeof body === "object" && body !== null && "error" in body) {
     const error = (body as { error: unknown }).error;
@@ -40,6 +65,8 @@ async function request<T>(path: string, init: RequestInit): Promise<ApiResult<T>
   } catch {
     return { ok: false, status: 0, error: { code: NETWORK_ERROR, message: "", details: {} } };
   }
+
+  notifyDatasetGeneration(response);
 
   let body: unknown = null;
   try {

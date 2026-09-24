@@ -1,9 +1,18 @@
 import { render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { messageFor } from "@/lib/errors";
+import { realtimeStore } from "@/lib/realtime";
+import { installMockEventSource, MockEventSource } from "@/test-utils/mockEventSource";
 
 import { HomeDashboard } from "./HomeDashboard";
+
+// The child `ScoreSummary` (M14) is driven by the shared realtime
+// store: mounting it opens an EventSource, and its score fetch only
+// happens once `ready` arrives.
+function openReady(): void {
+  MockEventSource.latest().emit("ready", { dataset_generation: 1, heartbeat_seconds: 15 });
+}
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -68,7 +77,12 @@ const SCORED = [
   },
 ];
 
+beforeEach(() => {
+  installMockEventSource();
+});
+
 afterEach(() => {
+  realtimeStore.resetForTests();
   vi.unstubAllGlobals();
 });
 
@@ -76,7 +90,10 @@ describe("HomeDashboard", () => {
   it("shows only the top 3 matches, plus a See all link and the real score/rank", async () => {
     vi.stubGlobal("fetch", router(() => jsonResponse(200, SCORED)));
     render(<HomeDashboard />);
+    // ScoreSummary (and its EventSource) only mounts once HomeDashboard's
+    // own recommendations fetch resolves into the "ok" branch.
     expect(await screen.findByRole("heading", { name: "AIWorks" })).toBeInTheDocument();
+    openReady();
     expect(screen.getByRole("heading", { name: "FinPulse" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "MediSync AI" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "SecureStack" })).not.toBeInTheDocument();
