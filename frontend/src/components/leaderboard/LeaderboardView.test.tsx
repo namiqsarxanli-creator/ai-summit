@@ -84,7 +84,7 @@ describe("LeaderboardView — top view", () => {
     );
     render(<LeaderboardView />);
     openReady();
-    expect(await screen.findByText("No attendees have joined the leaderboard yet.")).toBeInTheDocument();
+    expect(await screen.findByText(/No attendees have joined the leaderboard yet/)).toBeInTheDocument();
   });
 
   it("renders ranked entries with name, profession and points", async () => {

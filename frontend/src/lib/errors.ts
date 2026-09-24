@@ -33,6 +33,10 @@ const MESSAGES: Record<string, string> = {
   RATE_LIMITED: "Too many attempts. Please wait a moment and try again.",
   INTERNAL_ERROR: "Something went wrong on our side. Please try again.",
   NETWORK_ERROR: "We couldn't reach the server. Check your connection and try again.",
+  STAFF_NOT_AUTHORIZED: "This account cannot access that area.",
+  ADMIN_INVALID: "Check the values and try again.",
+  ADMIN_NOT_FOUND: "That record is no longer available. Refresh and try again.",
+  ADMIN_CONFLICT: "That value is already in use. Check the records and try again.",
 };
 
 export const FALLBACK_MESSAGE = "Something went wrong. Please try again.";

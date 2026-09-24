@@ -36,7 +36,7 @@ describe("AttendeeTabBar", () => {
   it("gives every tab a touch target at least 44px tall", () => {
     render(<AttendeeTabBar active="profile" />);
     for (const link of screen.getAllByRole("link")) {
-      expect(link.className).toMatch(/min-h-\[44px\]/);
+      expect(link.className).toMatch(/min-h-\[52px\]/);
     }
   });
 });

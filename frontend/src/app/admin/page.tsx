@@ -3,11 +3,33 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { apiGet, apiPost, apiRequest } from "@/lib/api";
+import { messageFor } from "@/lib/errors";
 
 type RecordValue = Record<string, unknown>;
 type Section = "attendees" | "booths" | "interests" | "staff" | "tasks" | "presets" | "event-config" | "points-log" | "demo-otps";
 
 const sections: Section[] = ["attendees", "booths", "interests", "staff", "tasks", "presets", "event-config", "points-log", "demo-otps"];
+const titles: Record<Section, string> = { attendees: "Attendees", booths: "Booths", interests: "Interests", staff: "Staff", tasks: "Tasks", presets: "Point presets", "event-config": "Event settings", "points-log": "Points ledger", "demo-otps": "Demo codes" };
+
+function display(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "—";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (Array.isArray(value)) return value.length ? value.map(display).join(", ") : "—";
+  if (typeof value === "object") return Object.entries(value).map(([key, item]) => `${key.replaceAll("_", " ")}: ${display(item)}`).join(" · ");
+  return String(value);
+}
+
+function Records({ data }: { data: unknown }) {
+  const rows = Array.isArray(data) ? data as RecordValue[] : data && typeof data === "object" ? [data as RecordValue] : [];
+  if (!rows.length) return <p className="rounded-xl border border-slate-700 p-5 text-sm text-slate-300">No records to show yet.</p>;
+  return <ul className="grid gap-3" aria-label="Admin records">{rows.map((row, index) =>
+    <li key={String(row.id ?? index)} className="min-w-0 rounded-xl border border-slate-700 bg-slate-950/50 p-4">
+      <dl className="grid gap-2 sm:grid-cols-2">{Object.entries(row).map(([key, value]) =>
+        <div key={key} className="min-w-0"><dt className="text-xs font-bold uppercase tracking-wide text-cyan-300">{key.replaceAll("_", " ")}</dt><dd className="break-words text-sm text-slate-100">{display(value)}</dd></div>
+      )}</dl>
+    </li>
+  )}</ul>;
+}
 
 async function request(path: string, method = "GET", body?: RecordValue): Promise<unknown> {
   const endpoint = `/api/admin/${path}`;
@@ -16,13 +38,13 @@ async function request(path: string, method = "GET", body?: RecordValue): Promis
     : method === "POST"
       ? await apiPost<unknown>(endpoint, body)
       : await apiRequest<unknown>(endpoint, method as "PATCH" | "PUT" | "DELETE", body);
-  if (!result.ok) throw new Error(result.error.message || `Request failed (${result.status})`);
+  if (!result.ok) throw new Error(messageFor(result.error.code));
   return result.data;
 }
 
 function Field({ label, value, set }: { label: string; value: string; set: (value: string) => void }) {
   return <label className="flex flex-col gap-1 text-sm text-slate-300">{label}
-    <input className="rounded border border-slate-600 bg-slate-900 p-2 text-white" value={value} onChange={(event) => set(event.target.value)} />
+    <input className="min-h-11 w-full rounded-xl border border-slate-600 bg-slate-900 p-3 text-white" value={value} onChange={(event) => set(event.target.value)} />
   </label>;
 }
 
@@ -30,6 +52,9 @@ export default function AdminPage() {
   const [section, setSection] = useState<Section>("attendees");
   const [data, setData] = useState<unknown>(null);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [signedIn, setSignedIn] = useState(false);
@@ -44,8 +69,10 @@ export default function AdminPage() {
   const [repeatDefault, setRepeatDefault] = useState(false);
 
   const refresh = useCallback(async () => {
+    setLoading(true);
     try { setData(await request(section)); setError(""); }
     catch (cause) { setError(cause instanceof Error ? cause.message : "Request failed"); }
+    finally { setLoading(false); }
   }, [section]);
 
   useEffect(() => {
@@ -55,7 +82,7 @@ export default function AdminPage() {
       if (active) { setData(value); setError(""); }
     }).catch((cause: unknown) => {
       if (active) setError(cause instanceof Error ? cause.message : "Request failed");
-    });
+    }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [section, signedIn]);
 
@@ -70,8 +97,11 @@ export default function AdminPage() {
   }
 
   async function change(path: string, method: string, body?: RecordValue) {
-    try { await request(path, method, body); await refresh(); setError(""); }
+    if ((path.endsWith("/deactivate") || method === "DELETE") && !window.confirm("Confirm this change?")) return;
+    setBusy(true); setNotice("");
+    try { await request(path, method, body); await refresh(); setError(""); setNotice("Change saved and recorded in the admin audit."); }
     catch (cause) { setError(cause instanceof Error ? cause.message : "Change failed"); }
+    finally { setBusy(false); }
   }
 
   const id = Number(recordId);
@@ -80,23 +110,28 @@ export default function AdminPage() {
   const pointValue = Number(points);
   const weightValue = Number(weight);
 
-  return <main className="mx-auto flex max-w-5xl flex-col gap-5 p-6 text-white">
-    <h1 className="text-2xl font-semibold">FACEMARK admin</h1>
+  return <main id="main-content" className="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-8 text-white sm:px-6">
+    <header><p className="text-xs font-bold uppercase tracking-[0.25em] text-cyan-300">AI Summit · Operations</p><h1 className="mt-2 text-3xl font-bold tracking-tight">FACEMARK admin</h1><p className="mt-2 text-sm text-slate-300">Manage event setup and inspect activity.</p></header>
     {!signedIn ? <section className="grid max-w-sm gap-3">
       <Field label="Staff email" value={email} set={setEmail} />
       <label className="flex flex-col gap-1 text-sm text-slate-300">Password
-        <input type="password" className="rounded border border-slate-600 bg-slate-900 p-2 text-white" value={password} onChange={(event) => setPassword(event.target.value)} />
+        <input type="password" className="min-h-11 rounded-xl border border-slate-600 bg-slate-900 p-3 text-white" value={password} onChange={(event) => setPassword(event.target.value)} />
       </label>
-      <button className="rounded bg-indigo-600 p-2" onClick={() => void login()}>Sign in</button>
+      <button className="min-h-11 rounded-xl bg-indigo-500 p-3 font-semibold" onClick={() => void login()}>Sign in</button>
     </section> : <>
       <nav className="flex flex-wrap gap-2" aria-label="Admin sections">
-        {sections.map((item) => <button key={item} className={`rounded px-3 py-2 ${item === section ? "bg-indigo-600" : "bg-slate-700"}`} onClick={() => setSection(item)}>{item.replaceAll("-", " ")}</button>)}
+        {sections.map((item) => <button key={item} aria-current={item === section ? "page" : undefined} className={`min-h-11 rounded-xl px-3 py-2 text-sm font-semibold ${item === section ? "bg-indigo-500 text-white" : "border border-slate-600 bg-slate-800 text-slate-200"}`} onClick={() => { setData(null); setSection(item); setNotice(""); setError(""); }}>{titles[item]}</button>)}
       </nav>
-      <button className="w-fit rounded bg-slate-700 px-3 py-2" onClick={() => void refresh()}>Refresh</button>
-      <section className="overflow-auto rounded border border-slate-700 p-3" aria-label={`${section} data`}>
-        <pre className="text-sm">{JSON.stringify(data, null, 2)}</pre>
+      <button className="min-h-11 w-fit rounded-xl border border-slate-600 bg-slate-800 px-4 py-2" onClick={() => void refresh()}>Refresh</button>
+      <section className="min-w-0 rounded-2xl border border-slate-700 bg-slate-900/80 p-4" aria-label={`${section} data`}>
+        <h2 className="mb-4 text-xl font-semibold">{titles[section]}</h2>
+        {(loading || (data === null && !error)) && <p role="status" className="text-sm text-slate-300">Loading records…</p>}
+        {!loading && data !== null && <Records data={data} />}
       </section>
-      <section className="grid max-w-lg gap-3 rounded border border-slate-700 p-4">
+      {section === "attendees" && <p className="text-sm text-slate-300">Attendee records are for inspection only.</p>}
+      {section === "points-log" && <p className="text-sm text-slate-300">Read-only ledger audit. No point changes are available here.</p>}
+      {section === "demo-otps" && <p className="text-sm text-slate-300">Recent codes are visible only in demo mode to signed-in administrators.</p>}
+      {section !== "attendees" && section !== "points-log" && section !== "demo-otps" && <fieldset disabled={busy} className="grid max-w-lg gap-3 rounded-2xl border border-slate-700 bg-slate-900/80 p-5 disabled:opacity-60">
         <h2 className="text-lg font-medium">Manage {section.replaceAll("-", " ")}</h2>
         {section === "staff" && <>
           <Field label="Email" value={email} set={setEmail} /><Field label="Full name" value={name} set={setName} />
@@ -146,10 +181,9 @@ export default function AdminPage() {
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={repeatDefault} onChange={(event) => setRepeatDefault(event.target.checked)} />Allow repeat task points by default</label>
           <button className="rounded bg-slate-700 p-2" onClick={() => void change("event-config", "PATCH", { allow_repeat_task_points_default: repeatDefault })}>Set repeat default</button>
         </>}
-        {section === "points-log" && <p className="text-sm text-slate-400">Read-only ledger audit. No point changes are available here.</p>}
-        {section === "demo-otps" && <p className="text-sm text-slate-400">Recent codes are available only in demo mode to signed-in administrators.</p>}
-      </section>
+      </fieldset>}
     </>}
+    {notice && <p role="status" className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-200">{notice}</p>}
     {error && <p role="alert" className="text-amber-300">{error}</p>}
   </main>;
 }

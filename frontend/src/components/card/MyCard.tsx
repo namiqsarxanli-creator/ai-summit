@@ -46,7 +46,7 @@ export function MyCard() {
   }, []);
 
   if (state.kind === "loading") {
-    return <p className="text-sm text-slate-500">Loading your card…</p>;
+    return <p role="status" className="rounded-2xl border border-slate-700 bg-slate-900 p-6 text-sm text-slate-300">Preparing your networking QR…</p>;
   }
   if (state.kind === "signed-out") {
     return (
@@ -71,16 +71,16 @@ export function MyCard() {
 
   const { card_url, card } = state.card;
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex min-w-0 flex-col gap-8">
       <section aria-labelledby="qr-heading" className="flex flex-col items-center gap-4">
         <h2 id="qr-heading" className="sr-only">
           Your QR code
         </h2>
-        <div className="w-full max-w-xs rounded-2xl bg-white p-3 shadow-lg shadow-indigo-500/10">
+        <div className="w-full max-w-[320px] rounded-3xl bg-white p-4 shadow-2xl shadow-black/30 sm:p-5">
           <QrCode value={card_url} label={`QR code for ${card.first_name} ${card.last_name}'s networking card`} />
         </div>
-        <p className="max-w-xs text-center text-sm text-slate-400">
-          Let other attendees scan this to open your card. Booth staff scan the same code.
+        <p className="max-w-xs text-center text-sm leading-relaxed text-slate-200">
+          Hold this code steady for networking. Attendees can open your card; booth staff can scan it for activities.
         </p>
       </section>
 

@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 
 export default function BoothsPage() {
   return (
-    <main className="mx-auto flex min-h-screen max-w-2xl flex-col gap-8 px-6 py-12 pb-24">
+    <main id="main-content" className="mx-auto flex min-h-screen max-w-2xl flex-col gap-8 px-6 py-12 pb-24">
       <header className="flex flex-col gap-2">
         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-indigo-400">
           AI Summit · Booths

@@ -93,7 +93,7 @@ export function Scanner() {
   }, []);
 
   if (me.kind === "loading") {
-    return <p className="text-sm text-slate-500">Checking your session…</p>;
+    return <p role="status" className="text-sm text-slate-300">Checking your session…</p>;
   }
   if (me.kind === "signed-out") {
     return <p className="text-sm text-amber-300">Please sign in as staff to scan attendees.</p>;
@@ -208,7 +208,7 @@ function ScanFlow({ role }: { role: StaffMe["role"] }) {
         <ManualEntry onSubmit={handleDetected} onBackToCamera={rescan} />
       )}
 
-      {state.kind === "resolving" && <p className="text-sm text-slate-400">Looking up attendee…</p>}
+      {state.kind === "resolving" && <p role="status" className="rounded-2xl border border-slate-700 bg-slate-900 p-5 text-sm text-slate-200">Looking up attendee…</p>}
 
       {state.kind === "resolve-error" && (
         <ErrorPanel code={state.code} onRetry={rescan} retryLabel="Scan again" />
@@ -229,7 +229,7 @@ function ScanFlow({ role }: { role: StaffMe["role"] }) {
       )}
 
       {state.kind === "award-pending" && (
-        <p className="text-sm text-slate-400">Awarding +{state.points}…</p>
+        <p role="status" className="rounded-2xl border border-slate-700 bg-slate-900 p-5 text-sm text-slate-200">Awarding +{state.points}…</p>
       )}
 
       {state.kind === "award-success" && (
@@ -279,13 +279,13 @@ function CameraView({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="relative overflow-hidden rounded-2xl bg-black">
+      <div className="relative overflow-hidden rounded-3xl border-2 border-cyan-300/50 bg-black shadow-xl shadow-black/30">
         <video
           ref={videoRef}
           autoPlay
           playsInline
           muted
-          className={`aspect-square w-full object-cover ${status.kind === "streaming" ? "" : "invisible"}`}
+          className={`aspect-square w-full min-h-[260px] object-cover ${status.kind === "streaming" ? "" : "invisible"}`}
         />
         <canvas ref={canvasRef} className="hidden" aria-hidden />
         {status.kind === "starting" && (
@@ -296,7 +296,7 @@ function CameraView({
       </div>
 
       {status.kind === "streaming" && (
-        <p className="text-center text-sm text-slate-400">Point the camera at an attendee&apos;s QR code.</p>
+        <p role="status" className="text-center text-sm font-medium text-slate-200">Point the camera at an attendee&apos;s QR code.</p>
       )}
 
       {status.kind === "denied" && (
@@ -476,11 +476,11 @@ function AwardingShell({
       {role === "BOOTH_STAFF" && presets.kind === "ok" && presets.presets.length > 0 && (
         <ul aria-label="Point presets" className="flex flex-wrap gap-2">
           {presets.presets.map((preset) => (
-            <li key={preset.points}>
+            <li key={preset.points} className="flex-1">
               <button
                 type="button"
                 onClick={() => onSelectPreset(preset.points)}
-                className="rounded-full border border-indigo-500/30 bg-indigo-500/10 px-4 py-2 text-sm font-semibold text-indigo-200 transition-colors hover:bg-indigo-500/20"
+                className="min-h-14 w-full rounded-xl border border-indigo-300/50 bg-indigo-500/20 px-5 py-3 text-lg font-bold text-white transition-colors hover:bg-indigo-500/30"
               >
                 +{preset.points}
                 {preset.label ? ` · ${preset.label}` : ""}

@@ -1,1 +1,15 @@
 @import "tailwindcss";
+
+:root { color-scheme: dark; }
+html { background: #080f1d; }
+body { background: radial-gradient(circle at 50% -20%, #17314c 0, #080f1d 45%); }
+button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
+button, a { touch-action: manipulation; }
+button, input, select, textarea { min-height: 44px; }
+p, dd { overflow-wrap: anywhere; }
+:focus-visible { outline: 3px solid #67e8f9; outline-offset: 3px; }
+button:disabled { cursor: not-allowed; }
+input, select, textarea { max-width: 100%; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}

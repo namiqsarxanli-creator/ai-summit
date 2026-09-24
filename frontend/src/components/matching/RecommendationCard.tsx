@@ -8,15 +8,15 @@ import type { Recommendation } from "@/lib/matching";
 export function RecommendationCard({ recommendation }: { recommendation: Recommendation }) {
   const { booth, match } = recommendation;
   return (
-    <li className="flex flex-col gap-3 rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+    <li className="flex min-w-0 flex-col gap-3 rounded-2xl border border-slate-700/80 bg-slate-900/85 p-5 shadow-lg shadow-black/10">
       <div className="flex items-start justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <h3 className="text-lg font-semibold text-slate-50">
             <Link href={`/booths/${encodeURIComponent(booth.slug)}`} className="hover:text-indigo-300">
               {booth.name}
             </Link>
           </h3>
-          {booth.location_label && <p className="text-sm text-slate-500">{booth.location_label}</p>}
+          {booth.location_label && <p className="break-words text-sm text-slate-300">{booth.location_label}</p>}
         </div>
         {match && <ScoreBadge score={match.score} />}
       </div>

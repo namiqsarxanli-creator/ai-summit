@@ -12,7 +12,7 @@ export const metadata: Metadata = {
 // by accident, and a staff member never sees attendee-only UI.
 export default function StaffLoginPage() {
   return (
-    <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center gap-8 px-6 py-12">
+    <main id="main-content" className="mx-auto flex min-h-screen max-w-md flex-col justify-center gap-8 px-6 py-12">
       <header className="flex flex-col gap-2">
         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-indigo-400">
           AI Summit · Staff

@@ -1,10 +1,14 @@
 {
   "name": "FACEMARK",
   "short_name": "FACEMARK",
-  "description": "FACEMARK — event networking and gamification platform",
+  "description": "Meet your people at AI Summit",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#020617",
-  "theme_color": "#020617",
-  "icons": []
+  "background_color": "#080f1d",
+  "theme_color": "#080f1d",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
 }

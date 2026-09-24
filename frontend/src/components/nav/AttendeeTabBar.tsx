@@ -24,7 +24,7 @@ export function AttendeeTabBar({ active }: { active: AttendeeTabKey }) {
   return (
     <nav
       aria-label="Attendee navigation"
-      className="fixed inset-x-0 bottom-0 z-10 border-t border-slate-800 bg-slate-950/95 backdrop-blur"
+      className="fixed inset-x-0 bottom-0 z-10 border-t border-slate-700 bg-[#080f1d]/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-10px_30px_rgba(0,0,0,.3)] backdrop-blur"
     >
       <ul className="mx-auto flex max-w-2xl">
         {TABS.map((tab) => {
@@ -34,10 +34,10 @@ export function AttendeeTabBar({ active }: { active: AttendeeTabKey }) {
               <Link
                 href={tab.href}
                 aria-current={isActive ? "page" : undefined}
-                className={`flex min-h-[44px] flex-col items-center justify-center gap-0.5 px-1 py-2 text-center text-xs font-medium transition-colors ${
+                className={`flex min-h-[52px] flex-col items-center justify-center gap-0.5 px-0.5 py-2 text-center text-[11px] font-semibold leading-tight transition-colors sm:text-xs ${
                   isActive
-                    ? "text-indigo-300"
-                    : "text-slate-500 hover:text-slate-300"
+                    ? "border-t-2 border-cyan-300 text-cyan-200"
+                    : "border-t-2 border-transparent text-slate-300 hover:text-white"
                 }`}
               >
                 {tab.label}

@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 
 export default function StaffScanPage() {
   return (
-    <main className="mx-auto flex min-h-screen max-w-md flex-col gap-6 px-4 py-6 sm:px-6">
+    <main id="main-content" className="mx-auto flex min-h-screen max-w-md flex-col gap-6 px-4 py-6 sm:px-6">
       <header className="flex items-center justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-indigo-400">

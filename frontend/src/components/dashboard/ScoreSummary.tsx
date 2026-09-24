@@ -20,8 +20,9 @@ export function ScoreSummary() {
   if (state.status === "signed-out") return null;
 
   return (
-    <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+    <section aria-label="Your summit score" className="relative overflow-hidden rounded-3xl border border-cyan-300/25 bg-slate-900 p-6 shadow-xl shadow-black/10">
+      <div aria-hidden className="absolute -right-10 -top-10 h-36 w-36 rounded-full bg-cyan-300/10 blur-3xl" />
+      <p className="relative text-xs font-bold uppercase tracking-[0.2em] text-cyan-300">
         Your points
       </p>
       {state.status === "loading" && <p className="mt-1 text-sm text-slate-400">Loading…</p>}
@@ -32,13 +33,13 @@ export function ScoreSummary() {
       )}
       {state.status === "ok" && (
         <>
-          <p className="mt-1 text-2xl font-semibold text-slate-50">
+          <p className="relative mt-3 text-5xl font-bold tracking-tight text-white tabular-nums">
             {state.score.total_points}{" "}
             <span className="text-sm font-normal text-slate-400">pts</span>
           </p>
-          <p className="text-sm text-slate-400">Rank #{state.score.rank}</p>
+          <p className="mt-2 text-sm font-medium text-slate-200">Rank #{state.score.rank}</p>
           {state.justAwardedPoints !== null && (
-            <p role="status" className="mt-1 text-sm font-semibold text-emerald-400">
+            <p role="status" className="mt-3 text-sm font-semibold text-emerald-300 motion-safe:animate-pulse">
               +{state.justAwardedPoints} points!
             </p>
           )}

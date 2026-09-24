@@ -23,20 +23,20 @@ type AllState =
 function Row({ entry, highlight }: { entry: LeaderboardEntry; highlight: boolean }) {
   return (
     <li
-      className={`flex items-center justify-between gap-3 rounded-lg border px-4 py-3 ${
-        highlight ? "border-indigo-400 bg-indigo-500/10" : "border-slate-800 bg-slate-900/60"
+      className={`flex min-w-0 items-center justify-between gap-3 rounded-2xl border px-4 py-4 ${
+        highlight ? "border-cyan-300 bg-cyan-300/10" : "border-slate-700 bg-slate-900/80"
       }`}
     >
-      <div className="flex items-center gap-3">
-        <span className="w-8 text-sm font-semibold text-slate-400">#{entry.rank}</span>
-        <div>
-          <p className="text-sm font-medium text-slate-100">
+      <div className="flex min-w-0 items-center gap-3">
+        <span className="w-10 shrink-0 text-lg font-bold tabular-nums text-cyan-200">#{entry.rank}</span>
+        <div className="min-w-0">
+          <p className="break-words text-sm font-semibold text-slate-100">
             {entry.first_name} {entry.last_name}
           </p>
-          <p className="text-xs text-slate-500">{entry.profession}</p>
+          <p className="break-words text-xs text-slate-300">{entry.profession}</p>
         </div>
       </div>
-      <span className="text-sm font-semibold text-slate-100">{entry.total_points} pts</span>
+      <span className="shrink-0 text-sm font-bold tabular-nums text-white">{entry.total_points} pts</span>
     </li>
   );
 }
@@ -103,7 +103,7 @@ export function LeaderboardView() {
   }
 
   if (top.status === "loading") {
-    return <p className="text-sm text-slate-500">Loading leaderboard…</p>;
+    return <p role="status" className="rounded-2xl border border-slate-700 bg-slate-900 p-5 text-sm text-slate-300">Loading leaderboard…</p>;
   }
 
   if (top.status === "signed-out") {
@@ -135,7 +135,7 @@ export function LeaderboardView() {
   return (
     <div className="flex flex-col gap-6">
       {entries.length === 0 ? (
-        <p className="text-sm text-slate-500">No attendees have joined the leaderboard yet.</p>
+        <p className="rounded-2xl border border-slate-700 bg-slate-900 p-5 text-sm text-slate-300">No attendees have joined the leaderboard yet. Your position will appear here when the event begins.</p>
       ) : (
         <ul className="flex flex-col gap-2">
           {entries.map((e) => (
@@ -161,7 +161,7 @@ export function LeaderboardView() {
         <button
           type="button"
           onClick={loadAllFromStart}
-          className="self-start rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 transition-colors hover:bg-slate-800"
+          className="min-h-11 self-start rounded-xl border border-slate-600 px-5 py-2 text-sm font-semibold text-slate-100 transition-colors hover:bg-slate-800"
         >
           Show all
         </button>

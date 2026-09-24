@@ -14,7 +14,7 @@ export const metadata: Metadata = {
 // M06+ page uses.
 export default function LeaderboardPage() {
   return (
-    <main className="mx-auto flex min-h-screen max-w-md flex-col gap-8 px-4 py-10 pb-24 sm:px-6">
+    <main id="main-content" className="mx-auto flex min-h-screen max-w-md flex-col gap-8 px-4 py-10 pb-24 sm:px-6">
       <header className="flex flex-col gap-2">
         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-indigo-400">
           AI Summit · Leaderboard

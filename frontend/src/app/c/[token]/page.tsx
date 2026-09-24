@@ -15,7 +15,7 @@ export const metadata: Metadata = {
 export default async function PublicCardPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
   return (
-    <main className="mx-auto flex min-h-screen max-w-md flex-col gap-6 px-4 py-10 sm:px-6">
+    <main id="main-content" className="mx-auto flex min-h-screen max-w-md flex-col gap-6 px-4 py-10 sm:px-6">
       <p className="text-xs font-semibold uppercase tracking-[0.2em] text-indigo-400">
         AI Summit · Networking card
       </p>
