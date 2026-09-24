@@ -339,6 +339,172 @@ describe("unsubscribe", () => {
   });
 });
 
+describe("stale-response race protection", () => {
+  // A slower, earlier-started request must never overwrite a faster,
+  // later-started one — deterministic proof, not timing-dependent:
+  // both requests are held open with controllable promises, and B is
+  // resolved before A regardless of which one was issued first.
+  function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((r) => {
+      resolve = r;
+    });
+    return { promise, resolve };
+  }
+
+  it("a newer score snapshot is not overwritten by an older, slower response (request A/B)", async () => {
+    const fetchMock = fetchRouter();
+    vi.stubGlobal("fetch", fetchMock);
+    const unsubscribe = realtimeStore.subscribeScore(() => {});
+    MockEventSource.latest().emit("ready", { dataset_generation: 1, heartbeat_seconds: 15 });
+    await flush();
+    await flush();
+    fetchMock.mockClear();
+
+    const responses = [
+      deferred<Response>(), // Request A (issued first)
+      deferred<Response>(), // Request B (issued second)
+    ];
+    let call = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url !== "/api/attendees/me/score") throw new Error(`unexpected fetch to ${url}`);
+        const index = call;
+        call += 1;
+        return responses[index]!.promise;
+      }),
+    );
+
+    // Request A starts...
+    MockEventSource.latest().emit("state_changed", { scope: "personal" });
+    await flush();
+    // ...then, while A is still in flight, Request B starts later.
+    MockEventSource.latest().emit("state_changed", { scope: "personal" });
+    await flush();
+    expect(call).toBe(2);
+
+    // B (the NEWER request) returns FIRST, with newer authoritative state.
+    responses[1]!.resolve(jsonResponse(200, { ...SCORE_BODY, total_points: 99 }));
+    await flush();
+    await flush();
+    expect(realtimeStore.getScoreSnapshot()).toMatchObject({
+      status: "ok",
+      score: { total_points: 99 },
+    });
+
+    // A (the OLDER request) returns AFTERWARD, with older/stale state.
+    responses[0]!.resolve(jsonResponse(200, { ...SCORE_BODY, total_points: 10 }));
+    await flush();
+    await flush();
+
+    // B's newer state must survive — A's late, stale arrival must not
+    // overwrite it.
+    expect(realtimeStore.getScoreSnapshot()).toMatchObject({
+      status: "ok",
+      score: { total_points: 99 },
+    });
+
+    unsubscribe();
+  });
+
+  it("a newer leaderboard snapshot is not overwritten by an older, slower response (request A/B)", async () => {
+    const fetchMock = fetchRouter();
+    vi.stubGlobal("fetch", fetchMock);
+    const unsubscribe = realtimeStore.subscribeLeaderboard(() => {});
+    MockEventSource.latest().emit("ready", { dataset_generation: 1, heartbeat_seconds: 15 });
+    await flush();
+    await flush();
+    fetchMock.mockClear();
+
+    const responses = [
+      deferred<Response>(), // Request A (issued first)
+      deferred<Response>(), // Request B (issued second)
+    ];
+    let call = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url !== "/api/leaderboard") throw new Error(`unexpected fetch to ${url}`);
+        const index = call;
+        call += 1;
+        return responses[index]!.promise;
+      }),
+    );
+
+    MockEventSource.latest().emit("leaderboard_changed", {}); // Request A
+    await flush();
+    MockEventSource.latest().emit("leaderboard_changed", {}); // Request B, later
+    await flush();
+    expect(call).toBe(2);
+
+    const newerEntry = { attendee_name: "Newer", total_points: 99, rank: 1, is_current_user: false };
+    const olderEntry = { attendee_name: "Older", total_points: 10, rank: 1, is_current_user: false };
+
+    // B (newer) resolves first.
+    responses[1]!.resolve(
+      jsonResponse(200, { ...LEADERBOARD_BODY, entries: [newerEntry] }),
+    );
+    await flush();
+    await flush();
+    expect(realtimeStore.getLeaderboardSnapshot()).toMatchObject({
+      status: "ok",
+      leaderboard: { entries: [newerEntry] },
+    });
+
+    // A (older) resolves after — must not overwrite B's result.
+    responses[0]!.resolve(
+      jsonResponse(200, { ...LEADERBOARD_BODY, entries: [olderEntry] }),
+    );
+    await flush();
+    await flush();
+    expect(realtimeStore.getLeaderboardSnapshot()).toMatchObject({
+      status: "ok",
+      leaderboard: { entries: [newerEntry] },
+    });
+
+    unsubscribe();
+  });
+
+  it("a request in flight before a generation-mismatch hard reset cannot restore pre-reset state", async () => {
+    const fetchMock = fetchRouter();
+    vi.stubGlobal("fetch", fetchMock);
+    const unsubscribe = realtimeStore.subscribeScore(() => {});
+    const es = MockEventSource.latest();
+    es.emit("ready", { dataset_generation: 1, heartbeat_seconds: 15 });
+    await flush();
+    await flush();
+    expect(realtimeStore.getScoreSnapshot().status).toBe("ok");
+
+    // Request A (old-generation) starts, and is held open.
+    const stale = deferred<Response>();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url !== "/api/attendees/me/score") throw new Error(`unexpected fetch to ${url}`);
+        return stale.promise;
+      }),
+    );
+    es.emit("state_changed", { scope: "personal" });
+    await flush();
+
+    // A generation mismatch / hard reset occurs while A is still in flight.
+    es.emit("dataset_reset", { dataset_generation: 2 });
+    expect(es.closed).toBe(true);
+    expect(realtimeStore.getScoreSnapshot()).toEqual({ status: "loading" });
+
+    // Request A returns afterward, with pre-reset state.
+    stale.resolve(jsonResponse(200, { ...SCORE_BODY, total_points: 12345 }));
+    await flush();
+    await flush();
+
+    // It must NOT restore the pre-reset state.
+    expect(realtimeStore.getScoreSnapshot()).toEqual({ status: "loading" });
+
+    unsubscribe();
+  });
+});
+
 describe("signed-out / error propagation", () => {
   it("surfaces UNAUTHENTICATED from the score fetch as signed-out", async () => {
     const fetchMock = fetchRouter({

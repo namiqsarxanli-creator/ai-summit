@@ -76,6 +76,17 @@ class RealtimeStore {
   private datasetGeneration: number | null = null;
   private unsubscribeGeneration: (() => void) | null = null;
 
+  /** Guards against a stale response overwriting a newer one: each
+   * refetch captures the post-increment sequence number, and only
+   * applies its result if it is still the most recently ISSUED
+   * request when the response arrives. An older request that resolves
+   * after a newer one (any reordering — slow network, retry, whatever)
+   * is silently discarded rather than overwriting the newer state.
+   * `hardReinitialise` also bumps both, so a request in flight before
+   * a reset can never restore pre-reset state after the fact. */
+  private scoreRequestSeq = 0;
+  private leaderboardRequestSeq = 0;
+
   private reconcileTimer: ReturnType<typeof setInterval> | null = null;
   private deadTimer: ReturnType<typeof setTimeout> | null = null;
   private consecutiveFailures = 0;
@@ -113,6 +124,8 @@ class RealtimeStore {
     this.consecutiveFailures = 0;
     this.visibilityInstalled = false;
     this.readySeen = false;
+    this.scoreRequestSeq = 0;
+    this.leaderboardRequestSeq = 0;
   }
 
   // --- subscription API ---------------------------------------------------
@@ -312,7 +325,12 @@ class RealtimeStore {
   // --- fetching --------------------------------------------------------------
 
   private async refetchScore(): Promise<void> {
+    const seq = ++this.scoreRequestSeq;
     const result = await fetchMyScore();
+    // A newer request was issued while this one was in flight — its
+    // response (whichever arrives) is authoritative instead. Discard
+    // this one unconditionally, even if it happens to be "ok".
+    if (seq !== this.scoreRequestSeq) return;
     if (!result.ok) {
       this.setScoreState(
         isSignedOutCode(result.error.code)
@@ -325,7 +343,9 @@ class RealtimeStore {
   }
 
   private async refetchLeaderboard(): Promise<void> {
+    const seq = ++this.leaderboardRequestSeq;
     const result = await fetchLeaderboardTop();
+    if (seq !== this.leaderboardRequestSeq) return;
     if (!result.ok) {
       this.setLeaderboardState(
         isSignedOutCode(result.error.code)
@@ -395,6 +415,10 @@ class RealtimeStore {
     this.animatedAwardIds.clear();
     this.seenFirstScoreSnapshot = false;
     this.datasetGeneration = newGeneration;
+    // Invalidate any request already in flight — it must not be able
+    // to land after this reset and resurrect pre-reset state.
+    this.scoreRequestSeq += 1;
+    this.leaderboardRequestSeq += 1;
     this.closeStream();
     this.stopReconciliation();
     this.stopFallback();
