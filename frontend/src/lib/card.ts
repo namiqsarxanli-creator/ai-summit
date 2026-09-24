@@ -29,10 +29,18 @@ export function fetchMyCard(): Promise<ApiResult<OwnCard>> {
 // §9.2: the QR encodes ONLY `https://<host>/c/<43-char token>`. Checked
 // again here before anything is encoded, so a server defect could never
 // print something else into an attendee's code.
-const CARD_URL = /^https?:\/\/[^/?#\s@]+\/c\/[A-Za-z0-9_-]{43}$/;
+const CARD_URL = /^https?:\/\/[^/?#\s@]+\/c\/([A-Za-z0-9_-]{43})$/;
 
 export function isCardUrl(value: string): boolean {
   return CARD_URL.test(value);
+}
+
+// M10: the staff scanner decodes whatever a camera saw. This pulls the
+// token OUT of the URL only when the whole string is a valid card URL
+// (§9.4 — a malformed/foreign QR must reach the one INVALID_QR path,
+// not a differently-shaped client error), never a looser substring match.
+export function extractCardToken(value: string): string | null {
+  return CARD_URL.exec(value)?.[1] ?? null;
 }
 
 // A LinkedIn value is rendered as a link only if it is plainly http(s):

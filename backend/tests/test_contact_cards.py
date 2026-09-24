@@ -534,23 +534,25 @@ def test_scan_resolve_is_limited_per_staff_account(
 
 
 @pytest.mark.parametrize("staff_email", [SEEDED_BOOTH_STAFF, SEEDED_ADMIN])
-def test_staff_resolve_returns_exactly_three_identity_fields(
+def test_staff_resolve_returns_exactly_three_identity_fields_plus_scan_ref(
     staff_email: str,
     emails: Callable[[], str],
     attendee: Callable[..., Any],
     staff_session: Callable[..., str],
 ) -> None:
-    """IMPLEMENTATION_PLAN.md M06 / §12.3 (booth staff ✅, admin ✅). The
-    attendee has LinkedIn, consent and a phone — none of it reaches staff."""
+    """IMPLEMENTATION_PLAN.md M06 / §12.3 (booth staff ✅, admin ✅), M10
+    (§13.3: resolve gains `scan_ref`). The attendee has LinkedIn, consent
+    and a phone — none of it reaches staff."""
     email, token, _ = attendee(emails(), sponsor_consent=True)
     response = _resolve(token, staff_session(staff_email))
     assert response.status_code == 200
-    assert response.json() == {
-        "first_name": "Grace",
-        "last_name": "Hopper",
-        "profession": "Systems Engineer",
-    }
-    for leaked in ("linkedin", email, "+1-555-0142", "consent", "interests", "scan_ref"):
+    body = response.json()
+    assert set(body) == {"first_name", "last_name", "profession", "scan_ref"}
+    assert body["first_name"] == "Grace"
+    assert body["last_name"] == "Hopper"
+    assert body["profession"] == "Systems Engineer"
+    assert re.fullmatch(r"[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+", body["scan_ref"])
+    for leaked in ("linkedin", email, "+1-555-0142", "consent", "interests"):
         assert leaked not in response.text
 
 

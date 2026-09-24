@@ -26,6 +26,7 @@ from app.core.sessions import (
     SESSION_COOKIE_NAME,
     resolve_attendee_session,
     resolve_staff_session,
+    resolve_staff_session_id,
 )
 from app.db.session import DbSession
 from app.modules.attendees.models import User
@@ -42,6 +43,13 @@ def current_attendee(request: Request, db: DbSession) -> User:
 
 def current_staff(request: Request, db: DbSession) -> StaffAccount:
     return resolve_staff_session(db, session_token(request))
+
+
+def current_staff_session_id(request: Request, db: DbSession) -> int:
+    """M10: the `sessions.id` `scan_ref` binds to (§13.3 `ses`) — kept
+    as its own dependency rather than folded into `current_staff` so
+    routes that don't issue a `scan_ref` never resolve it."""
+    return resolve_staff_session_id(db, session_token(request))
 
 
 def current_booth_staff(staff: CurrentStaff) -> StaffAccount:
@@ -81,6 +89,7 @@ def client_ip(request: Request) -> str:
 SessionToken = Annotated[str | None, Depends(session_token)]
 CurrentAttendee = Annotated[User, Depends(current_attendee)]
 CurrentStaff = Annotated[StaffAccount, Depends(current_staff)]
+CurrentStaffSessionId = Annotated[int, Depends(current_staff_session_id)]
 CurrentBoothStaff = Annotated[StaffAccount, Depends(current_booth_staff)]
 CurrentAdmin = Annotated[StaffAccount, Depends(current_admin)]
 ClientIp = Annotated[str, Depends(client_ip)]

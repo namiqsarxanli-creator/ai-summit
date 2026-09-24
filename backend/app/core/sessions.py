@@ -135,6 +135,30 @@ def resolve_staff_session(db: Session, raw_token: str | None) -> StaffAccount:
     return staff
 
 
+def resolve_staff_session_id(db: Session, raw_token: str | None) -> int:
+    """`sessions.id` of the authenticated staff session — `scan_ref`'s
+    `ses` binding (§13.3). A second, narrowly-scoped read alongside
+    `resolve_staff_session`'s `StaffAccount` lookup: only `scan_ref`
+    issuance (M10) needs the session id itself, so no other caller pays
+    for the extra column. Same validity predicate as
+    `resolve_staff_session`, called immediately after it in the same
+    request, so `UnauthenticatedError` here is unreachable in practice
+    rather than a second independent gate."""
+    if not raw_token:
+        raise UnauthenticatedError("Please sign in.")
+    session_id = db.execute(
+        select(AuthSession.id).where(
+            AuthSession.token_hash == hash_session_token(raw_token),
+            AuthSession.principal_type == PrincipalType.STAFF,
+            AuthSession.revoked_at.is_(None),
+            AuthSession.expires_at > func.now(),
+        )
+    ).scalar_one_or_none()
+    if session_id is None:
+        raise UnauthenticatedError("Please sign in.")
+    return session_id
+
+
 def revoke_session(db: Session, raw_token: str | None) -> bool:
     """§8.3: "Logout revokes server-side (revoked_at), so the token is
     dead immediately." Any principal type — whoever holds the cookie is

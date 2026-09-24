@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { fetchMyCard, fetchPublicCard, isCardUrl, safeExternalUrl } from "./card";
+import { extractCardToken, fetchMyCard, fetchPublicCard, isCardUrl, safeExternalUrl } from "./card";
 
 const TOKEN = "GsQFmpQcGo84C7lq3NsnX7UA-DTaWZNbu-wres2bYlE";
 
@@ -25,6 +25,22 @@ describe("isCardUrl — the only thing ever encoded into a QR (§9.2)", () => {
     [`javascript:alert(1)//c/${TOKEN}`, "non-http scheme"],
     [`{"id":42,"email":"a@b.c"}`, "JSON payload"],
   ])("rejects %s (%s)", (url) => expect(isCardUrl(url)).toBe(false));
+});
+
+describe("extractCardToken — M10 scanner input", () => {
+  it.each([`https://summit.example/c/${TOKEN}`, `http://localhost:3000/c/${TOKEN}`])(
+    "extracts the token from %s",
+    (url) => expect(extractCardToken(url)).toBe(TOKEN),
+  );
+
+  it.each([
+    ["https://example.com/not-facemark", "an arbitrary external QR"],
+    [`https://summit.example/c/${TOKEN}?email=a@b.c`, "query string"],
+    [`https://summit.example/c/${TOKEN.slice(1)}`, "short token"],
+    [`https://summit.example/u/${TOKEN}`, "wrong path"],
+    ["not even a url", "malformed text"],
+    ['{"id":42,"email":"a@b.c"}', "JSON payload"],
+  ])("returns null for %s (%s)", (value) => expect(extractCardToken(value)).toBeNull());
 });
 
 describe("safeExternalUrl", () => {

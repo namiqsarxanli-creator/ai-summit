@@ -1,0 +1,423 @@
+"use client";
+
+// M10: staff panel -> SCAN ATTENDEE -> camera -> confirm -> (M11's
+// award UI, not built here) — ARCHITECTURE.md §13.1.
+//
+// State machine, one state kind at a time:
+//   camera        - live preview, decoding; the mandatory default path
+//   resolving     - POST /api/staff/scan/resolve in flight
+//   resolve-error - INVALID_QR / rate-limited / etc — offers rescan
+//   confirm       - MANDATORY "Attendee found..." [Cancel] [Confirm]
+//                   (§13.1 step 5) — the only way out of "camera" that
+//                   doesn't return straight to it
+//   awarding      - preset-button SHELL only (§13.1 step 6). No award
+//                   endpoint exists yet (M11) — buttons are inert.
+//   manual-entry  - reachable ONLY from a camera failure (§13.5, §24.21)
+//
+// The camera is only ever mounted while state.kind === "camera": moving
+// to any other state stops every track (via useCameraScanner's own
+// cleanup) and makes a second decode of the same frame impossible.
+import { useEffect, useRef, useState } from "react";
+
+import { messageFor } from "@/lib/errors";
+import {
+  resolveScan,
+  tokenFromScannedText,
+  type ScanResolveResult,
+} from "@/lib/scanner";
+import { fetchPresets, fetchStaffMe, type Preset, type StaffMe } from "@/lib/staff";
+
+import { useCameraScanner } from "./useCameraScanner";
+
+type PresetsState = { kind: "none" } | { kind: "ok"; presets: Preset[] } | { kind: "error"; code: string };
+
+type ScanState =
+  | { kind: "camera" }
+  | { kind: "manual-entry" }
+  | { kind: "resolving" }
+  | { kind: "resolve-error"; code: string }
+  | { kind: "confirm"; identity: ScanResolveResult; idempotencyKey: string }
+  | { kind: "awarding"; identity: ScanResolveResult; idempotencyKey: string; presets: PresetsState };
+
+type MeState =
+  | { kind: "loading" }
+  | { kind: "signed-out" }
+  | { kind: "error"; code: string }
+  | { kind: "ok"; me: StaffMe };
+
+function isSignedOut(code: string): boolean {
+  return code === "UNAUTHENTICATED" || code === "STAFF_NOT_AUTHORIZED";
+}
+
+function newIdempotencyKey(): string {
+  // §13.4: generated once, when the confirmation screen opens — never
+  // per click. Called exactly once per successful resolve (see
+  // `handleDetected` below), never again for the same scan.
+  return crypto.randomUUID();
+}
+
+export function Scanner() {
+  const [me, setMe] = useState<MeState>({ kind: "loading" });
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchStaffMe().then((result) => {
+      if (cancelled) return;
+      if (!result.ok) {
+        setMe(isSignedOut(result.error.code) ? { kind: "signed-out" } : { kind: "error", code: result.error.code });
+        return;
+      }
+      setMe({ kind: "ok", me: result.data });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (me.kind === "loading") {
+    return <p className="text-sm text-slate-500">Checking your session…</p>;
+  }
+  if (me.kind === "signed-out") {
+    return <p className="text-sm text-amber-300">Please sign in as staff to scan attendees.</p>;
+  }
+  if (me.kind === "error") {
+    return (
+      <p role="alert" className="text-sm text-amber-300">
+        {messageFor(me.code)}
+      </p>
+    );
+  }
+
+  return <ScanFlow role={me.me.role} />;
+}
+
+function ScanFlow({ role }: { role: StaffMe["role"] }) {
+  const [state, setState] = useState<ScanState>({ kind: "camera" });
+
+  // A ref, kept in sync by `transition` below (every state change in
+  // this component goes through it) rather than by `state` itself: two
+  // decodes can arrive synchronously, before a `setState` from the
+  // first has flushed, and checking `state` directly would let both
+  // pass. Writing the ref in the same statement as each `setState`
+  // means the second call always sees the first transition immediately.
+  const stateRef = useRef<ScanState>({ kind: "camera" });
+
+  function transition(next: ScanState) {
+    stateRef.current = next;
+    setState(next);
+  }
+
+  function handleDetected(text: string) {
+    // Both "camera" (a live decode) and "manual-entry" (the fallback
+    // form's submit) are valid sources for this — anything else means a
+    // scan is already resolving or already resolved, so a stray or
+    // duplicate call is ignored rather than starting a second lookup.
+    if (stateRef.current.kind !== "camera" && stateRef.current.kind !== "manual-entry") return;
+    const token = tokenFromScannedText(text);
+    if (!token) {
+      transition({ kind: "resolve-error", code: "INVALID_QR" });
+      return;
+    }
+    transition({ kind: "resolving" });
+    resolveScan(token).then((result) => {
+      if (!result.ok) {
+        transition({ kind: "resolve-error", code: result.error.code });
+        return;
+      }
+      transition({ kind: "confirm", identity: result.data, idempotencyKey: newIdempotencyKey() });
+    });
+  }
+
+  function rescan() {
+    transition({ kind: "camera" });
+  }
+
+  function confirmIdentity() {
+    if (state.kind !== "confirm") return;
+    const { identity, idempotencyKey } = state;
+    transition({ kind: "awarding", identity, idempotencyKey, presets: { kind: "none" } });
+    if (role !== "BOOTH_STAFF") return;
+    fetchPresets().then((result) => {
+      setState((current) => {
+        if (current.kind !== "awarding" || current.idempotencyKey !== idempotencyKey) return current;
+        return {
+          ...current,
+          presets: result.ok ? { kind: "ok", presets: result.data } : { kind: "error", code: result.error.code },
+        };
+      });
+    });
+  }
+
+  const camera = useCameraScanner(state.kind === "camera", handleDetected);
+
+  return (
+    <div className="flex flex-col gap-6">
+      {state.kind === "camera" && (
+        <CameraView camera={camera} onManualEntry={() => transition({ kind: "manual-entry" })} />
+      )}
+      {state.kind === "manual-entry" && (
+        <ManualEntry onSubmit={handleDetected} onBackToCamera={rescan} />
+      )}
+
+      {state.kind === "resolving" && <p className="text-sm text-slate-400">Looking up attendee…</p>}
+
+      {state.kind === "resolve-error" && (
+        <div className="flex flex-col gap-3">
+          <p role="alert" className="text-sm text-amber-300">
+            {messageFor(state.code)}
+          </p>
+          <button
+            type="button"
+            onClick={rescan}
+            className="rounded-lg bg-indigo-500 px-4 py-3 font-semibold text-white transition-colors hover:bg-indigo-400"
+          >
+            Scan again
+          </button>
+        </div>
+      )}
+
+      {state.kind === "confirm" && (
+        <ConfirmScreen identity={state.identity} onCancel={rescan} onConfirm={confirmIdentity} />
+      )}
+
+      {state.kind === "awarding" && (
+        <AwardingShell identity={state.identity} role={role} presets={state.presets} onScanNext={rescan} />
+      )}
+    </div>
+  );
+}
+
+function CameraView({
+  camera,
+  onManualEntry,
+}: {
+  camera: ReturnType<typeof useCameraScanner>;
+  onManualEntry: () => void;
+}) {
+  const { videoRef, canvasRef, status, restart } = camera;
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="relative overflow-hidden rounded-2xl bg-black">
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted
+          className={`aspect-square w-full object-cover ${status.kind === "streaming" ? "" : "invisible"}`}
+        />
+        <canvas ref={canvasRef} className="hidden" aria-hidden />
+        {status.kind === "starting" && (
+          <p className="absolute inset-0 flex items-center justify-center text-sm text-slate-300">
+            Starting camera…
+          </p>
+        )}
+      </div>
+
+      {status.kind === "streaming" && (
+        <p className="text-center text-sm text-slate-400">Point the camera at an attendee&apos;s QR code.</p>
+      )}
+
+      {status.kind === "denied" && (
+        <CameraFailure
+          title="Camera access was denied"
+          detail="Allow camera access in your browser's site settings, then try again."
+          onRetry={restart}
+          onManualEntry={onManualEntry}
+        />
+      )}
+      {status.kind === "unavailable" && (
+        <CameraFailure
+          title="No camera was found"
+          detail="This device doesn't have a usable camera for scanning."
+          onRetry={restart}
+          onManualEntry={onManualEntry}
+        />
+      )}
+      {status.kind === "error" && (
+        <CameraFailure
+          title="The camera couldn't be started"
+          detail="Something went wrong starting the camera."
+          onRetry={restart}
+          onManualEntry={onManualEntry}
+        />
+      )}
+    </div>
+  );
+}
+
+function CameraFailure({
+  title,
+  detail,
+  onRetry,
+  onManualEntry,
+}: {
+  title: string;
+  detail: string;
+  onRetry: () => void;
+  onManualEntry: () => void;
+}) {
+  return (
+    <div role="alert" className="flex flex-col gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4">
+      <p className="text-sm font-semibold text-amber-200">{title}</p>
+      <p className="text-sm text-amber-100/80">{detail}</p>
+      <div className="flex flex-col gap-2">
+        <button
+          type="button"
+          onClick={onRetry}
+          className="rounded-lg bg-indigo-500 px-4 py-3 font-semibold text-white transition-colors hover:bg-indigo-400"
+        >
+          Try camera again
+        </button>
+        <button
+          type="button"
+          onClick={onManualEntry}
+          className="rounded-lg border border-slate-700 px-4 py-2.5 text-sm font-semibold text-slate-200 transition-colors hover:bg-slate-800"
+        >
+          Enter code manually
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ManualEntry({
+  onSubmit,
+  onBackToCamera,
+}: {
+  onSubmit: (text: string) => void;
+  onBackToCamera: () => void;
+}) {
+  const [value, setValue] = useState("");
+  return (
+    <form
+      className="flex flex-col gap-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        onSubmit(value);
+      }}
+    >
+      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-400">
+        Manual entry — emergency fallback only
+      </p>
+      <label htmlFor="manual-card-token" className="text-sm text-slate-400">
+        Card code
+      </label>
+      <input
+        id="manual-card-token"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        className="rounded-lg border border-slate-700 bg-slate-900 px-4 py-3 text-slate-100"
+        placeholder="Paste the attendee's card code or URL"
+      />
+      <button
+        type="submit"
+        className="rounded-lg bg-indigo-500 px-4 py-3 font-semibold text-white transition-colors hover:bg-indigo-400"
+      >
+        Look up attendee
+      </button>
+      <button type="button" onClick={onBackToCamera} className="text-sm text-slate-400 underline">
+        Back to camera
+      </button>
+    </form>
+  );
+}
+
+function ConfirmScreen({
+  identity,
+  onCancel,
+  onConfirm,
+}: {
+  identity: ScanResolveResult;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div className="flex flex-col gap-4 rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-400">Attendee found</p>
+      <p className="text-lg font-semibold text-slate-50">
+        {identity.first_name} {identity.last_name}
+      </p>
+      <p className="text-sm text-slate-400">{identity.profession}</p>
+      <p className="text-sm text-slate-300">Is this the correct attendee?</p>
+      <div className="flex gap-3">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="flex-1 rounded-lg border border-slate-700 px-4 py-3 font-semibold text-slate-200 transition-colors hover:bg-slate-800"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={onConfirm}
+          className="flex-1 rounded-lg bg-indigo-500 px-4 py-3 font-semibold text-white transition-colors hover:bg-indigo-400"
+        >
+          Confirm
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function AwardingShell({
+  identity,
+  role,
+  presets,
+  onScanNext,
+}: {
+  identity: ScanResolveResult;
+  role: StaffMe["role"];
+  presets: PresetsState;
+  onScanNext: () => void;
+}) {
+  return (
+    <div className="flex flex-col gap-4 rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-400">Confirmed</p>
+      <p className="text-lg font-semibold text-slate-50">
+        {identity.first_name} {identity.last_name}
+      </p>
+
+      {role !== "BOOTH_STAFF" && (
+        <p className="text-sm text-slate-400">Admins can&apos;t award points — booth staff can complete this scan.</p>
+      )}
+
+      {role === "BOOTH_STAFF" && presets.kind === "error" && (
+        <p role="alert" className="text-sm text-amber-300">
+          {messageFor(presets.code)}
+        </p>
+      )}
+      {role === "BOOTH_STAFF" && presets.kind === "ok" && presets.presets.length === 0 && (
+        <p className="text-sm text-slate-500">No point presets are configured yet.</p>
+      )}
+      {role === "BOOTH_STAFF" && presets.kind === "ok" && presets.presets.length > 0 && (
+        <>
+          <ul aria-label="Point presets" className="flex flex-wrap gap-2">
+            {presets.presets.map((preset) => (
+              <li key={preset.points}>
+                <button
+                  type="button"
+                  disabled
+                  aria-disabled
+                  className="cursor-not-allowed rounded-full border border-indigo-500/30 bg-indigo-500/10 px-4 py-2 text-sm font-semibold text-indigo-200 opacity-60"
+                >
+                  +{preset.points}
+                  {preset.label ? ` · ${preset.label}` : ""}
+                </button>
+              </li>
+            ))}
+          </ul>
+          <p className="text-xs text-slate-500">Awarding isn&apos;t available yet — check back soon.</p>
+        </>
+      )}
+
+      <button
+        type="button"
+        onClick={onScanNext}
+        className="rounded-lg border border-slate-700 px-4 py-2.5 text-sm font-semibold text-slate-200 transition-colors hover:bg-slate-800"
+      >
+        Scan another attendee
+      </button>
+    </div>
+  );
+}

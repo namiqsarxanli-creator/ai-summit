@@ -15,7 +15,10 @@ those instead of Argon2id.
 
 from __future__ import annotations
 
+import base64
 import hashlib
+import hmac
+import json
 import secrets
 
 from argon2 import PasswordHasher
@@ -94,3 +97,28 @@ def hash_session_token(token: str) -> str:
     not a human-guessable secret, so a slow hash buys nothing and would
     only add needless latency to every authenticated request."""
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def canonical_json(payload: dict[str, object]) -> bytes:
+    """ARCHITECTURE.md §13.3: "`P` is serialised as UTF-8 JSON with keys
+    sorted ascending, no insignificant whitespace, no trailing newline."
+    Used for `scan_ref`'s envelope (M10) and its request fingerprint
+    (M11) — both sign/hash this exact byte-stable form, never a
+    re-serialization of a parsed object."""
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode(
+        "utf-8"
+    )
+
+
+def b64url_nopad(data: bytes) -> str:
+    """Base64url, padding stripped — §13.3's `B` and `sig` encoding."""
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+
+def sign_hmac_sha256(secret: str, message: str) -> str:
+    """ARCHITECTURE.md §13.3: "`sig = base64url_nopad(HMAC_SHA256(key =
+    SCAN_REF_SECRET, msg = B))`." `message` must be the exact
+    transmitted string, never a re-serialization — the caller owns that
+    distinction, this function only signs whatever bytes it is given."""
+    mac = hmac.new(secret.encode("utf-8"), message.encode("ascii"), hashlib.sha256).digest()
+    return b64url_nopad(mac)

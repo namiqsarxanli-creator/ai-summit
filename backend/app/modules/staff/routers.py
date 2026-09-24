@@ -1,7 +1,7 @@
 """`POST /api/staff/auth/login`, `POST /api/staff/auth/logout`,
 `GET /api/staff/me`, `GET /api/staff/points/presets` (M09), and
-`POST /api/staff/scan/resolve` (M06, unchanged) — ARCHITECTURE.md
-§12.1-§12.3, §13.1-§13.2, §21.7-§21.8.
+`POST /api/staff/scan/resolve` (M06 identity lookup, M10 adds
+`scan_ref`) — ARCHITECTURE.md §12.1-§12.3, §13.1-§13.3, §21.7-§21.8.
 
 Ordering in every mutating handler mirrors `auth/routers.py`: rate-limit
 checks (pure, touch no application data) -> `mutating_transaction` (the
@@ -12,9 +12,18 @@ only dataset-independent work before the fence.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from fastapi import APIRouter, Response
 
-from app.core.deps import ClientIp, CurrentBoothStaff, CurrentStaff, SessionToken
+from app.core.config import get_settings
+from app.core.deps import (
+    ClientIp,
+    CurrentBoothStaff,
+    CurrentStaff,
+    CurrentStaffSessionId,
+    SessionToken,
+)
 from app.core.errors import (
     AccountLockedError,
     InvalidCredentialsError,
@@ -29,9 +38,15 @@ from app.core.ratelimit import (
 from app.core.sessions import clear_session_cookie, revoke_session, set_session_cookie
 from app.db.session import DbSession, mutating_transaction
 from app.modules.booths.models import Booth
-from app.modules.contact_cards.schemas import CardIdentity
 from app.modules.contact_cards.service import resolve_card_identity
-from app.modules.staff.schemas import PresetOut, ScanResolveRequest, StaffLoginRequest, StaffMe
+from app.modules.staff.scan_ref import issue_scan_ref
+from app.modules.staff.schemas import (
+    PresetOut,
+    ScanResolveRequest,
+    StaffLoginRequest,
+    StaffMe,
+    StaffScanResult,
+)
 from app.modules.staff.service import login_staff, resolved_presets_for_booth
 
 router = APIRouter(prefix="/staff", tags=["staff"])
@@ -105,10 +120,25 @@ def points_presets(staff: CurrentBoothStaff, db: DbSession) -> list[PresetOut]:
     return [PresetOut(points=p.points, label=p.label) for p in presets]
 
 
-@router.post("/scan/resolve", response_model=CardIdentity)
-def scan_resolve(payload: ScanResolveRequest, staff: CurrentStaff, db: DbSession) -> CardIdentity:
+@router.post("/scan/resolve", response_model=StaffScanResult)
+def scan_resolve(
+    payload: ScanResolveRequest,
+    staff: CurrentStaff,
+    session_id: CurrentStaffSessionId,
+    db: DbSession,
+) -> StaffScanResult:
     """§12.3: booth staff and admins may resolve a card. §21.7: 120/min
-    per staff account. Unchanged from M06 — now backed by a real M09
-    staff session rather than one a test plants directly."""
+    per staff account. The M06 identity lookup is unchanged; M10 adds
+    `scan_ref` (§13.3) — issued only once the token resolves to a real
+    ACTIVE attendee, never for an INVALID_QR outcome, so a `scan_ref`
+    always names a real, currently-scannable card."""
     limiter.check([(SCAN_RESOLVE_PER_STAFF, str(staff.id))])
-    return resolve_card_identity(db, payload.card_token)
+    identity = resolve_card_identity(db, payload.card_token)
+    scan_ref = issue_scan_ref(
+        secret=get_settings().scan_ref_secret,
+        staff_id=staff.id,
+        session_id=session_id,
+        card_token=payload.card_token,
+        now=datetime.now(UTC),
+    )
+    return StaffScanResult(**identity.model_dump(), scan_ref=scan_ref)

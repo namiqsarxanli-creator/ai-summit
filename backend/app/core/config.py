@@ -60,6 +60,11 @@ class Settings(BaseSettings):
     # trust nothing until it is configured." Comma-separated CIDRs.
     trusted_proxy_cidrs: str = ""
 
+    # ARCHITECTURE.md §13.3: the HMAC key signing every `scan_ref`
+    # envelope. No fallback (invariant #14) — a guessed key would let
+    # anyone forge a staff scan of any attendee token.
+    scan_ref_secret: str = Field(...)
+
     @field_validator("app_origin")
     @classmethod
     def _normalise_origin(cls, value: str) -> str:

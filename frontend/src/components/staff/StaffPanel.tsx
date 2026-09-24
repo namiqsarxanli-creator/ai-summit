@@ -105,6 +105,13 @@ export function StaffPanel() {
         </p>
       </section>
 
+      <Link
+        href="/staff/scan"
+        className="w-full rounded-lg bg-indigo-500 px-4 py-3 text-center font-semibold text-white transition-colors hover:bg-indigo-400"
+      >
+        Scan attendee
+      </Link>
+
       {me.role === "BOOTH_STAFF" && (
         <section className="flex flex-col gap-3">
           <h2 className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
@@ -132,7 +139,7 @@ export function StaffPanel() {
             </ul>
           )}
           <p className="text-xs text-slate-500">
-            Scanning and awarding points isn&apos;t available yet — check back soon.
+            Awarding points isn&apos;t available yet — check back soon.
           </p>
         </section>
       )}

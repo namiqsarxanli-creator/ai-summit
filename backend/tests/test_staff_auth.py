@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import inspect
 import logging
+import re
 import threading
 import uuid
 from collections.abc import Callable, Iterator
@@ -794,11 +795,14 @@ def test_scan_resolve_works_through_a_real_staff_login(
         response = c.post(RESOLVE, json={"card_token": fx.ATTENDEES[1].public_token})
         c.post(LOGOUT)
     assert response.status_code == 200
-    assert response.json() == {
-        "first_name": fx.ATTENDEES[1].first_name,
-        "last_name": fx.ATTENDEES[1].last_name,
-        "profession": fx.ATTENDEES[1].profession,
-    }
+    body = response.json()
+    assert body["first_name"] == fx.ATTENDEES[1].first_name
+    assert body["last_name"] == fx.ATTENDEES[1].last_name
+    assert body["profession"] == fx.ATTENDEES[1].profession
+    # M10: resolve now also carries a scan_ref (§13.3) alongside the
+    # unchanged M06 identity fields.
+    assert set(body) == {"first_name", "last_name", "profession", "scan_ref"}
+    assert re.fullmatch(r"[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+", body["scan_ref"])
 
 
 def test_admin_can_also_use_scan_resolve(staff_account: Callable[..., tuple[str, int]]) -> None:

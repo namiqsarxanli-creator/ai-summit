@@ -46,7 +46,9 @@ class PublicCard(_Strict):
 
 class CardIdentity(_Strict):
     """`POST /api/staff/scan/resolve` — exactly three identity fields.
-    M10 adds `scan_ref` alongside them."""
+    M10's `scan_ref` is added by `staff.schemas.StaffScanResult`, a
+    subclass defined in the staff module rather than a field added
+    here, so this shared schema itself never widens (§24.20)."""
 
     first_name: str
     last_name: str

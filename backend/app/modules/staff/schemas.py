@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
+from app.modules.contact_cards.schemas import CardIdentity
 from app.modules.staff.models import StaffRole
 
 
@@ -49,3 +50,16 @@ class PresetOut(BaseModel):
 
     points: int
     label: str | None
+
+
+class StaffScanResult(CardIdentity):
+    """`POST /api/staff/scan/resolve` response (M10 addition, §13.1
+    steps 4-5, §13.3). Extends `CardIdentity` rather than restating its
+    three identity fields — `CardIdentity` itself (§24.20's "staff card
+    resolution returns name and profession only") stays exactly those
+    three fields; `scan_ref` is orthogonal transport for the
+    confirm/award flow, not a fourth identity field, which is why it is
+    added here in the staff module rather than widening the shared
+    `contact_cards` schema."""
+
+    scan_ref: str

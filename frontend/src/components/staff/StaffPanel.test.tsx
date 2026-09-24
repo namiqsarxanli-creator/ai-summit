@@ -56,7 +56,7 @@ describe("StaffPanel", () => {
     expect(calls.map(([u]) => u)).toEqual(["/api/staff/me"]);
   });
 
-  it("offers no award/scan controls yet", async () => {
+  it("offers scanning (M10) but no award controls yet", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string) =>
@@ -65,7 +65,10 @@ describe("StaffPanel", () => {
     );
     render(<StaffPanel />);
     await screen.findByText("Noah Bergström");
-    expect(screen.queryByRole("button", { name: /scan/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Scan attendee" })).toHaveAttribute(
+      "href",
+      "/staff/scan",
+    );
     for (const preset of PRESETS) {
       expect(
         screen.queryByRole("button", { name: new RegExp(`\\+${preset.points}`) }),

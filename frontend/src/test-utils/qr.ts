@@ -1,12 +1,16 @@
 // Test-only: decode a QR the way a phone camera would — from pixels —
 // so tests assert what the rendered code actually SAYS, not merely that
-// an <svg> exists.
+// an <svg> exists. `encodeToImageData` (M10) goes the other direction:
+// it builds the pixels a camera would SEE for a given payload, so the
+// scanner's decode pipeline can be tested against a real, standards-
+// -conformant QR rather than a hand-rolled fixture.
 
 import jsQR from "jsqr";
+import QRCode from "qrcode";
 
 const SCALE = 4;
 
-function decodePixels(dim: number, isDark: (x: number, y: number) => boolean): string | null {
+function rasterize(dim: number, isDark: (x: number, y: number) => boolean) {
   const width = dim * SCALE;
   const pixels = new Uint8ClampedArray(width * width * 4);
   for (let y = 0; y < width; y++) {
@@ -17,7 +21,27 @@ function decodePixels(dim: number, isDark: (x: number, y: number) => boolean): s
       pixels[i + 3] = 255;
     }
   }
-  return jsQR(pixels, width, width)?.data ?? null;
+  return { data: pixels, width, height: width };
+}
+
+function decodePixels(dim: number, isDark: (x: number, y: number) => boolean): string | null {
+  const { data, width } = rasterize(dim, isDark);
+  return jsQR(data, width, width)?.data ?? null;
+}
+
+export function encodeToImageData(text: string): {
+  data: Uint8ClampedArray;
+  width: number;
+  height: number;
+} {
+  const quiet = 4;
+  const qr = QRCode.create(text, { errorCorrectionLevel: "M" });
+  const size = qr.modules.size;
+  return rasterize(size + quiet * 2, (x, y) => {
+    const row = y - quiet;
+    const col = x - quiet;
+    return row >= 0 && col >= 0 && row < size && col < size && qr.modules.get(row, col) === 1;
+  });
 }
 
 // Reads back the unit squares QrCode draws (`M{x} {y}h1v1h-1z`) inside
