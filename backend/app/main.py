@@ -19,6 +19,7 @@ need appears.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -44,6 +45,7 @@ from app.modules.leaderboard.routers import router as leaderboard_router
 from app.modules.matching.routers import router as matching_router
 from app.modules.points.routers import router as points_router
 from app.modules.realtime.broker import event_bus
+from app.modules.realtime.listener import run_reset_listener
 from app.modules.realtime.middleware import (
     DatasetGenerationHeaderMiddleware,
     RealtimeStreamHeadersMiddleware,
@@ -180,11 +182,23 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     any loop is running — including during test collection). Unbound
     again on shutdown so a publish after that is the documented
     best-effort no-op (§17.7.2) rather than a call into a dead loop.
+
+    M15: the reset LISTEN task (`app/modules/realtime/listener.py`) is
+    the other half of `event_bus.bind_loop` — it is what lets a demo
+    reset, run as a completely separate CLI process, still reach this
+    process's real open streams. Started here (process lifetime, same
+    as the bound loop) and cancelled on shutdown; a `CancelledError`
+    from awaiting it afterward is the expected, silent shutdown path.
     """
     event_bus.bind_loop(asyncio.get_running_loop())
+    settings = get_settings()
+    listener_task = asyncio.create_task(run_reset_listener(settings.database_url, event_bus))
     try:
         yield
     finally:
+        listener_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await listener_task
         event_bus.unbind_loop()
 
 

@@ -33,6 +33,7 @@ from app.modules.auth.schemas import (
     OtpVerifyResponse,
 )
 from app.modules.auth.service import request_otp
+from app.modules.points.service import maintenance_fast_path_check
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -44,6 +45,7 @@ def otp_request(payload: OtpRequestRequest, db: DbSession, ip: ClientIp) -> OtpR
     so the throttle itself is no membership oracle."""
     email = payload.email.strip().lower()
     limiter.check([(OTP_REQUEST_PER_EMAIL, email), (OTP_REQUEST_PER_IP, ip)])
+    maintenance_fast_path_check(db)
 
     with mutating_transaction(db) as tx:
         delivery = request_otp(tx, email)
@@ -65,6 +67,7 @@ def otp_verify(
     transaction has committed."""
     email = payload.email.strip().lower()
     limiter.check([(OTP_VERIFY_PER_EMAIL, email), (OTP_VERIFY_PER_IP, ip)])
+    maintenance_fast_path_check(db)
 
     with mutating_transaction(db) as tx:
         outcome = verify_otp(tx, email=email, code=payload.code)
@@ -86,6 +89,7 @@ def logout(response: Response, db: DbSession, token: SessionToken) -> None:
     nothing to revoke, and the cookie is cleared either way. The token
     is taken from the cookie before the fence (extraction is pure work,
     §19.4); the session row is only read and revoked inside it."""
+    maintenance_fast_path_check(db)
     with mutating_transaction(db) as tx:
         revoke_session(tx, token)
     clear_session_cookie(response)

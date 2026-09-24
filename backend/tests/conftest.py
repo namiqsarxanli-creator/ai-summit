@@ -7,13 +7,23 @@ from collections.abc import Iterator
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import text
+from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.orm import Session
+from sqlalchemy.pool import NullPool
 
 from app.core.ratelimit import limiter
 from app.db import all_models  # noqa: F401 — registers every model with Base.metadata
 from app.db.session import SessionLocal
 from tests.m04_support import OTP_LOGGER, cleanup_email, make_client, new_email
+from tests.reset_support import (
+    ALL_RESET_RELEVANT_TABLES,
+    SEED_ADMIN_PASSWORD,
+    SEED_STAFF_PASSWORD,
+    create_isolated_database,
+    drop_isolated_database,
+    isolated_url,
+    migrate_isolated_database,
+)
 
 
 @pytest.fixture
@@ -153,3 +163,73 @@ def seeded_task_id(db: Session, seeded_booth_id: int) -> int:
         {"booth_id": seeded_booth_id},
     ).one()
     return int(row[0])
+
+
+# --- M15: the isolated destructive-reset test database ---------------------
+# See tests/reset_support.py's module docstring for why this is a
+# SEPARATE database, never the one the fixtures above operate on.
+
+
+@pytest.fixture(scope="session")
+def reset_db_url() -> Iterator[str]:
+    """A freshly created, freshly migrated, EMPTY isolated database —
+    created once for the whole test session and dropped at the end.
+    Individual tests use `clean_reset_db` (function-scoped) to get back
+    to a known, freshly-seeded baseline rather than re-creating this."""
+    create_isolated_database()
+    url = isolated_url()
+    migrate_isolated_database(url)
+    try:
+        yield url
+    finally:
+        drop_isolated_database()
+
+
+@pytest.fixture(scope="session")
+def reset_db_engine(reset_db_url: str) -> Iterator[Engine]:
+    """A dedicated, NullPool engine bound to the isolated database —
+    never `app.db.session.engine`, which stays bound to the real
+    database for the lifetime of this test process."""
+    engine = create_engine(reset_db_url, poolclass=NullPool, future=True)
+    try:
+        yield engine
+    finally:
+        engine.dispose()
+
+
+@pytest.fixture
+def clean_reset_db(reset_db_url: str, reset_db_engine: Engine) -> Iterator[str]:
+    """Function-scoped: truncates every reset-relevant table (and
+    restores `event_config`'s singleton row to its fixture defaults
+    directly — it is never truncated) and re-seeds via the real
+    `seed_all()`, so every M15 test starts from an identical, freshly-
+    seeded, generation-1 baseline independent of what the previous test
+    did to this same long-lived isolated database. Yields the URL."""
+    from app.seed.seeder import seed_all
+
+    with reset_db_engine.connect() as conn:
+        tables = ", ".join(ALL_RESET_RELEVANT_TABLES)
+        conn.execute(text(f"TRUNCATE TABLE {tables} RESTART IDENTITY CASCADE"))
+        conn.execute(
+            text(
+                "INSERT INTO event_config "
+                "(id, feedback_points, allow_repeat_task_points_default, "
+                "leaderboard_top_n, dataset_generation, maintenance_mode) "
+                "VALUES (1, 5, false, 10, 1, false) "
+                "ON CONFLICT (id) DO UPDATE SET "
+                "feedback_points = 5, allow_repeat_task_points_default = false, "
+                "leaderboard_top_n = 10, dataset_generation = 1, maintenance_mode = false, "
+                "updated_by_staff_id = NULL"
+            )
+        )
+        conn.commit()
+
+    seed_session = Session(bind=reset_db_engine)
+    try:
+        seed_all(
+            seed_session, admin_password=SEED_ADMIN_PASSWORD, staff_password=SEED_STAFF_PASSWORD
+        )
+    finally:
+        seed_session.close()
+
+    yield reset_db_url

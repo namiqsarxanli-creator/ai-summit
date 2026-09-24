@@ -39,6 +39,7 @@ from app.core.sessions import clear_session_cookie, revoke_session, set_session_
 from app.db.session import DbSession, mutating_transaction
 from app.modules.booths.models import Booth
 from app.modules.contact_cards.service import resolve_card_identity
+from app.modules.points.service import maintenance_fast_path_check
 from app.modules.staff.scan_ref import issue_scan_ref
 from app.modules.staff.schemas import (
     PresetOut,
@@ -67,6 +68,7 @@ def login(payload: StaffLoginRequest, response: Response, db: DbSession, ip: Cli
     """
     email = payload.email.strip().lower()
     limiter.check([(STAFF_LOGIN_PER_EMAIL, email), (STAFF_LOGIN_PER_IP, ip)])
+    maintenance_fast_path_check(db)
 
     with mutating_transaction(db) as tx:
         outcome = login_staff(tx, email=payload.email, password=payload.password)
@@ -86,6 +88,7 @@ def logout(response: Response, db: DbSession, token: SessionToken) -> None:
     type may revoke its own session through the same `revoke_session`.
     Idempotent — a missing or already-dead session is a no-op, and the
     cookie is cleared either way."""
+    maintenance_fast_path_check(db)
     with mutating_transaction(db) as tx:
         revoke_session(tx, token)
     clear_session_cookie(response)

@@ -15,6 +15,7 @@ from app.core.deps import SessionToken
 from app.db.session import DbSession, mutating_transaction
 from app.modules.feedback.schemas import FeedbackRequest, FeedbackResponse
 from app.modules.feedback.service import submit_feedback
+from app.modules.points.service import maintenance_fast_path_check
 from app.modules.realtime.service import publish_award_signals
 
 router = APIRouter(prefix="/attendees", tags=["feedback"])
@@ -26,6 +27,7 @@ def feedback(payload: FeedbackRequest, token: SessionToken, db: DbSession) -> Fe
     authenticated identity (§14.3's rule applies here too). Real
     authentication happens only inside `submit_feedback`, after the
     fence (§19.4, invariant #29)."""
+    maintenance_fast_path_check(db)
     with mutating_transaction(db) as tx:
         outcome = submit_feedback(tx, raw_session_token=token, payload=payload)
     # Already committed — `with` has exited. M14, §17.7.1: published

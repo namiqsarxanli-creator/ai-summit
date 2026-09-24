@@ -16,6 +16,7 @@ from app.modules.attendees.schemas import (
 )
 from app.modules.attendees.service import attendee_profile, register_attendee
 from app.modules.auth.otp_delivery import deliver_otp
+from app.modules.points.service import maintenance_fast_path_check
 
 router = APIRouter(prefix="/attendees", tags=["attendees"])
 
@@ -30,6 +31,7 @@ def register(payload: RegisterRequest, db: DbSession, ip: ClientIp) -> RegisterR
     Only a shared-IP ceiling is counted here (§21.7): the identity
     protection is UNIQUE(email) plus the ACTIVE branch."""
     limiter.check([(REGISTER_PER_IP, ip)])
+    maintenance_fast_path_check(db)
 
     with mutating_transaction(db) as tx:
         delivery = register_attendee(tx, payload)
