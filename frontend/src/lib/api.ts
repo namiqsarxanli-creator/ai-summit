@@ -92,3 +92,15 @@ export function apiPost<T>(path: string, payload: unknown): Promise<ApiResult<T>
     body: JSON.stringify(payload),
   });
 }
+
+export function apiRequest<T>(
+  path: string,
+  method: "PATCH" | "PUT" | "DELETE",
+  payload?: unknown,
+): Promise<ApiResult<T>> {
+  return request<T>(path, {
+    method,
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: payload === undefined ? undefined : JSON.stringify(payload),
+  });
+}

@@ -35,6 +35,7 @@ from app.core.errors import DomainError, MaintenanceError, RateLimitedError, err
 from app.core.privacy import CardPrivacyHeadersMiddleware, install_card_token_log_filter
 from app.db import all_models  # noqa: F401 — full metadata, or cross-module FKs fail at flush
 from app.db.session import database_is_reachable
+from app.modules.admin.routers import router as admin_router
 from app.modules.attendees.routers import router as attendees_router
 from app.modules.auth.routers import router as auth_router
 from app.modules.booths.routers import router as booths_router
@@ -230,6 +231,7 @@ def create_app() -> FastAPI:
     app.add_middleware(DatasetGenerationHeaderMiddleware)
     app.include_router(api_router)
     app.include_router(attendees_router, prefix="/api")
+    app.include_router(admin_router, prefix="/api", include_in_schema=not settings.is_production)
     app.include_router(auth_router, prefix="/api")
     app.include_router(booths_router, prefix="/api")
     app.include_router(contact_cards_router, prefix="/api")

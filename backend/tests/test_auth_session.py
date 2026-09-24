@@ -556,14 +556,14 @@ def _count_mutating_api_routes(routes: list[Any]) -> int:
     return total
 
 
-def test_the_mutating_route_inventory_is_what_m14_expects() -> None:
+def test_the_mutating_route_inventory_is_what_m16_expects() -> None:
     # M13 adds only reads (GET /api/leaderboard, GET
     # /api/attendees/me/score) — neither is a mutating method, so this
     # inventory is unchanged from M12. M14 adds one more read (GET
     # /api/realtime/stream) — also not a mutating method, so still
     # unchanged.
     assert _count_mutating_api_routes(app.routes) == len(_mutating_routes())
-    assert _mutating_routes() == [
+    baseline = [
         # M12: attendee feedback submission + automatic reward.
         ("POST", "/api/attendees/feedback"),
         ("POST", "/api/attendees/register"),
@@ -577,6 +577,23 @@ def test_the_mutating_route_inventory_is_what_m14_expects() -> None:
         # M06: a read, but a POST by definition (§13.1), so it is under
         # the Origin assertion like every other POST.
         ("POST", "/api/staff/scan/resolve"),
+    ]
+    routes = _mutating_routes()
+    assert [entry for entry in routes if not entry[1].startswith("/api/admin/")] == baseline
+    assert [entry for entry in routes if entry[1].startswith("/api/admin/")] == [
+        ("DELETE", "/api/admin/booths/{booth_id}/weights/{interest_id}"),
+        ("PATCH", "/api/admin/booths/{booth_id}"),
+        ("PATCH", "/api/admin/event-config"),
+        ("PATCH", "/api/admin/interests/{interest_id}"),
+        ("PATCH", "/api/admin/presets/{preset_id}"),
+        ("PATCH", "/api/admin/tasks/{task_id}"),
+        ("POST", "/api/admin/booths"),
+        ("POST", "/api/admin/interests"),
+        ("POST", "/api/admin/presets"),
+        ("POST", "/api/admin/staff"),
+        ("POST", "/api/admin/staff/{staff_id}/deactivate"),
+        ("POST", "/api/admin/tasks"),
+        ("PUT", "/api/admin/booths/{booth_id}/weights/{interest_id}"),
     ]
 
 

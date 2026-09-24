@@ -14,11 +14,32 @@ service.py) depends on how the code reaches the attendee.
 from __future__ import annotations
 
 import logging
+import threading
+from collections import deque
+from datetime import UTC, datetime, timedelta
 
 from app.core.config import get_settings
 from app.modules.attendees.service import PendingOtpDelivery
 
 logger = logging.getLogger(__name__)
+_demo_lock = threading.Lock()
+_demo_codes: deque[tuple[datetime, int, str, str, str]] = deque(maxlen=50)
+
+
+def recent_demo_otps() -> list[dict[str, str]]:
+    """Short-lived delivery-adapter memory, never reconstructed from OTP hashes."""
+    if not get_settings().demo_mode:
+        return []
+    from app.modules.realtime.service import current_dataset_generation
+
+    generation = current_dataset_generation()
+    cutoff = datetime.now(UTC) - timedelta(minutes=10)
+    with _demo_lock:
+        return [
+            {"email": email, "purpose": purpose, "code": code, "issued_at": issued_at.isoformat()}
+            for issued_at, gen, email, purpose, code in reversed(_demo_codes)
+            if gen == generation and issued_at >= cutoff
+        ]
 
 
 def deliver_otp(delivery: PendingOtpDelivery) -> None:
@@ -53,3 +74,10 @@ def deliver_otp(delivery: PendingOtpDelivery) -> None:
         delivery.purpose.value,
         delivery.code,
     )
+    from app.modules.realtime.service import current_dataset_generation
+
+    generation = current_dataset_generation()
+    with _demo_lock:
+        _demo_codes.append(
+            (datetime.now(UTC), generation, delivery.email, delivery.purpose.value, delivery.code)
+        )
