@@ -14,6 +14,13 @@ const MESSAGES: Record<string, string> = {
   // §9.4, verbatim: one message for every invalid-token cause.
   INVALID_QR: "This QR code isn't valid. Ask the attendee to reopen their card.",
   BOOTH_NOT_FOUND: "This booth couldn't be found. It may have been removed or renamed.",
+  // §13.3/§20.3, verbatim copy: "That scan expired. Scan again."
+  SCAN_EXPIRED: "That scan expired. Scan again.",
+  IDEMPOTENCY_KEY_REUSE: "This request has already been used for a different award.",
+  INVALID_POINT_VALUE: "That point value isn't offered for this booth.",
+  AWARD_IN_PROGRESS: "This award is already being processed. Please try again.",
+  // §20.3 example message, verbatim.
+  DUPLICATE_TASK_REWARD: "This attendee has already earned points at this booth.",
   // §12.1, verbatim: never distinguishes unknown email from wrong
   // password (or, as this implementation extends it, a deactivated
   // account with the correct one).

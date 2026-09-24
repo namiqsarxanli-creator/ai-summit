@@ -77,6 +77,18 @@ def _public_card_for(db: Session, user: User) -> PublicCard:
     )
 
 
+def resolve_active_attendee(db: Session, token: str) -> User:
+    """The live `ACTIVE` attendee a card token names, or `InvalidQrError`
+    (§9.4). Shared by every consumer that needs the full `User` row —
+    staff resolve (M06, via `resolve_card_identity` below) and the M11
+    award path (`points/service.py`, which needs `user.id`) — so a
+    card's validity is judged by exactly one predicate everywhere."""
+    user = _live_card_owner(db, token)
+    if user is None:
+        raise InvalidQrError()
+    return user
+
+
 def resolve_public_card(db: Session, token: str) -> PublicCard:
     user = _live_card_owner(db, token)
     if user is None:
@@ -86,9 +98,7 @@ def resolve_public_card(db: Session, token: str) -> PublicCard:
 
 def resolve_card_identity(db: Session, token: str) -> CardIdentity:
     """The staff shape — name and profession only (§9.3, §24.20)."""
-    user = _live_card_owner(db, token)
-    if user is None:
-        raise InvalidQrError()
+    user = resolve_active_attendee(db, token)
     return CardIdentity(
         first_name=user.first_name, last_name=user.last_name, profession=user.profession
     )

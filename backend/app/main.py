@@ -37,6 +37,7 @@ from app.modules.booths.routers import router as booths_router
 from app.modules.contact_cards.routers import router as contact_cards_router
 from app.modules.interests.routers import router as interests_router
 from app.modules.matching.routers import router as matching_router
+from app.modules.points.routers import router as points_router
 from app.modules.staff.routers import router as staff_router
 
 logger = logging.getLogger(__name__)
@@ -186,6 +187,7 @@ def create_app() -> FastAPI:
     app.include_router(contact_cards_router, prefix="/api")
     app.include_router(interests_router, prefix="/api")
     app.include_router(matching_router, prefix="/api")
+    app.include_router(points_router, prefix="/api")
     app.include_router(staff_router, prefix="/api")
 
     return app

@@ -80,6 +80,9 @@ class DuplicateTaskRewardError(DomainError):
     code = "DUPLICATE_TASK_REWARD"
     status_code = 409
 
+    def __init__(self) -> None:
+        super().__init__("This attendee has already earned points at this booth.")
+
 
 class UnknownInterestError(DomainError):
     """A submitted interest slug does not match any active `interests`
@@ -199,6 +202,59 @@ class MaintenanceError(DomainError):
 
     code = "MAINTENANCE"
     status_code = 503
+
+
+class ScanExpiredError(DomainError):
+    """ARCHITECTURE.md §13.3 check 8 / §20.3: SCAN_EXPIRED, 400.
+    Raised only at B3a — a NEW award whose `scan_ref` is older than
+    120s. A COMPLETED replay never reaches this check (§13.4: the
+    idempotency lookup at B3 stops first), so an expired envelope can
+    still replay an already-committed success."""
+
+    code = "SCAN_EXPIRED"
+    status_code = 400
+
+    def __init__(self) -> None:
+        super().__init__("That scan expired. Scan again.")
+
+
+class IdempotencyKeyReuseError(DomainError):
+    """ARCHITECTURE.md §13.4 / §20.3: IDEMPOTENCY_KEY_REUSE, 409. The
+    same `(staff_account_id, idempotency_key)` was already used for a
+    request with a different fingerprint (different card token or
+    different points) — never a silent second award."""
+
+    code = "IDEMPOTENCY_KEY_REUSE"
+    status_code = 409
+
+    def __init__(self) -> None:
+        super().__init__("This request has already been used for a different award.")
+
+
+class InvalidPointValueError(DomainError):
+    """ARCHITECTURE.md §14.3 step B5 / §20.3: INVALID_POINT_VALUE, 400.
+    Allow-list membership, never a range check — `12` is rejected even
+    though it lies between the booth's `10` and `15` presets."""
+
+    code = "INVALID_POINT_VALUE"
+    status_code = 400
+
+    def __init__(self) -> None:
+        super().__init__("That point value isn't offered for this booth.")
+
+
+class AwardInProgressError(DomainError):
+    """ARCHITECTURE.md §13.4 / §20.3: AWARD_IN_PROGRESS, 409. A safety
+    valve only — the idempotency claim (B7) waited past `lock_timeout`
+    (2s) for a same-key transaction that is stuck or pathologically
+    slow. Normal concurrency waits and replays instead; this is never
+    part of the normal contract."""
+
+    code = "AWARD_IN_PROGRESS"
+    status_code = 409
+
+    def __init__(self) -> None:
+        super().__init__("This award is already being processed. Please try again.")
 
 
 class UnexpectedConstraintViolationError(DomainError):

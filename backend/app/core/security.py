@@ -115,6 +115,14 @@ def b64url_nopad(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
 
 
+def b64url_decode(text_: str) -> bytes:
+    """Inverse of `b64url_nopad` — restores the padding `rstrip` removed
+    before decoding. Raises `binascii.Error`/`ValueError` on malformed
+    input; callers decide the domain error (M11: `INVALID_QR`)."""
+    padded = text_ + "=" * (-len(text_) % 4)
+    return base64.urlsafe_b64decode(padded)
+
+
 def sign_hmac_sha256(secret: str, message: str) -> str:
     """ARCHITECTURE.md §13.3: "`sig = base64url_nopad(HMAC_SHA256(key =
     SCAN_REF_SECRET, msg = B))`." `message` must be the exact

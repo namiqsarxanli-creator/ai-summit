@@ -267,6 +267,9 @@ def test_staff_registration_endpoint_does_not_exist() -> None:
         "/api/staff/auth/logout",
         "/api/staff/me",
         "/api/staff/points/presets",
+        # M11: the award mutation — still no route creates a staff
+        # account from an unauthenticated request.
+        "/api/staff/points/award",
         "/api/staff/scan/resolve",
     }
 
