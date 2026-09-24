@@ -5,6 +5,8 @@ import { useEffect, useState } from "react";
 import { messageFor } from "@/lib/errors";
 import { fetchBoothDetail, type BoothDetail } from "@/lib/matching";
 
+import { FeedbackForm } from "./FeedbackForm";
+
 type State =
   | { kind: "loading" }
   | { kind: "ok"; booth: BoothDetail }
@@ -73,6 +75,8 @@ export function BoothDetailView({ slug }: { slug: string }) {
           </ul>
         )}
       </section>
+
+      <FeedbackForm boothSlug={booth.slug} />
     </article>
   );
 }

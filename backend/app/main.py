@@ -35,6 +35,7 @@ from app.modules.attendees.routers import router as attendees_router
 from app.modules.auth.routers import router as auth_router
 from app.modules.booths.routers import router as booths_router
 from app.modules.contact_cards.routers import router as contact_cards_router
+from app.modules.feedback.routers import router as feedback_router
 from app.modules.interests.routers import router as interests_router
 from app.modules.matching.routers import router as matching_router
 from app.modules.points.routers import router as points_router
@@ -185,6 +186,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_router, prefix="/api")
     app.include_router(booths_router, prefix="/api")
     app.include_router(contact_cards_router, prefix="/api")
+    app.include_router(feedback_router, prefix="/api")
     app.include_router(interests_router, prefix="/api")
     app.include_router(matching_router, prefix="/api")
     app.include_router(points_router, prefix="/api")

@@ -12,6 +12,20 @@ function jsonResponse(status: number, body: unknown): Response {
   });
 }
 
+function errorResponse(status: number, code: string): Response {
+  return jsonResponse(status, { error: { code, message: "", details: {}, correlation_id: "c" } });
+}
+
+// The signed-out response the FeedbackForm's own session check expects
+// — this view composes it but the assertions below are about the
+// booth data, so every test here is signed-out unless it says otherwise.
+function signedOutRouter(boothResponse: () => Response) {
+  return vi.fn(async (url: string) => {
+    if (url === "/api/attendees/me") return errorResponse(401, "UNAUTHENTICATED");
+    return boothResponse();
+  });
+}
+
 const AIWORKS = {
   slug: "aiworks",
   name: "AIWorks",
@@ -29,7 +43,7 @@ afterEach(() => {
 
 describe("BoothDetailView", () => {
   it("renders name, location, description and tasks from the API, needing no session", async () => {
-    const fetchMock = vi.fn(async () => jsonResponse(200, AIWORKS));
+    const fetchMock = signedOutRouter(() => jsonResponse(200, AIWORKS));
     vi.stubGlobal("fetch", fetchMock);
     render(<BoothDetailView slug="aiworks" />);
     expect(await screen.findByRole("heading", { name: "AIWorks" })).toBeInTheDocument();
@@ -41,12 +55,11 @@ describe("BoothDetailView", () => {
     // No point value anywhere on a task (§10, M08: not this screen's data).
     expect(screen.queryByText(/\bpts\b|\bpoints\b/i)).not.toBeInTheDocument();
 
-    const [url] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe("/api/booths/aiworks");
+    expect(fetchMock.mock.calls.some(([u]) => u === "/api/booths/aiworks")).toBe(true);
   });
 
   it("shows a neutral message when the booth has no listed tasks", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(200, { ...AIWORKS, tasks: [] })));
+    vi.stubGlobal("fetch", signedOutRouter(() => jsonResponse(200, { ...AIWORKS, tasks: [] })));
     render(<BoothDetailView slug="aiworks" />);
     expect(
       await screen.findByText("No activities are listed for this booth yet."),

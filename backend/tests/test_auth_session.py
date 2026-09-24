@@ -556,9 +556,11 @@ def _count_mutating_api_routes(routes: list[Any]) -> int:
     return total
 
 
-def test_the_mutating_route_inventory_is_what_m11_expects() -> None:
+def test_the_mutating_route_inventory_is_what_m12_expects() -> None:
     assert _count_mutating_api_routes(app.routes) == len(_mutating_routes())
     assert _mutating_routes() == [
+        # M12: attendee feedback submission + automatic reward.
+        ("POST", "/api/attendees/feedback"),
         ("POST", "/api/attendees/register"),
         ("POST", "/api/auth/logout"),
         ("POST", "/api/auth/otp/request"),

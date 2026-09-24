@@ -50,7 +50,7 @@ WHERE rel.locktype = 'relation' AND rel.granted
       'user_interests'::regclass, 'contact_cards'::regclass, 'consent_audit'::regclass,
       'sessions'::regclass, 'staff_accounts'::regclass, 'points_log'::regclass,
       'idempotency_records'::regclass, 'booths'::regclass, 'task_preset_points'::regclass,
-      'event_config'::regclass
+      'event_config'::regclass, 'feedback'::regclass
   )
 """
 
