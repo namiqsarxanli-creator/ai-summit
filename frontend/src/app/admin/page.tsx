@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { apiGet, apiPost, apiRequest } from "@/lib/api";
 import { messageFor } from "@/lib/errors";
@@ -54,6 +54,7 @@ export default function AdminPage() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
+  const changeInFlight = useRef(false);
   const [loading, setLoading] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -97,11 +98,13 @@ export default function AdminPage() {
   }
 
   async function change(path: string, method: string, body?: RecordValue) {
+    if (changeInFlight.current) return;
     if ((path.endsWith("/deactivate") || method === "DELETE") && !window.confirm("Confirm this change?")) return;
+    changeInFlight.current = true;
     setBusy(true); setNotice("");
     try { await request(path, method, body); await refresh(); setError(""); setNotice("Change saved and recorded in the admin audit."); }
     catch (cause) { setError(cause instanceof Error ? cause.message : "Change failed"); }
-    finally { setBusy(false); }
+    finally { changeInFlight.current = false; setBusy(false); }
   }
 
   const id = Number(recordId);

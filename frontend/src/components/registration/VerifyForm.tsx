@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { type ChangeEvent, type FormEvent, useState, useSyncExternalStore } from "react";
+import { type ChangeEvent, type FormEvent, useRef, useState, useSyncExternalStore } from "react";
 
 import { TextField } from "@/components/ui/TextField";
 import { apiPost } from "@/lib/api";
@@ -29,6 +29,7 @@ export function VerifyForm() {
   const [submitting, setSubmitting] = useState(false);
   const [resending, setResending] = useState(false);
   const [activated, setActivated] = useState(false);
+  const inFlight = useRef(false);
 
   if (activated) {
     return (
@@ -59,6 +60,7 @@ export function VerifyForm() {
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (inFlight.current) return;
     setFormError(null);
     setNotice(null);
 
@@ -68,11 +70,13 @@ export function VerifyForm() {
     setFieldErrors(errors);
     if (Object.keys(errors).length > 0) return;
 
+    inFlight.current = true;
     setSubmitting(true);
     const result = await apiPost<{ status: string }>("/api/auth/otp/verify", {
       email: email.trim(),
       code,
     });
+    inFlight.current = false;
     setSubmitting(false);
 
     if (result.ok) {
@@ -90,16 +94,19 @@ export function VerifyForm() {
   }
 
   async function onResend() {
+    if (inFlight.current) return;
     setFormError(null);
     setNotice(null);
     if (!email.trim()) {
       setFieldErrors({ email: "Enter the email you registered with." });
       return;
     }
+    inFlight.current = true;
     setResending(true);
     const result = await apiPost<{ message: string }>("/api/auth/otp/request", {
       email: email.trim(),
     });
+    inFlight.current = false;
     setResending(false);
     if (result.ok) {
       setCode("");

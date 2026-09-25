@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { messageFor } from "@/lib/errors";
@@ -93,6 +93,7 @@ describe("HomeDashboard", () => {
     // ScoreSummary (and its EventSource) only mounts once HomeDashboard's
     // own recommendations fetch resolves into the "ok" branch.
     expect(await screen.findByRole("heading", { name: "AIWorks" })).toBeInTheDocument();
+    await waitFor(() => expect(MockEventSource.instances.length).toBeGreaterThan(0));
     openReady();
     expect(screen.getByRole("heading", { name: "FinPulse" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "MediSync AI" })).toBeInTheDocument();

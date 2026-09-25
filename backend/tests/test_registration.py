@@ -148,6 +148,8 @@ def test_malformed_email_is_rejected(client: TestClient) -> None:
         "ftp://www.linkedin.com/in/x",  # wrong scheme
         "https://evil.example.com/in/x",  # wrong host
         "javascript:alert(1)",
+        "https://linkedin.com.evil.example/in/x",
+        "https://linkedin.com@evil.example/in/x",
     ],
 )
 def test_linkedin_url_shape_is_validated(

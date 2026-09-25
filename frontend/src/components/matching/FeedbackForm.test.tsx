@@ -220,4 +220,26 @@ describe("FeedbackForm — signed-in, first submission", () => {
     });
     await waitFor(() => expect(fetchMock.mock.calls.some(([u]) => u === "/api/attendees/feedback")).toBe(true));
   });
+  it("sends only one request for rapid duplicate clicks", async () => {
+    let resolveFeedback!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => { resolveFeedback = resolve; });
+    const fetchMock = vi.fn((url: string) => {
+      if (url === "/api/attendees/me") return Promise.resolve(jsonResponse(200, ATTENDEE_ME));
+      if (url === "/api/attendees/feedback") return pending;
+      throw new Error(`unexpected fetch to ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<FeedbackForm boothSlug="aiworks" />);
+    await screen.findByRole("radiogroup");
+    await act(async () => { screen.getByRole("radio", { name: "5" }).click(); });
+    const button = screen.getByRole("button", { name: "Submit feedback" });
+    await act(async () => {
+      button.click();
+      button.click();
+    });
+    expect(fetchMock.mock.calls.filter(([url]) => url === "/api/attendees/feedback")).toHaveLength(1);
+    await act(async () => {
+      resolveFeedback(jsonResponse(200, { feedback_id: 1, awarded_points: 5, already_rewarded: false, total_points: 5 }));
+    });
+  });
 });

@@ -1,4 +1,4 @@
-"""Card-token privacy protections — ARCHITECTURE.md §21.11, §9.5.
+"""API and card-token privacy protections — ARCHITECTURE.md §21.11, §9.5.
 
 "QR tokens need specific care because they appear in a URL path
 (/c/{token}), which is the part of a request that proxies, access logs
@@ -65,23 +65,31 @@ def install_card_token_log_filter(target: logging.Logger | logging.Handler) -> N
 
 
 class CardPrivacyHeadersMiddleware:
-    """Pure ASGI, so the headers are on EVERY response for a card path —
-    the card itself, the identical INVALID_QR 404, a 429 — not only on
-    the success path a route handler controls."""
+    """No API response is reusable; card responses get extra token protection.
+
+    The outer realtime middleware replaces no-store with the locked SSE
+    no-cache/no-transform policy for the stream response.
+    """
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http" or not str(scope["path"]).startswith(CARD_PATH_PREFIXES):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        path = str(scope["path"])
+        if not path.startswith("/api/"):
             await self.app(scope, receive, send)
             return
 
         async def send_with_headers(message: Message) -> None:
             if message["type"] == "http.response.start":
                 headers = MutableHeaders(scope=message)
-                for name, value in CARD_PRIVACY_HEADERS.items():
-                    headers[name] = value
+                headers["Cache-Control"] = "no-store"
+                if path.startswith(CARD_PATH_PREFIXES):
+                    for name, value in CARD_PRIVACY_HEADERS.items():
+                        headers[name] = value
             await send(message)
 
         await self.app(scope, receive, send_with_headers)

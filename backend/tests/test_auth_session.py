@@ -141,6 +141,12 @@ def seeded_attendee_cleanup() -> Iterator[str]:
     execute("DELETE FROM otp_challenges WHERE email = :e", e=SEEDED_ATTENDEE)
 
 
+def test_api_responses_are_never_stored_by_shared_caches(client: TestClient) -> None:
+    assert client.get("/api/health").headers["cache-control"] == "no-store"
+    assert client.get(ME).headers["cache-control"] == "no-store"
+    assert client.get("/api/admin/attendees").headers["cache-control"] == "no-store"
+
+
 # --------------------------------------------------------------------------
 # Returning-attendee login
 # --------------------------------------------------------------------------

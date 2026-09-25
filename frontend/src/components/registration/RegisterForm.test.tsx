@@ -96,6 +96,20 @@ describe("RegisterForm", () => {
     expect(registerCalls()).toHaveLength(0);
   });
 
+  it("does not resend registration on rapid duplicate submission", async () => {
+    let resolveRegister!: (response: Response) => void;
+    registerResponse = () => new Promise<Response>((resolve) => { resolveRegister = resolve; });
+    render(<RegisterForm />);
+    await screen.findByLabelText("Robotics");
+    fillValidForm();
+    fireEvent.click(screen.getByLabelText("No, don't share my details"));
+    const form = screen.getByRole("button", { name: "Register and get my code" }).closest("form")!;
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+    expect(registerCalls()).toHaveLength(1);
+    resolveRegister(jsonResponse(200, { message: "Code sent" }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/verify"));
+  });
   it("submits the exact registration contract and moves to verification", async () => {
     render(<RegisterForm />);
     fireEvent.click(await screen.findByLabelText("Robotics"));

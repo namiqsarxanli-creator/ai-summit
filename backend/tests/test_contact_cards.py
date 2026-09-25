@@ -254,6 +254,15 @@ def test_linkedin_absent_falls_back_to_email(linkedin_url: str | None) -> None:
     assert action.model_dump() == {"type": "EMAIL", "value": "ada@example.com"}
 
 
+@pytest.mark.parametrize(
+    "linkedin_url",
+    ["https://linkedin.com.evil.example/in/ada", "https://linkedin.com@evil.example/in/ada"],
+)
+def test_legacy_lookalike_linkedin_url_falls_back_to_email(linkedin_url: str) -> None:
+    action = contact_action_for(linkedin_url=linkedin_url, email="ada@example.com")
+    assert action.model_dump() == {"type": "EMAIL", "value": "ada@example.com"}
+
+
 # --------------------------------------------------------------------------
 # Public card — GET /api/cards/{token}
 # --------------------------------------------------------------------------

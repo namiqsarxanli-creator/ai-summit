@@ -30,6 +30,7 @@ const nextConfig: NextConfig = {
         headers: [
           { key: "Referrer-Policy", value: "no-referrer" },
           { key: "X-Robots-Tag", value: "noindex" },
+          { key: "Cache-Control", value: "no-store" },
         ],
       },
     ];

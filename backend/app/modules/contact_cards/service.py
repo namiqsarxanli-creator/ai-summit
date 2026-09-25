@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.errors import InvalidQrError
+from app.core.urls import is_linkedin_url
 from app.modules.attendees.models import User, UserInterest, UserStatus
 from app.modules.contact_cards.models import ContactCard
 from app.modules.contact_cards.schemas import (
@@ -33,7 +34,7 @@ def contact_action_for(*, linkedin_url: str | None, email: str) -> ContactAction
     """§9.3.1, verbatim: "if linkedin_url is present → action =
     LINKEDIN, value = linkedin_url; else → action = EMAIL, value =
     email". Chosen here, on the server: the client is never sent both."""
-    if linkedin_url and linkedin_url.strip():
+    if linkedin_url and is_linkedin_url(linkedin_url):
         return ContactAction(type="LINKEDIN", value=linkedin_url.strip())
     return ContactAction(type="EMAIL", value=email)
 

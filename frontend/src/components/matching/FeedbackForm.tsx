@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { messageFor } from "@/lib/errors";
 import { submitFeedback, type FeedbackResponse } from "@/lib/feedback";
@@ -61,15 +61,18 @@ function FeedbackFormBody({ boothSlug }: { boothSlug: string }) {
   const [rating, setRating] = useState<number | null>(null);
   const [comment, setComment] = useState("");
   const [state, setState] = useState<FormState>({ kind: "idle" });
+  const inFlight = useRef(false);
 
   function submit() {
-    if (rating === null || state.kind === "submitting") return;
+    if (rating === null || inFlight.current) return;
+    inFlight.current = true;
     setState({ kind: "submitting" });
     submitFeedback({
       booth_slug: boothSlug,
       rating,
       ...(comment.trim() ? { comment: comment.trim() } : {}),
     }).then((result) => {
+      inFlight.current = false;
       if (!result.ok) {
         setState({ kind: "error", code: result.error.code });
         return;

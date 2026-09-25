@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { type ChangeEvent, type FormEvent, useCallback, useEffect, useState } from "react";
+import { type ChangeEvent, type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 
 import { TextField } from "@/components/ui/TextField";
 import { apiGet, apiPost } from "@/lib/api";
@@ -39,6 +39,7 @@ export function RegisterForm() {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const inFlight = useRef(false);
 
   const loadInterests = useCallback(() => {
     let cancelled = false;
@@ -66,6 +67,7 @@ export function RegisterForm() {
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (inFlight.current) return;
     setFormError(null);
 
     const clientErrors = validateRegistration(values, consent);
@@ -74,6 +76,7 @@ export function RegisterForm() {
 
     const email = values.email.trim();
     const linkedin = values.linkedin_url.trim();
+    inFlight.current = true;
     setSubmitting(true);
     const result = await apiPost<{ message: string }>("/api/attendees/register", {
       first_name: values.first_name.trim(),
@@ -85,6 +88,7 @@ export function RegisterForm() {
       interest_slugs: selected,
       sponsor_consent: consent === "yes",
     });
+    inFlight.current = false;
     setSubmitting(false);
 
     if (result.ok) {

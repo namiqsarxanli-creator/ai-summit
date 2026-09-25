@@ -48,6 +48,8 @@ describe("safeExternalUrl", () => {
     expect(safeExternalUrl("https://www.linkedin.com/in/ada")).toBe("https://www.linkedin.com/in/ada");
     expect(safeExternalUrl("javascript:alert(1)")).toBeNull();
     expect(safeExternalUrl("data:text/html,hi")).toBeNull();
+    expect(safeExternalUrl("https://linkedin.com.evil.example/in/ada")).toBeNull();
+    expect(safeExternalUrl("https://linkedin.com@evil.example/in/ada")).toBeNull();
   });
 });
 

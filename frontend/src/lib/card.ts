@@ -46,5 +46,14 @@ export function extractCardToken(value: string): string | null {
 // A LinkedIn value is rendered as a link only if it is plainly http(s):
 // never a `javascript:` or other scheme, whatever the data says.
 export function safeExternalUrl(value: string): string | null {
-  return /^https?:\/\//i.test(value) ? value : null;
+  if (value !== value.trim() || /\s/.test(value)) return null;
+  try {
+    const parsed = new URL(value);
+    const host = parsed.hostname.toLowerCase();
+    return (parsed.protocol === "http:" || parsed.protocol === "https:") &&
+      !parsed.username && !parsed.password && !parsed.port &&
+      (host === "linkedin.com" || host.endsWith(".linkedin.com")) ? value : null;
+  } catch {
+    return null;
+  }
 }

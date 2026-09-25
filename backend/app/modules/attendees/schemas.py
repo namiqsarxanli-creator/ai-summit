@@ -7,9 +7,9 @@ unexpected field is a 422, not a silently ignored value.
 
 from __future__ import annotations
 
-from urllib.parse import urlparse
-
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+
+from app.core.urls import is_linkedin_url
 
 
 def _validate_linkedin_url(value: str) -> str:
@@ -17,8 +17,7 @@ def _validate_linkedin_url(value: str) -> str:
     host shape." Loose by design — this rejects garbage, not
     legitimate LinkedIn URL variations (country subdomains, trailing
     slashes, query strings)."""
-    parsed = urlparse(value)
-    if parsed.scheme not in ("http", "https") or "linkedin.com" not in parsed.netloc.lower():
+    if not is_linkedin_url(value):
         raise ValueError("linkedin_url must be an http(s) linkedin.com URL")
     return value
 
