@@ -93,6 +93,16 @@ export function apiPost<T>(path: string, payload: unknown): Promise<ApiResult<T>
   });
 }
 
+// A raw binary body (a photo): no multipart, no filename - the server decides what
+// the bytes are from the bytes themselves, so the type sent here is only a label.
+export function apiPutBinary<T>(path: string, body: Blob): Promise<ApiResult<T>> {
+  return request<T>(path, {
+    method: "PUT",
+    headers: { "Content-Type": body.type || "application/octet-stream", Accept: "application/json" },
+    body,
+  });
+}
+
 export function apiRequest<T>(
   path: string,
   method: "PATCH" | "PUT" | "DELETE",

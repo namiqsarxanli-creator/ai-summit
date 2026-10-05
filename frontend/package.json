@@ -2,7 +2,7 @@
   "name": "facemark-frontend",
   "version": "0.1.0",
   "private": true,
-  "description": "FACEMARK frontend — Next.js App Router (Phase 3, M01 foundation only)",
+  "description": "FACEMARK frontend — Next.js App Router",
   "scripts": {
     "dev": "next dev",
     "build": "next build",

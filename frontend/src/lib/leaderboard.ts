@@ -13,6 +13,8 @@ export type LeaderboardEntry = {
   profession: string;
   total_points: number;
   rank: number;
+  // The profile photo (small rendition) or null: the robot is shown then.
+  photo_url?: string | null;
 };
 
 export type LeaderboardResponse = {

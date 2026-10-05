@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { messageFor } from "@/lib/errors";
@@ -60,6 +60,14 @@ describe("LeaderboardView — top view", () => {
     render(<LeaderboardView />);
     openReady();
     expect(await screen.findByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/login");
+  });
+
+  it("a signed-out visitor sees the sign-in link even though the stream refuses them (no ready ever comes)", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => errorResponse(401, "UNAUTHENTICATED")));
+    render(<LeaderboardView />);
+    act(() => MockEventSource.latest().refuse()); // the live site answers the stream with 401
+    expect(await screen.findByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/login");
+    expect(screen.queryByText("Loading leaderboard…")).not.toBeInTheDocument();
   });
 
   it("reports other failures", async () => {
@@ -315,5 +323,74 @@ describe("LeaderboardView — show all", () => {
     // the listing restarts from a fresh first page instead.
     expect(await screen.findByText("Post Reset")).toBeInTheDocument();
     expect(screen.queryByText("Stale Page")).not.toBeInTheDocument();
+  });
+});
+
+describe("LeaderboardView — avatars", () => {
+  const KEY = "0123456789abcdef0123456789abcdef";
+  const SMALL = `/api/media/avatars/${KEY}-128.jpg`;
+
+  function board(entries: unknown[]) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse(200, {
+          entries,
+          current_user: null,
+          as_of: "2026-09-22T17:04:11Z",
+          dataset_generation: 1,
+          next_cursor: null,
+        }),
+      ),
+    );
+  }
+
+  it("shows an attendee's photo, and the robot for everyone without one", async () => {
+    board([
+      entry({ user_id: 1, first_name: "Ada", last_name: "Lovelace", rank: 1, photo_url: SMALL }),
+      entry({ user_id: 2, first_name: "Grace", last_name: "Hopper", rank: 2, photo_url: null }),
+      entry({ user_id: 3, first_name: "Alan", last_name: "Turing", rank: 3 }), // an older server: no field
+    ]);
+    const { container } = render(<LeaderboardView />);
+    openReady();
+    await screen.findByText("Ada Lovelace");
+    const rows = Array.from(container.querySelectorAll("li.fm-rank-row"));
+    expect(rows).toHaveLength(3);
+    const photos = rows.map((row) => row.querySelector(".fm-rank-avatar img")?.getAttribute("src") ?? null);
+    expect(photos[0]).toContain(KEY);
+    expect(photos[1]).toBeNull();
+    expect(photos[2]).toBeNull();
+    // every row still has its circle, so the robot shows where there is no photo
+    for (const row of rows) expect(row.querySelector(".fm-rank-avatar")).not.toBeNull();
+  });
+
+  it("falls back to the robot when a photo does not load", async () => {
+    board([entry({ rank: 1, photo_url: SMALL })]);
+    const { container } = render(<LeaderboardView />);
+    openReady();
+    await screen.findByText("Ada Lovelace");
+    const image = container.querySelector(".fm-rank-avatar img") as HTMLImageElement;
+    fireEvent.error(image);
+    expect(container.querySelector(".fm-rank-avatar img")).toBeNull();
+    expect(container.querySelector(".fm-rank-avatar")).toHaveAttribute("data-photo", "false");
+  });
+
+  it("never loads a photo URL that is not one the server makes", async () => {
+    board([
+      entry({ user_id: 1, rank: 1, photo_url: "https://tracker.example/pixel.gif" }),
+      entry({ user_id: 2, first_name: "B", rank: 2, photo_url: "javascript:alert(1)" }),
+    ]);
+    const { container } = render(<LeaderboardView />);
+    openReady();
+    await screen.findByText("Ada Lovelace");
+    expect(container.querySelector("img")).toBeNull();
+  });
+
+  it("does not put anything private next to the photo", async () => {
+    board([entry({ rank: 1, photo_url: SMALL })]);
+    const { container } = render(<LeaderboardView />);
+    openReady();
+    await screen.findByText("Ada Lovelace");
+    expect(container.textContent).not.toMatch(/@|\+\d|consent/i);
   });
 });

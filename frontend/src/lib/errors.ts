@@ -20,7 +20,26 @@ const MESSAGES: Record<string, string> = {
   INVALID_POINT_VALUE: "That point value isn't offered for this booth.",
   AWARD_IN_PROGRESS: "This award is already being processed. Please try again.",
   // §20.3 example message, verbatim.
-  DUPLICATE_TASK_REWARD: "This attendee has already earned points at this booth.",
+  DUPLICATE_TASK_REWARD: "This attendee has already earned points for this activity.",
+  TASK_NOT_FOUND: "That activity isn't available at your booth. Choose another one.",
+  TASK_INACTIVE: "That activity is no longer active. Choose another one.",
+  TASK_NOT_CONFIGURED: "That activity has no point value yet. Ask an admin to set one.",
+  POINTS_ENTRY_NOT_FOUND: "That points entry no longer exists. Go back to the ledger and refresh it.",
+  POINTS_NOT_REVERSIBLE: "Only an award can be reversed. A reversal cannot itself be reversed.",
+  POINTS_ALREADY_REVERSED: "This entry has already been reversed. Go back to the ledger and refresh it.",
+  CURRENT_PASSWORD_INVALID: "The current password is not correct.",
+  PASSWORD_UNCHANGED: "The new password must be different from the current one.",
+  PASSWORD_RESET_UNAVAILABLE: "Email is not set up on this server, so no reset email can be sent.",
+  EXPORT_TOO_LARGE: "This export is too large. Narrow the filters and try again.",
+  EXPORT_BUSY: "An export is already running for your account. Wait for it to finish, then try the download again.",
+  EXPORT_TICKET_INVALID: "This export link has expired or was already used. Start the export again.",
+  EXPORT_ABORTED: "The server stopped sending the file before the end, so the download is incomplete. Delete the partial file and export again.",
+  EXPORT_NOT_STARTED: "The browser did not start the download. Allow downloads for this site, then try again.",
+  EXPORT_STATUS_UNKNOWN: "This export's status is no longer available. Export again to be sure.",
+  EXPORT_STATUS_UNREACHABLE: "We can't check the export's progress right now. The download may still be running.",
+  EXPORT_FAILED: "The export could not be completed. Narrow the filters and try again.",
+  TASK_RULE_CHANGED:
+    "This activity's points or repeat rule changed. Review it and confirm again.",
   // §12.1, verbatim: never distinguishes unknown email from wrong
   // password (or, as this implementation extends it, a deactivated
   // account with the correct one).
@@ -37,6 +56,13 @@ const MESSAGES: Record<string, string> = {
   ADMIN_INVALID: "Check the values and try again.",
   ADMIN_NOT_FOUND: "That record is no longer available. Refresh and try again.",
   ADMIN_CONFLICT: "That value is already in use. Check the records and try again.",
+  // Profile editing: a stale form is never saved over a newer profile.
+  PROFILE_CONFLICT: "This profile was changed on another device. Review the latest version below.",
+  PHOTO_INVALID:
+    "That file isn't a usable photo. Choose a JPEG, PNG or WebP picture that is not animated.",
+  PHOTO_TOO_LARGE: "That photo is too large. Choose a smaller picture.",
+  PHOTO_BUSY: "Photos are being processed right now. Please try again in a moment.",
+  PHOTO_STORAGE_UNAVAILABLE: "Photo storage is unavailable right now. Please try again later.",
 };
 
 export const FALLBACK_MESSAGE = "Something went wrong. Please try again.";

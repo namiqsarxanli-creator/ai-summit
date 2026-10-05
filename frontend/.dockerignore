@@ -2,3 +2,7 @@ node_modules/
 .next/
 coverage/
 .git/
+.env*
+*.tsbuildinfo
+# Device-specific local HTTPS profile (generated on a developer PC) - never shipped.
+public/phone-ca.mobileconfig

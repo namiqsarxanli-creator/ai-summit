@@ -119,7 +119,7 @@ describe("VerifyForm", () => {
     expect(
       await screen.findByText("If this email is registered, a new code has been sent."),
     ).toBeInTheDocument();
-    expect(bodyOf("/api/auth/otp/request")).toEqual({ email: "grace@summit.example.org" });
+    expect(bodyOf("/api/auth/otp/request")).toEqual({ email: "grace@summit.example.org", language: "en" });
   });
 
   it("works without a carried-over email when one is typed in", async () => {

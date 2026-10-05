@@ -99,6 +99,8 @@ describe("HomeDashboard", () => {
     expect(screen.getByRole("heading", { name: "MediSync AI" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "SecureStack" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "See all →" })).toHaveAttribute("href", "/booths");
+    expect(screen.getAllByRole("link", { name: "Booths" })[0]).toHaveAttribute("href", "/booths");
+    expect(screen.getAllByRole("link", { name: "My QR" })[0]).toHaveAttribute("href", "/my-card");
     // M13 wires the real, server-computed score/rank in place of M08's
     // placeholder — see ScoreSummary.test.tsx for its own detailed cases.
     expect(await screen.findByText("45")).toBeInTheDocument();

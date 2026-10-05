@@ -1,5 +1,6 @@
 "use client";
 
+import { useLanguage } from "@/components/ui/LanguageProvider";
 import { useEffect, useState } from "react";
 
 import { messageFor } from "@/lib/errors";
@@ -16,6 +17,7 @@ type State =
 // like `GET /api/booths/{slug}` itself (§10) — the public catalogue,
 // not a personalized view, so this needs no session.
 export function BoothDetailView({ slug }: { slug: string }) {
+  const { t } = useLanguage();
   const [state, setState] = useState<State>({ kind: "loading" });
 
   useEffect(() => {
@@ -32,44 +34,37 @@ export function BoothDetailView({ slug }: { slug: string }) {
   }, [slug]);
 
   if (state.kind === "loading") {
-    return <p className="text-sm text-slate-500">Loading booth…</p>;
+    return <p role="status" className="fm-note">{t("Loading booth…")}</p>;
   }
 
   if (state.kind === "error") {
     return (
-      <p role="alert" className="text-sm text-amber-300">
-        {messageFor(state.code)}
+      <p role="alert" className="fm-alert fm-alert-warn">
+        {t(messageFor(state.code))}
       </p>
     );
   }
 
   const { booth } = state;
   return (
-    <article className="flex flex-col gap-6">
-      <header className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-50">{booth.name}</h1>
-        {booth.location_label && <p className="text-sm text-slate-500">{booth.location_label}</p>}
+    <article className="fm-stack-lg">
+      <header className="fm-booth-hero fm-stack" style={{ gap: 4 }}>
+        <h1>{t(booth.name)}</h1>
+        {booth.location_label && <p className="fm-small">{t(booth.location_label)}</p>}
       </header>
 
-      {booth.description && <p className="text-sm text-slate-300">{booth.description}</p>}
+      {booth.description && <p className="fm-text-soft">{t(booth.description)}</p>}
 
-      <section className="flex flex-col gap-3">
-        <h2 className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-          Things to try at this booth
-        </h2>
+      <section className="fm-section">
+        <h2 className="fm-eyebrow">{t("Things to try at this booth")}</h2>
         {booth.tasks.length === 0 ? (
-          <p className="text-sm text-slate-500">No activities are listed for this booth yet.</p>
+          <p className="fm-empty">{t("No activities are listed for this booth yet.")}</p>
         ) : (
-          <ul className="flex flex-col gap-3">
+          <ul className="fm-list">
             {booth.tasks.map((task) => (
-              <li
-                key={task.title}
-                className="rounded-xl border border-slate-800 bg-slate-900/60 p-4"
-              >
-                <p className="font-medium text-slate-100">{task.title}</p>
-                {task.description && (
-                  <p className="mt-1 text-sm text-slate-400">{task.description}</p>
-                )}
+              <li key={t(task.title)} className="fm-activity">
+                <p className="fm-strong">{t(task.title)}</p>
+                {task.description && <p className="fm-small">{t(task.description)}</p>}
               </li>
             ))}
           </ul>

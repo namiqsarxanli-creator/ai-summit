@@ -41,6 +41,11 @@ async function submit(email: string, password: string) {
 }
 
 describe("StaffLoginForm", () => {
+  it("links to the password reset page", () => {
+    render(<StaffLoginForm />);
+    expect(screen.getByRole("link", { name: "Forgot your password?" })).toHaveAttribute("href", "/staff/reset");
+  });
+
   it("validates the email before submitting", async () => {
     render(<StaffLoginForm />);
     fireEvent.change(screen.getByLabelText("Email"), { target: { value: "nope" } });
@@ -104,6 +109,7 @@ describe("StaffLoginForm", () => {
 
   it("has no link to a staff registration page", () => {
     render(<StaffLoginForm />);
-    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+    // the only link on the form is the way back into an EXISTING account
+    expect(screen.getAllByRole("link").map((a) => a.getAttribute("href"))).toEqual(["/staff/reset"]);
   });
 });

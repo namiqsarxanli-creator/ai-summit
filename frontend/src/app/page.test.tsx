@@ -37,14 +37,14 @@ describe("Home", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders the FACEMARK heading", () => {
+  it("renders the AI Summit heading", () => {
     render(<Home />);
-    expect(screen.getByRole("heading", { name: "FACEMARK" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "AI Summit" })).toBeInTheDocument();
   });
 
   it("presents event actions without developer health data", async () => {
     render(<Home />);
-    expect(screen.getByText(/Your people, your discoveries/)).toBeInTheDocument();
+    expect(screen.getByText("People. Ideas. Real impact.")).toBeInTheDocument();
     expect(await screen.findByRole("link", { name: /Register as an attendee/ })).toBeInTheDocument();
     expect(screen.queryByText(/Backend connectivity/)).not.toBeInTheDocument();
   });

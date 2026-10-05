@@ -1,6 +1,8 @@
 "use client";
 
 import { messageFor } from "@/lib/errors";
+import { useLanguage } from "@/components/ui/LanguageProvider";
+
 import { useScoreStore } from "@/lib/realtime";
 
 // M13 wired M08's honest "points tracking starts once the summit
@@ -15,32 +17,30 @@ import { useScoreStore } from "@/lib/realtime";
 // own check and this store's first snapshot, and renders nothing for
 // it rather than a scary error.
 export function ScoreSummary() {
+  const { t } = useLanguage();
   const state = useScoreStore();
 
   if (state.status === "signed-out") return null;
 
   return (
-    <section aria-label="Your summit score" className="relative overflow-hidden rounded-3xl border border-cyan-300/25 bg-slate-900 p-6 shadow-xl shadow-black/10">
-      <div aria-hidden className="absolute -right-10 -top-10 h-36 w-36 rounded-full bg-cyan-300/10 blur-3xl" />
-      <p className="relative text-xs font-bold uppercase tracking-[0.2em] text-cyan-300">
-        Your points
-      </p>
-      {state.status === "loading" && <p className="mt-1 text-sm text-slate-400">Loading…</p>}
+    <section aria-label={t("Your summit score")} className="fm-score-card">
+      <span className="fm-score-medal" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9Z" /></svg></span>
+      <p className="fm-score-label">{t("Collected points")}</p>
+      {state.status === "loading" && <p role="status" className="fm-small">{t("Loading…")}</p>}
       {state.status === "error" && (
-        <p role="alert" className="mt-1 text-sm text-amber-300">
-          {messageFor(state.code)}
+        <p role="alert" className="fm-error">
+          {t(messageFor(state.code))}
         </p>
       )}
       {state.status === "ok" && (
         <>
-          <p className="relative mt-3 text-5xl font-bold tracking-tight text-white tabular-nums">
-            {state.score.total_points}{" "}
-            <span className="text-sm font-normal text-slate-400">pts</span>
+          <p className="fm-score-value">
+            {state.score.total_points} <span>{t("pts")}</span>
           </p>
-          <p className="mt-2 text-sm font-medium text-slate-200">Rank #{state.score.rank}</p>
+          <p className="fm-score-rank">{t("Rank")} #{state.score.rank}</p>
           {state.justAwardedPoints !== null && (
-            <p role="status" className="mt-3 text-sm font-semibold text-emerald-300 motion-safe:animate-pulse">
-              +{state.justAwardedPoints} points!
+            <p role="status" className="fm-status fm-status-ok motion-safe:animate-pulse">
+              +{state.justAwardedPoints} {t("points!")}
             </p>
           )}
         </>

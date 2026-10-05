@@ -17,6 +17,26 @@ export type StaffMe = {
 
 export type Preset = { points: number; label: string | null };
 
+// One awardable activity of the signed-in staff member's own booth. `points`
+// is what the server will award for it (display only - the award request
+// cannot carry a value); `repeatable` says whether one attendee may earn it
+// more than once.
+export type StaffTask = {
+  id: number;
+  title: string;
+  description: string | null;
+  points: number;
+  repeatable: boolean;
+  // Opaque server-issued revision of this rule; echoed back on the award.
+  rule_revision: string;
+};
+
+export function fetchStaffTasks(): Promise<
+  { ok: true; data: StaffTask[] } | { ok: false; error: ApiError }
+> {
+  return apiGet<StaffTask[]>("/api/staff/tasks");
+}
+
 export function fetchStaffMe(): Promise<{ ok: true; data: StaffMe } | { ok: false; error: ApiError }> {
   return apiGet<StaffMe>("/api/staff/me");
 }

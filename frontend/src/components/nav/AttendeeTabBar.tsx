@@ -1,3 +1,7 @@
+"use client";
+
+import { useLanguage } from "@/components/ui/LanguageProvider";
+import { HomeIcon } from "@/components/ui/HomeIcons";
 import Link from "next/link";
 
 // IMPLEMENTATION_PLAN.md M08: "Mobile navigation: Home · Booths · My
@@ -7,40 +11,30 @@ import Link from "next/link";
 // moment it is safe to show this bar at all (see the "ok" states in
 // HomeDashboard / Recommendations / MyCard / ProfileView).
 const TABS = [
-  { key: "home", href: "/", label: "Home" },
-  { key: "booths", href: "/booths", label: "Booths" },
-  { key: "qr", href: "/my-card", label: "My QR" },
-  { key: "leaderboard", href: "/leaderboard", label: "Leaderboard" },
-  { key: "profile", href: "/profile", label: "Profile" },
+  { key: "home", href: "/", label: "Home", icon: "home" },
+  { key: "booths", href: "/booths", label: "Booths", icon: "booths" },
+  { key: "qr", href: "/my-card", label: "My QR", icon: "qr" },
+  { key: "leaderboard", href: "/leaderboard", label: "Leaderboard", icon: "leaderboard" },
+  { key: "profile", href: "/profile", label: "Profile", icon: "profile" },
 ] as const;
 
 export type AttendeeTabKey = (typeof TABS)[number]["key"];
 
-// Fixed to the bottom, so every host page reserves space for it (see
-// the `pb-24` on each page's <main>) rather than letting it cover
-// content. Every link is at least 44px tall — the touch-target floor
-// M08's manual/device test requires.
+// Fixed to the bottom; the page shell (`.fm-page:has(.fm-tabbar)`) reserves the
+// space for it plus the device's bottom safe area, so it never covers content.
+// Every link is at least 56px tall — above the 44px touch-target floor.
 export function AttendeeTabBar({ active }: { active: AttendeeTabKey }) {
+  const { t } = useLanguage();
   return (
-    <nav
-      aria-label="Attendee navigation"
-      className="fixed inset-x-0 bottom-0 z-10 border-t border-slate-700 bg-[#080f1d]/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-10px_30px_rgba(0,0,0,.3)] backdrop-blur"
-    >
-      <ul className="mx-auto flex max-w-2xl">
+    <nav aria-label={t("Attendee navigation")} className="fm-tabbar">
+      <ul className="fm-tabbar-list">
         {TABS.map((tab) => {
           const isActive = tab.key === active;
           return (
-            <li key={tab.key} className="flex-1">
-              <Link
-                href={tab.href}
-                aria-current={isActive ? "page" : undefined}
-                className={`flex min-h-[52px] flex-col items-center justify-center gap-0.5 px-0.5 py-2 text-center text-[11px] font-semibold leading-tight transition-colors sm:text-xs ${
-                  isActive
-                    ? "border-t-2 border-cyan-300 text-cyan-200"
-                    : "border-t-2 border-transparent text-slate-300 hover:text-white"
-                }`}
-              >
-                {tab.label}
+            <li key={tab.key}>
+              <Link href={tab.href} aria-current={isActive ? "page" : undefined} className="fm-tab-link">
+                <span className="fm-tab-icon" aria-hidden="true"><HomeIcon name={tab.icon} /></span>
+                {t(tab.label)}
               </Link>
             </li>
           );

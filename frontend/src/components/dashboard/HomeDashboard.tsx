@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { useLanguage } from "@/components/ui/LanguageProvider";
+import { HomeIcon } from "@/components/ui/HomeIcons";
 import { useEffect, useState } from "react";
 
 import { ScoreSummary } from "@/components/dashboard/ScoreSummary";
@@ -37,6 +39,7 @@ function stateFrom(result: ApiResult<Recommendation[]>): State {
 // mirroring how every other M06/M07 surface independently
 // authenticates itself from its own endpoint.
 export function HomeDashboard() {
+  const { t } = useLanguage();
   const [state, setState] = useState<State>({ kind: "loading" });
 
   useEffect(() => {
@@ -50,7 +53,7 @@ export function HomeDashboard() {
   }, []);
 
   if (state.kind === "loading") {
-    return <p className="text-sm text-slate-500">Loading your dashboard…</p>;
+    return <p role="status" className="fm-note">{t("Loading your dashboard…")}</p>;
   }
 
   // SessionPanel already offers the register/login call to action for
@@ -63,8 +66,8 @@ export function HomeDashboard() {
 
   if (state.kind === "error") {
     return (
-      <p role="alert" className="w-full text-sm text-amber-300">
-        {messageFor(state.code)}
+      <p role="alert" className="fm-alert fm-alert-warn">
+        {t(messageFor(state.code))}
       </p>
     );
   }
@@ -74,28 +77,39 @@ export function HomeDashboard() {
   const general = isGeneralListing(recommendations);
 
   return (
-    <div className="flex w-full flex-col gap-6 text-left">
+    <div className="fm-stack">
       <ScoreSummary />
 
-      <section className="flex flex-col gap-3">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-            Your top matches
-          </h2>
-          <Link href="/booths" className="text-sm font-medium text-indigo-300 hover:text-indigo-200">
-            See all →
+      <div className="fm-actions" aria-label={t("Quick actions")}>
+        <Link href="/booths" className="fm-action fm-action-booths">
+          <span className="fm-action-title">{t("Booths")}</span>
+          <span className="fm-action-detail">{t("Discover sponsors and join activities")}</span>
+          <span className="fm-action-arrow"><HomeIcon name="arrow" /></span>
+        </Link>
+        <Link href="/my-card" className="fm-action fm-action-qr">
+          <span className="fm-action-title">{t("My QR")}</span>
+          <span className="fm-action-detail">{t("Make event participation easier")}</span>
+          <span className="fm-action-arrow"><HomeIcon name="arrow" /></span>
+        </Link>
+      </div>
+
+      <section className="fm-section">
+        <div className="fm-row-between">
+          <h2 className="fm-eyebrow">{t("Your top matches")}</h2>
+          <Link href="/booths" className="fm-link fm-link-block">
+            {t("See all →")}
           </Link>
         </div>
         {top.length === 0 ? (
-          <p className="text-sm text-slate-500">No booths are available yet. Check back soon.</p>
+          <p className="fm-empty">{t("No booths are available yet. Check back soon.")}</p>
         ) : (
           <>
             {general && (
-              <p className="rounded-lg border border-slate-800 bg-slate-900/60 p-3 text-sm text-slate-400">
-                Select interests when you register to see your personalised match for each booth.
+              <p className="fm-alert fm-alert-info">
+                {t("Select interests when you register to see your personalised match for each booth.")}
               </p>
             )}
-            <ul className="flex flex-col gap-3">
+            <ul className="fm-list">
               {top.map((r) => (
                 <RecommendationCard key={r.booth.slug} recommendation={r} />
               ))}

@@ -1,5 +1,7 @@
 "use client";
 
+import { useLanguage } from "@/components/ui/LanguageProvider";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type FormEvent, useState } from "react";
 
@@ -14,6 +16,7 @@ const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // is nowhere in the API surface this page could point to even if it
 // wanted to.
 export function StaffLoginForm() {
+  const { t } = useLanguage();
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -50,7 +53,7 @@ export function StaffLoginForm() {
   }
 
   return (
-    <form noValidate onSubmit={onSubmit} className="flex flex-col gap-6" aria-busy={busy}>
+    <form noValidate onSubmit={onSubmit} className="fm-form fm-auth-form" aria-busy={busy}>
       <TextField
         id="staff-email"
         label="Email"
@@ -70,20 +73,20 @@ export function StaffLoginForm() {
         error={passwordError ?? undefined}
       />
       {formError && (
-        <p
-          role="alert"
-          className="rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-300"
-        >
-          {formError}
+        <p role="alert" className="fm-alert fm-alert-error">
+          {t(formError)}
         </p>
       )}
       <button
         type="submit"
         disabled={busy}
-        className="rounded-lg bg-indigo-500 px-4 py-3 font-semibold text-white transition-colors hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-60"
+        className="fm-btn fm-btn-primary fm-btn-block"
       >
-        {busy ? "Signing in…" : "Sign in"}
+        {busy ? t("Signing in…") : t("Sign in")}
       </button>
+      <Link href="/staff/reset" className="fm-btn fm-btn-quiet fm-btn-block">
+        {t("Forgot your password?")}
+      </Link>
     </form>
   );
 }

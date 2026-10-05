@@ -127,6 +127,7 @@ describe("RegisterForm", () => {
       profession: "Systems Engineer",
       interest_slugs: ["robotics"],
       sponsor_consent: false,
+      language: "en", // the OTP email is written in the language in use
     });
     // The address travels to /verify via sessionStorage — never the URL.
     expect(window.sessionStorage.getItem("facemark.pendingEmail")).toBe(

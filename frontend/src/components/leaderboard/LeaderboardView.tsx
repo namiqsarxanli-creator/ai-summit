@@ -1,8 +1,10 @@
 "use client";
 
+import { useLanguage } from "@/components/ui/LanguageProvider";
 import Link from "next/link";
 import { useState } from "react";
 
+import { Avatar } from "@/components/ui/Avatar";
 import { messageFor } from "@/lib/errors";
 import { fetchLeaderboardPage, type LeaderboardEntry } from "@/lib/leaderboard";
 import { useLeaderboardStore } from "@/lib/realtime";
@@ -21,22 +23,20 @@ type AllState =
     };
 
 function Row({ entry, highlight }: { entry: LeaderboardEntry; highlight: boolean }) {
+  const { t } = useLanguage();
   return (
-    <li
-      className={`flex min-w-0 items-center justify-between gap-3 rounded-2xl border px-4 py-4 ${
-        highlight ? "border-cyan-300 bg-cyan-300/10" : "border-slate-700 bg-slate-900/80"
-      }`}
-    >
-      <div className="flex min-w-0 items-center gap-3">
-        <span className="w-10 shrink-0 text-lg font-bold tabular-nums text-cyan-200">#{entry.rank}</span>
-        <div className="min-w-0">
-          <p className="break-words text-sm font-semibold text-slate-100">
+    <li data-rank={entry.rank} data-current={highlight} className="fm-rank-row">
+      <div className="fm-rank-main">
+        <span className="fm-rank-position">#{entry.rank}</span>
+        <Avatar size="rank" url={entry.photo_url} />
+        <div className="fm-grow">
+          <p className="fm-rank-name">
             {entry.first_name} {entry.last_name}
           </p>
-          <p className="break-words text-xs text-slate-300">{entry.profession}</p>
+          <p className="fm-rank-role">{entry.profession}</p>
         </div>
       </div>
-      <span className="shrink-0 text-sm font-bold tabular-nums text-white">{entry.total_points} pts</span>
+      <span className="fm-rank-points">{entry.total_points} {t("pts")}</span>
     </li>
   );
 }
@@ -55,6 +55,7 @@ function Row({ entry, highlight }: { entry: LeaderboardEntry; highlight: boolean
 // keeps its own independent pagination state, untouched by realtime
 // reconciliation (§16.3's keyset contract is preserved as-is).
 export function LeaderboardView() {
+  const { t, language } = useLanguage();
   const top = useLeaderboardStore();
   const [all, setAll] = useState<AllState>({ kind: "closed" });
 
@@ -103,27 +104,24 @@ export function LeaderboardView() {
   }
 
   if (top.status === "loading") {
-    return <p role="status" className="rounded-2xl border border-slate-700 bg-slate-900 p-5 text-sm text-slate-300">Loading leaderboard…</p>;
+    return <p role="status" className="fm-empty">{t("Loading leaderboard…")}</p>;
   }
 
   if (top.status === "signed-out") {
     return (
-      <p className="rounded-xl border border-slate-800 bg-slate-900/60 p-5 text-sm text-slate-400">
-        <Link href="/login" className="font-medium text-indigo-300 hover:text-indigo-200">
-          Sign in
-        </Link>{" "}
-        to see the leaderboard.
-      </p>
+      <div className="fm-stack">
+        <p className="fm-note">{t("Sign in to see the leaderboard.")}</p>
+        <Link href="/login" className="fm-btn fm-btn-primary fm-btn-block">
+          {t("Sign in")}
+        </Link>
+      </div>
     );
   }
 
   if (top.status === "error") {
     return (
-      <p
-        role="alert"
-        className="rounded-xl border border-slate-800 bg-slate-900/60 p-5 text-sm text-amber-300"
-      >
-        {messageFor(top.code)}
+      <p role="alert" className="fm-alert fm-alert-warn">
+        {t(messageFor(top.code))}
       </p>
     );
   }
@@ -133,11 +131,11 @@ export function LeaderboardView() {
     currentUser !== null && entries.some((e) => e.user_id === currentUser.user_id);
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="fm-stack-lg">
       {entries.length === 0 ? (
-        <p className="rounded-2xl border border-slate-700 bg-slate-900 p-5 text-sm text-slate-300">No attendees have joined the leaderboard yet. Your position will appear here when the event begins.</p>
+        <p className="fm-empty">{t("No attendees have joined the leaderboard yet. Your position will appear here when the event begins.")}</p>
       ) : (
-        <ul className="flex flex-col gap-2">
+        <ul className="fm-list" style={{ gap: 8 }}>
           {entries.map((e) => (
             <Row
               key={e.user_id}
@@ -149,10 +147,8 @@ export function LeaderboardView() {
       )}
 
       {currentUser !== null && !currentUserInTop && (
-        <div className="flex flex-col gap-2">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-            Your position
-          </p>
+        <div className="fm-section">
+          <p className="fm-eyebrow">{t("Your position")}</p>
           <Row entry={currentUser} highlight />
         </div>
       )}
@@ -161,26 +157,26 @@ export function LeaderboardView() {
         <button
           type="button"
           onClick={loadAllFromStart}
-          className="min-h-11 self-start rounded-xl border border-slate-600 px-5 py-2 text-sm font-semibold text-slate-100 transition-colors hover:bg-slate-800"
+          className="fm-btn fm-btn-secondary fm-btn-block"
         >
-          Show all
+          {t("Show all")}
         </button>
       )}
 
       {all.kind === "loading" && (
-        <p className="text-sm text-slate-500">Loading full leaderboard…</p>
+        <p role="status" className="fm-note">{t("Loading full leaderboard…")}</p>
       )}
 
       {all.kind === "error" && (
-        <p role="alert" className="text-sm text-amber-300">
-          {messageFor(all.code)}
+        <p role="alert" className="fm-alert fm-alert-warn">
+          {t(messageFor(all.code))}
         </p>
       )}
 
       {all.kind === "ok" && (
-        <div className="flex flex-col gap-3 border-t border-slate-800 pt-4">
-          <p className="text-xs text-slate-500">As of {new Date(all.asOf).toLocaleTimeString()}</p>
-          <ul className="flex flex-col gap-2">
+        <div className="fm-section" style={{ borderTop: "1px solid var(--fm-line)", paddingTop: 16 }}>
+          <p className="fm-micro">{t("As of")} {new Date(all.asOf).toLocaleTimeString(language)}</p>
+          <ul className="fm-list" style={{ gap: 8 }}>
             {all.entries.map((e) => (
               <Row
                 key={e.user_id}
@@ -194,9 +190,9 @@ export function LeaderboardView() {
               type="button"
               onClick={loadMore}
               disabled={all.loadingMore}
-              className="self-start rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+              className="fm-btn fm-btn-secondary fm-btn-block"
             >
-              {all.loadingMore ? "Loading…" : "Load more"}
+              {all.loadingMore ? t("Loading…") : t("Load more")}
             </button>
           )}
         </div>

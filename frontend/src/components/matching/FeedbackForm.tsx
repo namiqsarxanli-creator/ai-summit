@@ -1,5 +1,6 @@
 "use client";
 
+import { useLanguage } from "@/components/ui/LanguageProvider";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
@@ -23,6 +24,7 @@ type FormState =
 // state, and a repeat submission is shown as a normal success, never
 // an error.
 export function FeedbackForm({ boothSlug }: { boothSlug: string }) {
+  const { t } = useLanguage();
   const [session, setSession] = useState<SessionCheck>({ kind: "loading" });
 
   useEffect(() => {
@@ -40,15 +42,13 @@ export function FeedbackForm({ boothSlug }: { boothSlug: string }) {
 
   if (session.kind === "signed-out") {
     return (
-      <section className="flex flex-col gap-3 rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
-        <h2 className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-          Leave feedback
-        </h2>
-        <p className="text-sm text-slate-400">
-          <Link href="/login" className="font-medium text-indigo-300 hover:text-indigo-200">
-            Sign in
+      <section className="fm-card fm-section">
+        <h2 className="fm-eyebrow">{t("Leave feedback")}</h2>
+        <p className="fm-text-soft">
+          <Link href="/login" className="fm-link">
+            {t("Sign in")}
           </Link>{" "}
-          to leave feedback for this booth.
+          {t("to leave feedback for this booth.")}
         </p>
       </section>
     );
@@ -58,6 +58,7 @@ export function FeedbackForm({ boothSlug }: { boothSlug: string }) {
 }
 
 function FeedbackFormBody({ boothSlug }: { boothSlug: string }) {
+  const { t } = useLanguage();
   const [rating, setRating] = useState<number | null>(null);
   const [comment, setComment] = useState("");
   const [state, setState] = useState<FormState>({ kind: "idle" });
@@ -88,37 +89,32 @@ function FeedbackFormBody({ boothSlug }: { boothSlug: string }) {
   }
 
   return (
-    <section className="flex flex-col gap-4 rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
-      <h2 className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-        Leave feedback
-      </h2>
+    <section className="fm-card fm-section">
+      <h2 className="fm-eyebrow">{t("Leave feedback")}</h2>
 
       {state.kind === "success" && (
-        <div className="flex flex-col gap-3">
-          <p className="text-sm text-emerald-300">
+        <div className="fm-stack">
+          <p role="status" className="fm-alert fm-alert-ok">
             {state.result.already_rewarded
-              ? "Thanks for the feedback! You've already earned the reward at this booth."
-              : `Thanks for the feedback! +${state.result.awarded_points} points awarded.`}
+              ? t("Thanks for the feedback! You've already earned the reward at this booth.")
+              : `${t("Thanks for the feedback!")} +${state.result.awarded_points} ${t("points awarded.")}`}
           </p>
-          <p className="text-sm text-slate-400">New total: {state.result.total_points}</p>
+          <p className="fm-small">{t("New total:")} {state.result.total_points}</p>
           <button
             type="button"
             onClick={leaveMore}
-            className="self-start rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 transition-colors hover:bg-slate-800"
+            className="fm-btn fm-btn-secondary fm-btn-block"
           >
-            Leave more feedback
+            {t("Leave more feedback")}
           </button>
         </div>
       )}
 
       {state.kind !== "success" && (
         <>
-          <fieldset
-            className="flex flex-col gap-2"
-            disabled={state.kind === "submitting"}
-          >
-            <legend className="text-sm text-slate-400">How was your experience?</legend>
-            <div role="radiogroup" aria-label="Rating" className="flex gap-2">
+          <fieldset className="fm-fieldset" disabled={state.kind === "submitting"}>
+            <legend className="fm-legend">{t("How was your experience?")}</legend>
+            <div role="radiogroup" aria-label={t("Rating")} className="fm-rating-group">
               {RATINGS.map((value) => (
                 <button
                   key={value}
@@ -126,11 +122,7 @@ function FeedbackFormBody({ boothSlug }: { boothSlug: string }) {
                   role="radio"
                   aria-checked={rating === value}
                   onClick={() => setRating(value)}
-                  className={`h-11 w-11 rounded-full border text-sm font-semibold transition-colors ${
-                    rating === value
-                      ? "border-indigo-400 bg-indigo-500 text-white"
-                      : "border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700"
-                  }`}
+                  className="fm-rating"
                 >
                   {value}
                 </button>
@@ -138,8 +130,8 @@ function FeedbackFormBody({ boothSlug }: { boothSlug: string }) {
             </div>
           </fieldset>
 
-          <label htmlFor="feedback-comment" className="text-sm text-slate-400">
-            Comment (optional)
+          <label htmlFor="feedback-comment" className="fm-label">
+            {t("Comment (optional)")}
           </label>
           <textarea
             id="feedback-comment"
@@ -147,12 +139,12 @@ function FeedbackFormBody({ boothSlug }: { boothSlug: string }) {
             onChange={(e) => setComment(e.target.value)}
             disabled={state.kind === "submitting"}
             rows={3}
-            className="rounded-lg border border-slate-700 bg-slate-900 px-4 py-3 text-slate-100"
+            className="fm-input"
           />
 
           {state.kind === "error" && (
-            <p role="alert" className="text-sm text-amber-300">
-              {messageFor(state.code)}
+            <p role="alert" className="fm-alert fm-alert-warn">
+              {t(messageFor(state.code))}
             </p>
           )}
 
@@ -160,9 +152,9 @@ function FeedbackFormBody({ boothSlug }: { boothSlug: string }) {
             type="button"
             onClick={submit}
             disabled={rating === null || state.kind === "submitting"}
-            className="rounded-lg bg-indigo-500 px-4 py-3 font-semibold text-white transition-colors hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-50"
+            className="fm-btn fm-btn-primary fm-btn-block"
           >
-            {state.kind === "submitting" ? "Submitting…" : "Submit feedback"}
+            {state.kind === "submitting" ? t("Submitting…") : t("Submit feedback")}
           </button>
         </>
       )}

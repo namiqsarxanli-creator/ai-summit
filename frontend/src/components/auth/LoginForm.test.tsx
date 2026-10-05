@@ -68,7 +68,7 @@ describe("LoginForm", () => {
 
   it("requests a code with non-committal copy, then asks for it", async () => {
     await reachCodeStep();
-    expect(bodies("/api/auth/otp/request")).toEqual([{ email: EMAIL }]);
+    expect(bodies("/api/auth/otp/request")).toEqual([{ email: EMAIL, language: "en" }]);
     expect(
       screen.getByText("If this email is registered, we've sent a 6-digit sign-in code."),
     ).toBeInTheDocument();

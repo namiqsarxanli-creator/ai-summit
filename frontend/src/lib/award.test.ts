@@ -14,7 +14,7 @@ afterEach(() => {
 });
 
 describe("awardPoints", () => {
-  it("posts exactly the canonical fields, same-origin, and returns the snapshot", async () => {
+  it("posts exactly the canonical fields (an activity, never a point value), same-origin, and returns the snapshot", async () => {
     const fetchMock = vi.fn(async () =>
       jsonResponse(200, {
         points_log_id: 481,
@@ -30,7 +30,8 @@ describe("awardPoints", () => {
 
     const request = {
       card_token: "tok",
-      points: 15,
+      task_id: 7,
+      rule_revision: "rev-1",
       idempotency_key: "b3b1e6a0-0000-4000-8000-000000000000",
       scan_ref: "abc.def",
     };
@@ -41,6 +42,7 @@ describe("awardPoints", () => {
     expect(init.method).toBe("POST");
     expect(init.credentials).toBe("same-origin");
     expect(JSON.parse(init.body as string)).toEqual(request);
+    expect(Object.keys(JSON.parse(init.body as string))).not.toContain("points");
 
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -49,23 +51,24 @@ describe("awardPoints", () => {
     }
   });
 
-  it("surfaces INVALID_POINT_VALUE", async () => {
+  it("surfaces TASK_INACTIVE", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
-        jsonResponse(400, {
-          error: { code: "INVALID_POINT_VALUE", message: "", details: {}, correlation_id: "c" },
+        jsonResponse(409, {
+          error: { code: "TASK_INACTIVE", message: "", details: {}, correlation_id: "c" },
         }),
       ),
     );
     const result = await awardPoints({
       card_token: "tok",
-      points: 12,
+      task_id: 7,
+      rule_revision: "rev-1",
       idempotency_key: "b3b1e6a0-0000-4000-8000-000000000000",
       scan_ref: "abc.def",
     });
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.code).toBe("INVALID_POINT_VALUE");
+    if (!result.ok) expect(result.error.code).toBe("TASK_INACTIVE");
   });
 
   it("surfaces DUPLICATE_TASK_REWARD", async () => {
@@ -79,7 +82,8 @@ describe("awardPoints", () => {
     );
     const result = await awardPoints({
       card_token: "tok",
-      points: 5,
+      task_id: 7,
+      rule_revision: "rev-1",
       idempotency_key: "b3b1e6a0-0000-4000-8000-000000000000",
       scan_ref: "abc.def",
     });

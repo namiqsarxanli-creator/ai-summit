@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { useLanguage } from "@/components/ui/LanguageProvider";
+import { HomeIcon } from "@/components/ui/HomeIcons";
 import { useEffect, useState } from "react";
 
 import { messageFor } from "@/lib/errors";
@@ -15,6 +17,7 @@ import { fetchSession, logout, type SessionState } from "@/lib/session";
 // component is FOR (identity summary + sign out, unchanged).
 
 export function SessionPanel() {
+  const { t } = useLanguage();
   const [state, setState] = useState<SessionState>({ kind: "loading" });
   const [signingOut, setSigningOut] = useState(false);
   const [logoutError, setLogoutError] = useState<string | null>(null);
@@ -38,64 +41,50 @@ export function SessionPanel() {
       // server-side, so this must now come back signed-out.
       setState(await fetchSession());
     } else {
-      setLogoutError(messageFor(result.error.code));
+      setLogoutError(t(messageFor(result.error.code)));
     }
     setSigningOut(false);
   }
 
   if (state.kind === "loading") {
-    return <p className="text-sm text-slate-500">Checking your session…</p>;
+    return <p role="status" className="fm-note">{t("Checking your session…")}</p>;
   }
 
   if (state.kind === "signed-in") {
     const { attendee } = state;
     return (
-      <div className="flex w-full flex-col gap-4 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-5 text-left">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-400">
-            Signed in
-          </p>
-          <p className="mt-1 text-lg font-semibold text-slate-50">
-            {attendee.first_name} {attendee.last_name}
-          </p>
-          <p className="text-sm text-slate-400">{attendee.profession}</p>
-          <p className="text-sm text-slate-500">{attendee.email}</p>
+      <section className="fm-session-strip" aria-label={t("Signed in")}>
+        <Link href="/profile" className="fm-session-avatar" aria-label={t("Profile")}>
+          <HomeIcon name="profile" />
+        </Link>
+        <div className="fm-session-identity">
+          <p className="fm-session-name">{attendee.first_name} {attendee.last_name}</p>
+          <p className="fm-session-profession">{attendee.profession}</p>
         </div>
-        {logoutError && (
-          <p role="alert" className="text-sm text-red-300">
-            {logoutError}
-          </p>
-        )}
         <button
           type="button"
           onClick={onSignOut}
           disabled={signingOut}
-          className="rounded-lg border border-slate-700 px-4 py-2.5 text-sm font-semibold text-slate-200 transition-colors hover:bg-slate-800 disabled:opacity-60"
+          className="fm-btn fm-btn-quiet"
         >
-          {signingOut ? "Signing out…" : "Sign out"}
+          {signingOut ? t("Signing out…") : t("Sign out")}
         </button>
-      </div>
+        {logoutError && <p role="alert" className="fm-error" style={{ width: "100%" }}>{logoutError}</p>}
+      </section>
     );
   }
-
   return (
-    <div className="flex w-full flex-col gap-3">
+    <div className="fm-stack">
       {state.kind === "error" && (
-        <p role="alert" className="text-sm text-amber-300">
-          {messageFor(state.error.code)}
+        <p role="alert" className="fm-alert fm-alert-warn">
+          {t(messageFor(state.error.code))}
         </p>
       )}
-      <Link
-        href="/register"
-        className="w-full rounded-lg bg-indigo-500 px-4 py-3 font-semibold text-white transition-colors hover:bg-indigo-400"
-      >
-        Register as an attendee
+      <Link href="/register" className="fm-btn fm-btn-primary fm-btn-block">
+        {t("Register as an attendee")}
       </Link>
-      <Link
-        href="/login"
-        className="w-full rounded-lg border border-slate-700 px-4 py-3 font-semibold text-slate-200 transition-colors hover:bg-slate-800"
-      >
-        Already registered? Sign in
+      <Link href="/login" className="fm-btn fm-btn-secondary fm-btn-block">
+        {t("Already registered? Sign in")}
       </Link>
     </div>
   );

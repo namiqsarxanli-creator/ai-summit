@@ -30,5 +30,9 @@ export async function fetchSession(): Promise<SessionState> {
 
 export async function logout(): Promise<{ ok: true } | { ok: false; error: ApiError }> {
   const result = await apiPost<null>("/api/auth/logout", {});
-  return result.ok ? { ok: true } : { ok: false, error: result.error };
+  if (result.ok) {
+    if (typeof window !== "undefined") window.localStorage.removeItem("facemark.offlineQr.v1");
+    return { ok: true };
+  }
+  return { ok: false, error: result.error };
 }

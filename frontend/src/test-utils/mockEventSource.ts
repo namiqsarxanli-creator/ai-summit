@@ -13,6 +13,8 @@ export class MockEventSource {
 
   readonly url: string;
   closed = false;
+  /** 0 CONNECTING, 1 OPEN, 2 CLOSED - like the native one. */
+  readyState = 0;
   onerror: (() => void) | null = null;
   onopen: (() => void) | null = null;
   private listeners = new Map<string, Set<Listener>>();
@@ -33,6 +35,7 @@ export class MockEventSource {
 
   close(): void {
     this.closed = true;
+    this.readyState = 2;
   }
 
   /** Dispatches a named server event with a JSON-serialisable payload. */
@@ -43,6 +46,14 @@ export class MockEventSource {
 
   /** Simulates a connection failure (native EventSource `onerror`). */
   error(): void {
+    this.onerror?.();
+  }
+
+  /** Simulates a REFUSED connection: the server answered with something other
+   * than an event stream (e.g. 401). The browser closes the EventSource for good
+   * (readyState CLOSED, no automatic retry) and fires `onerror` once. */
+  refuse(): void {
+    this.readyState = 2;
     this.onerror?.();
   }
 

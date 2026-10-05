@@ -37,6 +37,9 @@ const DEAD_CONNECTION_MS = 45_000;
 const FALLBACK_AFTER_FAILURES = 3;
 const FALLBACK_POLL_MS = 5_000;
 const FALLBACK_SSE_RETRY_MS = 60_000;
+// EventSource.CLOSED, spelled out so the check does not depend on the global
+// class carrying its static constants.
+const EVENTSOURCE_CLOSED = 2;
 
 export type ScoreStoreState =
   | { status: "loading" }
@@ -237,6 +240,14 @@ class RealtimeStore {
     });
 
     es.onerror = () => {
+      // A REFUSED connection is final: when the server answers with anything
+      // but an event stream (401 for a signed-out visitor, a proxy error page),
+      // the browser closes the EventSource for good and never retries, so no
+      // `ready` will ever come. Without this the page would wait on "Loading…".
+      if (es.readyState === EVENTSOURCE_CLOSED) {
+        void this.handleRefusedStream(es);
+        return;
+      }
       this.consecutiveFailures += 1;
       if (this.consecutiveFailures >= FALLBACK_AFTER_FAILURES) {
         this.enterFallback();
@@ -245,6 +256,28 @@ class RealtimeStore {
       // succeeds, the server's fresh `ready` event drives the refetch
       // (see the `ready` handler above) — no separate reconnect path.
     };
+  }
+
+  /** The stream was refused. Fetch once, right now, so the page learns why:
+   * signed out -> the surfaces show their sign-in prompt and nothing keeps
+   * polling; signed in (the stream itself failed) -> polling fallback, which
+   * also retries the stream periodically. */
+  private async handleRefusedStream(es: EventSource): Promise<void> {
+    if (this.eventSource !== es) return; // already replaced or closed
+    this.closeStream();
+    const fetches: Promise<void>[] = [];
+    if (this.scoreListeners.size > 0) fetches.push(this.refetchScore());
+    if (this.leaderboardListeners.size > 0) fetches.push(this.refetchLeaderboard());
+    await Promise.all(fetches);
+    if (this.scoreListeners.size === 0 && this.leaderboardListeners.size === 0) return;
+    const signedOut =
+      (this.scoreListeners.size === 0 || this.scoreState.status === "signed-out") &&
+      (this.leaderboardListeners.size === 0 || this.leaderboardState.status === "signed-out");
+    if (signedOut) {
+      this.stopReconciliation(); // nothing to reconcile until the visitor signs in
+    } else {
+      this.enterFallback();
+    }
   }
 
   private closeStream(): void {
@@ -372,7 +405,10 @@ class RealtimeStore {
       for (const award of snapshot.recent_awards) {
         if (this.animatedAwardIds.has(award.id)) continue;
         const openedBeforeAward = new Date(award.created_at) >= this.pageOpenedAt;
-        if (visible && openedBeforeAward && justAwardedPoints === null) {
+        // Only points that were GIVEN are celebrated: a reversal arrives in the
+        // same list as a negative entry, and "+-10 points!" would be wrong. The
+        // total itself is still assigned from the snapshot below.
+        if (visible && openedBeforeAward && justAwardedPoints === null && award.points > 0) {
           justAwardedPoints = award.points;
         }
         this.animatedAwardIds.add(award.id);

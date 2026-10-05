@@ -12,6 +12,8 @@ export type PublicCard = {
   profession: string;
   interests: { slug: string; name: string }[];
   contact: ContactAction;
+  // The profile photo (large rendition) or null: the robot is shown then.
+  photo_url?: string | null;
 };
 
 export type OwnCard = { card_url: string; card: PublicCard };

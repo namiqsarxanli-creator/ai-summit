@@ -9,6 +9,8 @@ export type RecentAward = {
   points: number;
   booth_name: string;
   source: "TASK" | "FEEDBACK";
+  // The activity the award was for; null for awards that predate activities.
+  task_title?: string | null;
   created_at: string;
 };
 
