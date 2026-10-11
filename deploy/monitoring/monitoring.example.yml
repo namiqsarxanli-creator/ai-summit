@@ -1,0 +1,127 @@
+# EXAMPLE monitoring configuration - vendor-neutral, NOT applied by anything.
+#
+# Nothing in this repository creates a monitoring account, contacts a monitoring
+# service or sends a notification. This file lists, in one place, what is worth
+# watching, how to probe it, when to raise the alarm and what the person who
+# gets the alarm should do (the numbered steps are in OPERATIONS.md,
+# "Monitoring and alerts"). Translate it into whatever you use: an uptime
+# service, cron + mail, Prometheus blackbox/alertmanager, Healthchecks-style
+# dead-man's switches. Replace every REPLACE_ME; keep real URLs and tokens out
+# of the repository.
+
+# --- probes: things to call on a schedule ------------------------------------------------
+probes:
+  - name: liveness
+    # Is the backend process answering at all? Never touches the database.
+    kind: http
+    url: https://REPLACE_ME.your-domain.tld/api/health/live
+    interval: 1m
+    timeout: 10s
+    expect: { status: 200, body: '{"status":"ok"}' }
+    alert_after: 3 consecutive failures
+    severity: critical
+    runbook: "OPERATIONS.md#a1-the-site-is-down-liveness-fails"
+
+  - name: readiness
+    # May traffic be served? 503 here with liveness green = the database.
+    kind: http
+    url: https://REPLACE_ME.your-domain.tld/api/health/ready
+    interval: 1m
+    timeout: 10s
+    expect: { status: 200, body: '{"status":"ok"}' }
+    alert_after: 2 consecutive failures
+    severity: critical
+    runbook: "OPERATIONS.md#a2-database-unavailable-readiness-fails-liveness-ok"
+
+  - name: certificate
+    kind: tls
+    host: REPLACE_ME.your-domain.tld
+    warn_days_before_expiry: 14
+    severity: warning
+
+  - name: stack-report
+    # Runs on the server: containers, worker loop, OTP outbox, media volume, backup age.
+    kind: command
+    command: "BACKUP_DIR=/srv/facemark-backups /srv/facemark/deploy/monitoring/monitor.sh --public https://REPLACE_ME.your-domain.tld"
+    interval: 5m
+    exit_codes: { 0: ok, 1: warning, 2: critical }
+    runbook: "OPERATIONS.md#monitoring-and-alerts"
+
+  - name: monitor-heartbeat
+    # Dead-man's switch: monitor.sh requests PING_OK_URL only when everything is OK, so a
+    # silent server (crashed cron, dead host) raises this alert by itself.
+    kind: heartbeat
+    expect_ping_every: 10m
+    ping_url: https://REPLACE_ME.your-monitor.example/ping/REPLACE_ME   # set as PING_OK_URL for monitor.sh
+    severity: critical
+
+  - name: backup-heartbeat
+    kind: heartbeat
+    expect_ping_every: 26h
+    ping_url: https://REPLACE_ME.your-monitor.example/ping/REPLACE_ME_BACKUP   # see deploy/backup/crontab.example
+    severity: critical
+
+# --- alert conditions: what ops-check / the logs say, and what it means ----------------------
+# `ops-check` = `docker compose ... exec -T backend python -m app.cli ops-check --media`
+# and `... exec -T worker python -m app.cli ops-check --no-db --worker`.
+alerts:
+  - name: worker-stopped
+    signal: "ops:worker is CRIT (loop stalled / no heartbeat), or container:worker not healthy"
+    severity: critical
+    meaning: "No OTP e-mail is being sent; attendees cannot sign in. Codes expire in 10 minutes."
+    runbook: "OPERATIONS.md#b1-the-otp-worker-is-stopped-or-stalled"
+
+  - name: otp-backlog
+    signal: "ops:outbox-backlog WARN at 60 s, CRIT at 180 s oldest due row"
+    severity: warning/critical
+    meaning: "E-mails are waiting longer than they should: a stopped worker, a provider outage or the pacing limit is too low for the burst."
+    runbook: "OPERATIONS.md#b2-otp-e-mails-are-delayed-or-expiring"
+
+  - name: otp-codes-lapsing
+    signal: "ops:outbox-failures shows expired:otp_expired (WARN >=1, CRIT >=5 in 15 min)"
+    severity: warning/critical
+    meaning: "Attendees were issued codes that expired before the e-mail was sent."
+    runbook: "OPERATIONS.md#b2-otp-e-mails-are-delayed-or-expiring"
+
+  - name: otp-provider-rejecting
+    signal: "ops:outbox-failures lists failed:provider_auth_rejected or failed:payload_unreadable (systemic)"
+    severity: critical
+    meaning: "Every send fails until the API key / sending domain / encryption key is fixed."
+    runbook: "OPERATIONS.md#b3-otp-provider-rejects-everything"
+
+  - name: otp-rate-limited
+    signal: "ops:worker is WARN 'paused by provider rate limit', or log line 'OTP provider rate limit: sending paused'"
+    severity: warning
+    meaning: "The provider answered 429. The worker slows itself; repeated or long pauses mean OTP_DELIVERY_RATE_LIMIT is set above the plan's limit or the daily quota is used up."
+    runbook: "OPERATIONS.md#b2-otp-e-mails-are-delayed-or-expiring"
+
+  - name: media-not-writable
+    signal: "ops:media-write is CRIT, or log line containing MEDIA_WRITE_FAILED"
+    severity: critical
+    meaning: "Photo uploads answer 503 (everything else works). Usually a full disk, a read-only or wrong-owner volume."
+    runbook: "OPERATIONS.md#c1-photo-uploads-fail-media-volume"
+
+  - name: media-space-low
+    signal: "ops:media-space WARN under 15 % free, CRIT under 5 %"
+    severity: warning/critical
+    runbook: "OPERATIONS.md#c1-photo-uploads-fail-media-volume"
+
+  - name: migrations-behind
+    signal: "ops:migrations is WARN (database revision differs from the code)"
+    severity: warning
+    meaning: "A release was deployed without the migrate step, or a rollback left the schema ahead."
+    runbook: "DEPLOYMENT.md#releasing-an-update"
+
+  - name: backup-stale
+    signal: "check-backup.sh WARN after 26 h, CRIT after 52 h, or the backup job exited 1 / 3"
+    severity: warning/critical
+    runbook: "OPERATIONS.md#d1-a-backup-failed-or-is-stale"
+
+# --- log patterns (grep the container logs; every one is free of personal data) -----------
+log_patterns:
+  - { service: backend, pattern: "MEDIA_WRITE_FAILED",                          severity: critical }
+  - { service: backend, pattern: "MEDIA_ROOT is not writable",                  severity: critical }
+  - { service: worker,  pattern: "worker poll failed",                          severity: warning,  note: "repeated = database or network trouble" }
+  - { service: worker,  pattern: "OTP provider rate limit: sending paused",     severity: warning }
+  - { service: worker,  pattern: "lease lost, outcome discarded",               severity: warning,  note: "occasional is normal after a restart" }
+  - { service: backend, pattern: "Unhandled exception|Unhandled domain error",  severity: warning }

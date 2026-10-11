@@ -17,7 +17,8 @@ from sqlalchemy.orm import Session
 
 from app.core.security import hash_password, password_needs_rehash, verify_secret
 from app.core.sessions import create_staff_session
-from app.modules.booths.models import TaskPresetPoint
+from app.modules.admin.models import EventConfig
+from app.modules.booths.models import Booth, Task, TaskPresetPoint
 from app.modules.staff.models import StaffAccount
 
 # ARCHITECTURE.md §21.8, verbatim.
@@ -96,6 +97,50 @@ def login_staff(db: Session, *, email: str, password: str) -> LoginOutcome:
 
     raw_token = create_staff_session(db, staff_account_id=staff.id, now=now)
     return LoginOutcome(ok=True, staff=staff, session_token=raw_token)
+
+
+def awardable_tasks_for_booth(db: Session, booth_id: int) -> list[dict[str, object]]:
+    """The booth's ACTIVE activities that have a point value, in display
+    order, with the repeat policy each one resolves to. A pure read (no
+    fence, §19.4). Activities without a value are left out: staff cannot
+    award what the server would refuse."""
+    from app.modules.points.service import compute_rule_revision, resolve_repeat_policy
+
+    booth_default = db.execute(
+        select(Booth.allow_repeat_task_points).where(Booth.id == booth_id)
+    ).scalar_one_or_none()
+    event_default = db.execute(
+        select(EventConfig.allow_repeat_task_points_default).where(EventConfig.id == 1)
+    ).scalar_one()
+    rows = db.execute(
+        select(Task.id, Task.title, Task.description, Task.points, Task.allow_repeat_points)
+        .where(
+            Task.booth_id == booth_id,
+            Task.is_active.is_(True),
+            Task.points.is_not(None),
+        )
+        .order_by(Task.sort_order, Task.id)
+    ).all()
+    tasks: list[dict[str, object]] = []
+    for r in rows:
+        repeatable = resolve_repeat_policy(
+            task=r.allow_repeat_points, booth=booth_default, event_default=event_default
+        )
+        tasks.append(
+            {
+                "id": r.id,
+                "title": r.title,
+                "description": r.description,
+                "points": int(r.points),
+                "repeatable": repeatable,
+                # Echoed back on the award request to confirm THIS rule; the
+                # server re-derives it at award time and refuses on mismatch.
+                "rule_revision": compute_rule_revision(
+                    task_id=r.id, points=int(r.points), repeatable=repeatable
+                ),
+            }
+        )
+    return tasks
 
 
 def resolved_presets_for_booth(db: Session, booth_id: int) -> list[TaskPresetPoint]:

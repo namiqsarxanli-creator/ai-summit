@@ -36,9 +36,12 @@ from app.modules.staff.models import StaffAccount
 # attributes, §8.3) — fixed once here for every reader and writer.
 SESSION_COOKIE_NAME = "session"
 SESSION_TTL = timedelta(hours=12)
+REMEMBERED_SESSION_TTL = timedelta(days=30)
 
 
-def create_attendee_session(db: Session, *, user_id: int, now: datetime) -> str:
+def create_attendee_session(
+    db: Session, *, user_id: int, now: datetime, remember_device: bool = False
+) -> str:
     """Returns the raw token for the cookie; persists only its hash."""
     raw_token = generate_session_token()
     db.add(
@@ -47,7 +50,7 @@ def create_attendee_session(db: Session, *, user_id: int, now: datetime) -> str:
             principal_type=PrincipalType.ATTENDEE,
             user_id=user_id,
             issued_at=now,
-            expires_at=now + SESSION_TTL,
+            expires_at=now + (REMEMBERED_SESSION_TTL if remember_device else SESSION_TTL),
         )
     )
     db.flush()
@@ -178,9 +181,11 @@ def revoke_session(db: Session, raw_token: str | None) -> bool:
     return revoked is not None
 
 
-def set_session_cookie(response: Response, raw_token: str) -> None:
+def set_session_cookie(
+    response: Response, raw_token: str, *, remember_device: bool = False
+) -> None:
     """§8.3: `HttpOnly; SameSite=Lax; Path=/; Secure (when served over
-    HTTPS); Max-Age = 12h`."""
+    HTTPS); Max-Age = 12h, or 30 days with explicit attendee opt-in`."""
     response.set_cookie(
         key=SESSION_COOKIE_NAME,
         value=raw_token,
@@ -188,7 +193,7 @@ def set_session_cookie(response: Response, raw_token: str) -> None:
         samesite="lax",
         secure=get_settings().serves_https,
         path="/",
-        max_age=int(SESSION_TTL.total_seconds()),
+        max_age=int((REMEMBERED_SESSION_TTL if remember_device else SESSION_TTL).total_seconds()),
     )
 
 
@@ -197,6 +202,40 @@ def clear_session_cookie(response: Response) -> None:
     response.delete_cookie(
         key=SESSION_COOKIE_NAME,
         path="/",
+        httponly=True,
+        samesite="lax",
+        secure=get_settings().serves_https,
+    )
+
+
+# Binds an activation code to the browser that submitted the registration
+# (OtpChallenge.registration_intent_hash). Scoped to the auth endpoints, which
+# are the only reader; lives as long as a PROVISIONAL registration does.
+REGISTRATION_INTENT_COOKIE_NAME = "registration_intent"
+REGISTRATION_INTENT_COOKIE_PATH = "/api/auth"
+REGISTRATION_INTENT_TTL = timedelta(hours=24)
+
+
+def generate_registration_intent() -> str:
+    return generate_session_token()
+
+
+def set_registration_intent_cookie(response: Response, intent: str) -> None:
+    response.set_cookie(
+        key=REGISTRATION_INTENT_COOKIE_NAME,
+        value=intent,
+        httponly=True,
+        samesite="lax",
+        secure=get_settings().serves_https,
+        path=REGISTRATION_INTENT_COOKIE_PATH,
+        max_age=int(REGISTRATION_INTENT_TTL.total_seconds()),
+    )
+
+
+def clear_registration_intent_cookie(response: Response) -> None:
+    response.delete_cookie(
+        key=REGISTRATION_INTENT_COOKIE_NAME,
+        path=REGISTRATION_INTENT_COOKIE_PATH,
         httponly=True,
         samesite="lax",
         secure=get_settings().serves_https,

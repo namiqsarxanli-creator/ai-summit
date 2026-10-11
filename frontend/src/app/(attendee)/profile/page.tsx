@@ -11,7 +11,7 @@ export const metadata: Metadata = {
 export default function ProfilePage() {
   return (
     <main id="main-content" className="fm-page fm-screen-profile">
-      <PageHeader title="Your profile" description="Your summit, your connections." kind="profile" />
+      <PageHeader showBack={false} title="Your profile" description="Your summit, your connections." kind="profile" />
       <ProfileView />
       <BrandCredit />
     </main>

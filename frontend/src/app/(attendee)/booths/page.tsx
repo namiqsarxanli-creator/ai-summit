@@ -11,7 +11,7 @@ export const metadata: Metadata = {
 export default function BoothsPage() {
   return (
     <main id="main-content" className="fm-page fm-screen-booths">
-      <PageHeader title="Booths" description="Discover booth teams" kind="booths" />
+      <PageHeader showBack={false} title="Booths" description="Discover booth teams" kind="booths" />
       <Recommendations />
       <BrandCredit />
     </main>

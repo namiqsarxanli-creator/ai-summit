@@ -57,7 +57,14 @@ SEEDED_BOOTH_STAFF = "aiworks@staff.facemark.demo"
 SEEDED_ADMIN = "admin@facemark.demo"
 
 TOKEN_SHAPE = re.compile(r"[A-Za-z0-9_-]{43}")
-PUBLIC_CARD_KEYS = {"first_name", "last_name", "profession", "interests", "contact"}
+PUBLIC_CARD_KEYS = {
+    "first_name",
+    "last_name",
+    "profession",
+    "interests",
+    "contact",
+    "photo_url",  # the profile photo the attendee chose to show; None without one
+}
 PRIVACY_HEADERS = {
     "referrer-policy": "no-referrer",
     "x-robots-tag": "noindex",

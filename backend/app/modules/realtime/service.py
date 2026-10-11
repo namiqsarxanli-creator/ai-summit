@@ -24,6 +24,10 @@ logger = logging.getLogger(__name__)
 
 HEARTBEAT_SECONDS = 15
 MAX_STREAM_AGE_SECONDS = 30 * 60
+# A phone with a few tabs open is well under the per-attendee cap; the global
+# one bounds what the single worker holds open at once.
+MAX_STREAMS_PER_ATTENDEE = 5
+MAX_STREAMS_TOTAL = 3000
 
 
 def resolve_attendee_for_stream(raw_token: str | None) -> User:
@@ -71,3 +75,19 @@ def publish_award_signals(user_id: int) -> None:
         event_bus.publish_broadcast("leaderboard_changed", {})
     except Exception:
         logger.exception("failed to publish realtime signal for user_id=%s", user_id)
+
+
+def publish_profile_signals(user_id: int, *, leaderboard: bool) -> None:
+    """After an attendee's own profile, interests, consent or photo changed
+    (committed). Best-effort, exactly like `publish_award_signals`: the 20 s
+    reconciliation covers a missed one.
+
+    `state_changed` (personal) makes the attendee's OTHER open devices refetch
+    their profile and recommendations; `leaderboard_changed` is sent only when
+    something the leaderboard shows (name, profession, photo) changed."""
+    try:
+        event_bus.publish_personal(user_id, "state_changed", {"scope": "personal"})
+        if leaderboard:
+            event_bus.publish_broadcast("leaderboard_changed", {})
+    except Exception:
+        logger.exception("failed to publish profile signal for user_id=%s", user_id)

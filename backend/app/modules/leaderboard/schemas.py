@@ -29,6 +29,8 @@ class LeaderboardEntry(BaseModel):
     profession: str
     total_points: int
     rank: int
+    # The attendee's profile photo (small rendition), or None (the robot is shown).
+    photo_url: str | None = None
 
 
 class LeaderboardResponse(BaseModel):
@@ -60,6 +62,9 @@ class RecentAward(BaseModel):
     booth_name: str
     source: PointsSource
     created_at: datetime
+    # The activity name for awards made against one; None for awards that
+    # predate activities (and for feedback rewards).
+    task_title: str | None = None
 
 
 class ScoreSnapshotResponse(BaseModel):

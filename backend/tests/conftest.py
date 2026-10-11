@@ -2,9 +2,32 @@
 
 from __future__ import annotations
 
+import os
+
+# The suite pins the OTP delivery mode itself instead of inheriting the
+# running stack's. A real deployment runs DEMO_MODE=false with a real
+# RESEND_API_KEY; tests read demo-mode OTP log lines and must never send
+# real email. Set BEFORE any `app` import, because Settings is cached.
+os.environ["DEMO_MODE"] = "true"
+os.environ["RESEND_API_KEY"] = ""
+# ...and with the legacy sender unless a test turns the outbox on itself.
+os.environ["OTP_OUTBOX_ENCRYPTION_KEY"] = ""
+os.environ["OTP_OUTBOX_ENCRYPTION_KEY_PREVIOUS"] = ""
+# The suite talks plain HTTP: an https APP_ORIGIN (phone mode) would make
+# the session cookie `Secure` and the test client would never send it back.
+os.environ["APP_ORIGIN"] = "http://localhost:3000"
+
+# ...and runs against its OWN database, never the running stack's (see
+# tests/suite_db.py): uniquely named per run and dropped only by this run.
+# Must also precede every `app` import.
+from tests import suite_db
+
+_SUITE_DB = suite_db.provision_suite()
+
 import logging
 from collections.abc import Iterator
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine, create_engine, text
@@ -14,16 +37,17 @@ from sqlalchemy.pool import NullPool
 from app.core.ratelimit import limiter
 from app.db import all_models  # noqa: F401 — registers every model with Base.metadata
 from app.db.session import SessionLocal
+from tests.api_rig import Rig, open_rig
 from tests.m04_support import OTP_LOGGER, cleanup_email, make_client, new_email
 from tests.reset_support import (
     ALL_RESET_RELEVANT_TABLES,
     SEED_ADMIN_PASSWORD,
     SEED_STAFF_PASSWORD,
-    create_isolated_database,
-    drop_isolated_database,
-    isolated_url,
-    migrate_isolated_database,
 )
+
+
+def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
+    suite_db.drop(_SUITE_DB)
 
 
 @pytest.fixture
@@ -47,6 +71,21 @@ def isolated_rate_limiter() -> Iterator[None]:
     yield
     limiter.reset()
     limiter.clock = real_clock
+
+
+@pytest.fixture(autouse=True)
+def no_real_email(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The dev container carries a REAL RESEND_API_KEY, so any test that
+    registers an attendee would otherwise email `*@test.facemark.demo`
+    for real — bouncing, and damaging the sender's reputation. The
+    delivery adapter's only network call is `httpx.post`; fail it by
+    default (the adapter logs and swallows it, so tests still pass).
+    Tests of the adapter itself install their own recorder, which wins."""
+
+    def _blocked(*args: object, **kwargs: object) -> None:
+        raise AssertionError("a test attempted a real outbound HTTP POST")
+
+    monkeypatch.setattr(httpx, "post", _blocked)
 
 
 @pytest.fixture
@@ -176,13 +215,8 @@ def reset_db_url() -> Iterator[str]:
     created once for the whole test session and dropped at the end.
     Individual tests use `clean_reset_db` (function-scoped) to get back
     to a known, freshly-seeded baseline rather than re-creating this."""
-    create_isolated_database()
-    url = isolated_url()
-    migrate_isolated_database(url)
-    try:
-        yield url
-    finally:
-        drop_isolated_database()
+    with suite_db.scratch_database("reset") as scratch:
+        yield scratch.url
 
 
 @pytest.fixture(scope="session")
@@ -233,3 +267,11 @@ def clean_reset_db(reset_db_url: str, reset_db_engine: Engine) -> Iterator[str]:
         seed_session.close()
 
     yield reset_db_url
+
+
+@pytest.fixture
+def rig(clean_reset_db: str, reset_db_engine: Engine) -> Iterator[Rig]:
+    """A TestClient and SQL helpers on a freshly seeded disposable database
+    (tests/api_rig.py)."""
+    with open_rig(reset_db_engine) as opened:
+        yield opened

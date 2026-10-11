@@ -22,6 +22,7 @@ export function LoginForm() {
   const router = useRouter();
   const [step, setStep] = useState<Step>("email");
   const [email, setEmail] = useState("");
+  const [remember, setRemember] = useState(false);
   const [code, setCode] = useState("");
   const [fieldError, setFieldError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
@@ -67,6 +68,7 @@ export function LoginForm() {
     const result = await apiPost<{ status: string }>("/api/auth/otp/verify", {
       email: email.trim(),
       code,
+      ...(remember ? { remember_device: true } : {}),
     });
     setBusy(false);
     if (result.ok) {
@@ -148,6 +150,7 @@ export function LoginForm() {
         hint="The code expires 10 minutes after it was sent."
         className="fm-input-code"
       />
+      <label className="fm-remember"><input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} />{t("Remember me on this device for 30 days")}</label>
       {banners}
       <button
         type="submit"

@@ -3,30 +3,34 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#07152e">
+  <meta name="theme-color" content="#ffffff">
   <title>Offline · AI Summit</title>
   <style>
     * { box-sizing: border-box; }
-    body { min-height: 100vh; margin: 0; padding: 28px 18px 55px; background: radial-gradient(circle at 50% -10%, #155186, #07152e 60%, #061126); color: #f7fcff; font: 15px/1.5 system-ui, -apple-system, sans-serif; }
-    main { max-width: 430px; margin: 0 auto; }
-    .brand { display: flex; justify-content: space-between; align-items: center; color: #8eecfb; font-size: 11px; font-weight: 800; letter-spacing: .25em; }
-    .brand strong { color: #fff; font-size: 18px; letter-spacing: -.02em; }
-    .art { height: 190px; margin: 18px -18px 0; background: linear-gradient(0deg,#07152e,transparent 65%),url('/summit-network.webp') center 40% / cover; }
-    h1 { margin: 0; font-size: 30px; line-height: 1.1; }
-    .intro { margin: 12px 0 24px; color: #bfd4e4; }
-    .card { padding: 20px; border: 1px solid #3986b2; border-radius: 22px; background: #0c2854; box-shadow: 0 18px 40px #02102988; }
-    h2 { margin: 0 0 8px; font-size: 19px; }
-    .muted { color: #bed4e7; font-size: 13px; }
-    label { display: block; margin-top: 20px; font-size: 13px; font-weight: 700; }
-    input { width: 100%; min-height: 48px; margin-top: 7px; padding: 10px 12px; border: 1px solid #5baac8; border-radius: 12px; background: #061a3b; color: #fff; font: inherit; }
-    button { min-height: 48px; border: 0; border-radius: 12px; font: inherit; font-weight: 700; cursor: pointer; }
-    .primary { width: 100%; margin-top: 12px; background: #17c9e1; color: #052342; }
-    .secondary { width: 100%; margin-top: 18px; border: 1px solid #4f98bb; background: transparent; color: #d8f4ff; }
-    #error { color: #ffc2a9; font-size: 13px; }
-    #drawing { max-width: 300px; margin: 18px auto 0; padding: 15px; border-radius: 17px; background: white; }
+    [hidden] { display: none !important; }
+    body { min-height: 100vh; margin: 0; background: #faf8f7; color: #282b33; font: 16px/1.5 system-ui, -apple-system, sans-serif; }
+    main { max-width: 430px; min-height: 100vh; margin: 0 auto; padding: max(20px, env(safe-area-inset-top)) 20px max(24px, env(safe-area-inset-bottom)); background: #fff; box-shadow: 0 0 40px #40141a08; }
+    .brand { display: flex; justify-content: flex-end; padding-bottom: 14px; border-bottom: 1px solid #f1dfdb; }
+    .brand strong { color: #b51620; font-size: 21px; font-weight: 850; letter-spacing: -.04em; }
+    .art { height: 210px; margin: 18px -20px 20px; background: url('/summit-hero-clean.png') center 65% / cover no-repeat; }
+    h1 { margin: 0; color: #b51620; font-size: clamp(26px, 7vw, 30px); line-height: 1.15; letter-spacing: -.035em; overflow-wrap: break-word; }
+    .intro { margin: 12px 0 24px; color: #62636b; }
+    .card { padding: 20px; border: 1px solid #efdfd9; border-radius: 20px; background: #fffaf9; box-shadow: 0 12px 28px #40141a08; }
+    h2 { margin: 0 0 10px; color: #b51620; font-size: 20px; }
+    .muted { color: #62636b; font-size: 14px; }
+    label { display: block; margin-top: 20px; font-size: 14px; font-weight: 650; }
+    input { width: 100%; min-height: 52px; margin-top: 8px; padding: 12px; border: 1px solid #e8c9c4; border-radius: 12px; background: #fff; color: #282b33; font: inherit; }
+    button { width: 100%; min-height: 52px; padding: 12px 16px; border: 0; border-radius: 14px; font: inherit; font-weight: 700; cursor: pointer; }
+    .primary { margin-top: 14px; background: #b51620; color: #fff; }
+    .secondary { margin-top: 20px; background: #b51620; color: #fff; }
+    #error { padding: 12px; color: #9e1820; background: #fff0ef; border: 1px solid #eec3bf; border-radius: 12px; font-size: 14px; }
+    #drawing { max-width: 300px; margin: 18px auto 0; padding: 16px; border: 1px solid #efdfd9; border-radius: 16px; background: #fff; }
     #drawing svg { display: block; width: 100%; height: auto; }
-    .warning { margin: 14px 0 0; color: #ffd68b; font-size: 12px; }
-    :focus-visible { outline: 3px solid #ffe17a; outline-offset: 3px; }
+    .warning { margin: 16px 0 0; color: #62636b; font-size: 13px; }
+    .credit { display: flex; gap: 10px; justify-content: center; align-items: center; margin-top: 28px; color: #282b33; font-size: 12px; }
+    .credit::before, .credit::after { content: ''; width: 28px; height: 1px; background: #d8d6d7; }
+    .credit img { width: 72px; height: auto; filter: grayscale(1); }
+    :focus-visible { outline: 3px solid #b51620; outline-offset: 3px; }
   </style>
 </head>
 <body>
@@ -49,6 +53,7 @@
     <p id="qr-warning" class="warning" hidden>Bu kodun skan edilməsi və kartın açılması üçün qarşı tərəfin serverə bağlantısı olmalıdır. Kod ləğv edilibsə, offline nüsxə yenilənməyəcək.</p>
   </section>
   <button id="retry" class="secondary" type="button">Bağlantını yenidən yoxla</button>
+  <footer class="credit"><span>Powered by</span><img src="/aiworks-logo.png" alt="aiworks" width="72" height="32"></footer>
 </main>
 <script src="/offline-qr.js"></script>
 <script>
@@ -79,6 +84,7 @@
     }
   };
   const language = localStorage.getItem("facemark.language");
+  document.title = (language === "en" ? "Offline" : language === "ru" ? "Нет подключения" : "Bağlantı yoxdur") + " · AI Summit";
   if (language === "en" || language === "ru") {
     document.documentElement.lang = language;
     for (const [id, value] of Object.entries(translations[language])) {

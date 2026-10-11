@@ -141,6 +141,9 @@ def test_otp_is_not_logged_outside_demo_mode(monkeypatch: pytest.MonkeyPatch) ->
             environment="development",
             database_url="postgresql+psycopg://u:p@h/d",
             demo_mode=False,
+            # Explicit: the container's own RESEND_API_KEY must not leak in
+            # and turn "no delivery configured" into a real email send.
+            resend_api_key=None,
         ),
     )
     with pytest.raises(RuntimeError, match="DEMO_MODE"):

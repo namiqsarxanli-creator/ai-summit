@@ -118,6 +118,16 @@ describe("LoginForm", () => {
     expect(screen.getByLabelText("Email")).toHaveValue(EMAIL);
   });
 
+  it("persists a device only with explicit opt-in", async () => {
+    await reachCodeStep();
+    const choice = screen.getByRole("checkbox", { name: "Remember me on this device for 30 days" });
+    expect(choice).not.toBeChecked();fireEvent.click(choice);
+    fireEvent.change(screen.getByLabelText("Sign-in code"), { target: { value: "482913" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/"));
+    expect(bodies("/api/auth/otp/verify")).toEqual([{ email: EMAIL, code: "482913", remember_device: true }]);
+  });
+
   it("reports a network failure", async () => {
     verifyResponse = () => {
       throw new TypeError("Failed to fetch");

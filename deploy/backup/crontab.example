@@ -1,0 +1,15 @@
+# EXAMPLE crontab for the deploy user (crontab -e). Not installed by anything.
+# Adjust the paths. cron has a minimal PATH, so docker and bash are named in full.
+SHELL=/bin/bash
+PATH=/usr/local/bin:/usr/bin:/bin
+
+# Nightly backup at 03:15, a restore drill on the 1st of every month at 04:30,
+# and a freshness check every hour that a monitor (or MAILTO) can act on.
+# 0 = ok, 3 = complete but needs a look, anything else = failed.
+15 3 * * *  cd /srv/facemark && BACKUP_DIR=/srv/facemark-backups OFFSITE_HOOK=/srv/facemark/deploy/backup/offsite.sh deploy/backup/backup.sh >> /var/log/facemark-backup.log 2>&1
+30 4 1 * *  cd /srv/facemark && BACKUP_DIR=/srv/facemark-backups deploy/backup/restore-drill.sh >> /var/log/facemark-restore-drill.log 2>&1
+7 * * * *   cd /srv/facemark && BACKUP_DIR=/srv/facemark-backups deploy/backup/check-backup.sh >> /var/log/facemark-backup-check.log 2>&1 || true
+
+# Dead-man's switch (optional): ping a monitor only when the backup succeeded, so
+# SILENCE raises the alert. Replace the URL with your own check; none is created here.
+#15 3 * * *  cd /srv/facemark && BACKUP_DIR=/srv/facemark-backups deploy/backup/backup.sh && curl -fsS -m 10 https://REPLACE_ME.your-monitor.example/ping/REPLACE_ME >/dev/null

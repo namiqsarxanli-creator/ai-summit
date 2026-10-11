@@ -40,6 +40,7 @@ from app.modules.admin.reset import (
     run_demo_reset,
 )
 from app.seed import demo_fixtures as fx
+from tests.m04_support import ADVISORY_LOCKS_HERE
 from tests.reset_support import (
     BACKEND_ROOT,
     SEED_ADMIN_PASSWORD,
@@ -207,7 +208,7 @@ class TestFenceLifecycle:
             # at a time in this test, so this is unambiguous here.
             with checker.cursor() as cur:
                 cur.execute(
-                    "SELECT pid FROM pg_locks WHERE locktype = 'advisory' "
+                    f"SELECT pid FROM pg_locks WHERE {ADVISORY_LOCKS_HERE} "
                     "AND mode = 'ExclusiveLock' AND granted"
                 )
                 row = cur.fetchone()
@@ -474,7 +475,7 @@ class TestAtomicRestore:
         try:
             with checker.cursor() as cur:
                 cur.execute(
-                    "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' "
+                    f"SELECT count(*) FROM pg_locks WHERE {ADVISORY_LOCKS_HERE} "
                     "AND mode = 'ExclusiveLock' AND granted"
                 )
                 (count,) = cur.fetchone()  # type: ignore[misc]
@@ -1389,7 +1390,7 @@ time.sleep(120)
             try:
                 with checker.cursor() as cur:
                     cur.execute(
-                        "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' "
+                        f"SELECT count(*) FROM pg_locks WHERE {ADVISORY_LOCKS_HERE} "
                         "AND mode = 'ExclusiveLock' AND granted"
                     )
                     (count_before,) = cur.fetchone()  # type: ignore[misc]
@@ -1403,7 +1404,7 @@ time.sleep(120)
                 while time.monotonic() < deadline:
                     with checker.cursor() as cur:
                         cur.execute(
-                            "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' "
+                            f"SELECT count(*) FROM pg_locks WHERE {ADVISORY_LOCKS_HERE} "
                             "AND mode = 'ExclusiveLock' AND granted"
                         )
                         (count_after,) = cur.fetchone()  # type: ignore[misc]

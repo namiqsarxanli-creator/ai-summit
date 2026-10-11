@@ -1,0 +1,184 @@
+# FACEMARK continuous integration.
+#
+# Design rules (see DEPLOYMENT.md, "CI"):
+#   * No repository secret is used anywhere. Every credential below is a literal
+#     fake, and the backend job starts with `tests.ci_guard`, which fails the run
+#     if DATABASE_URL is not the job's own PostgreSQL service, if a real e-mail or
+#     encryption key is present, or if ENVIRONMENT is production.
+#   * The test suite creates and drops its OWN uniquely named databases inside the
+#     job's throw-away PostgreSQL service (backend/tests/suite_db.py). Migrations
+#     are validated only against such a temporary database.
+#   * pytest's own exit code decides the step; the log is shown only as a short
+#     tail on failure. Everything the tests print is fake data.
+#   * Every job has a timeout, so a hung step cannot hold a runner for hours.
+#   * Actions are pinned to major versions. For stricter supply-chain control, pin
+#     them to full commit SHAs (Dependabot can keep those current).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (ruff, mypy --strict, migrations, pytest)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci_only_not_a_secret
+          POSTGRES_DB: ci_maintenance
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci -d ci_maintenance"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      # The service above; only its maintenance database is named here. The suite
+      # connects to it just to CREATE and DROP its own databases.
+      DATABASE_URL: postgresql+psycopg://ci:ci_only_not_a_secret@localhost:5432/ci_maintenance
+      ENVIRONMENT: development
+      APP_ORIGIN: http://localhost:3000
+      SCAN_REF_SECRET: ci-only-fake-scan-ref-secret-0123456789abcdef
+      # Read only by the demo seed that builds the suite's database.
+      SEED_ADMIN_PASSWORD: ci-only-fake-admin-password
+      SEED_STAFF_PASSWORD: ci-only-fake-staff-password
+      # Deliberately NOT set, and the guard fails the job if they ever are:
+      # RESEND_API_KEY, OTP_OUTBOX_ENCRYPTION_KEY (tests/conftest.py also blanks them).
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      - name: Install
+        run: pip install -e ".[dev]"
+      - name: Guard - only the job's own database and fake credentials
+        run: python -m tests.ci_guard
+      - name: ruff check
+        run: ruff check app tests alembic
+      - name: ruff format --check
+        run: ruff format --check app tests alembic
+      - name: mypy --strict
+        run: mypy --strict app tests alembic
+      - name: Validate migrations (temporary database only)
+        run: python -m tests.ci_migrations
+      - name: pytest
+        run: |
+          set +e
+          python -m pytest -p no:cacheprovider -q --tb=short -ra --junitxml=pytest-report.xml > pytest.log 2>&1
+          code=$?
+          echo "pytest exit code: ${code}"
+          # A short, safe tail: the summary lines name the failing tests.
+          tail -n 60 pytest.log
+          exit "${code}"
+      - name: Leftover temporary databases (names only, read-only)
+        if: always()
+        run: python -m tests.db_inventory || true
+      - name: Keep the test log and report of a failed run
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-output
+          path: |
+            backend/pytest.log
+            backend/pytest-report.xml
+          retention-days: 7
+          if-no-files-found: ignore
+
+  frontend:
+    name: Frontend (lint, typecheck, tests, production build)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install (exact lockfile)
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Tests
+        run: npm test
+      - name: Production build
+        env:
+          # The ONLY build-time settings (frontend/next.config.ts, Dockerfile.prod):
+          #  BACKEND_INTERNAL_URL  is baked into the /api rewrite at build time. It must be
+          #                        a valid URL ending in /api; production traffic is routed
+          #                        by Caddy, so the value is only a fallback, but without it
+          #                        `next build` fails.
+          #  NEXT_OUTPUT=standalone builds the self-contained server Dockerfile.prod ships.
+          BACKEND_INTERNAL_URL: http://backend:8000/api
+          NEXT_OUTPUT: standalone
+        run: npm run build
+
+  deploy-config:
+    name: Deployment files (scripts, Compose, Caddy, images)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Shell syntax and the backup/restore script tests (no Docker, no database)
+        run: |
+          for f in deploy/*.sh deploy/backup/*.sh deploy/monitoring/*.sh deploy/tests/*.sh; do bash -n "$f"; done
+          bash deploy/tests/backup-scripts.test.sh
+          bash deploy/tests/monitor.test.sh
+      - name: shellcheck
+        # deploy/smoke.sh predates this check (SC2319 warnings in its established
+        # `[ ... ]; check ... $?` style) and is left as it is.
+        run: shellcheck -S warning deploy/preflight.sh deploy/backup/*.sh deploy/monitoring/*.sh deploy/tests/*.sh
+      - name: Production Compose file is valid (fake values)
+        run: docker compose --env-file deploy/ci/prod.env.ci -f docker-compose.prod.yml config --quiet
+      - name: Caddyfile is valid
+        run: |
+          docker run --rm -v "$PWD/deploy/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            -e DOMAIN=localhost -e ACME_EMAIL=ops@example.test \
+            caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+      - name: Build the production backend image
+        run: docker build -f backend/Dockerfile.prod -t facemark-backend:ci backend
+      - name: Real backup and restore exercise (isolated PostgreSQL and media)
+        env:
+          APP_IMAGE: facemark-backend:ci
+        run: |
+          set -o pipefail
+          bash deploy/tests/backup-real.test.sh 2>&1 | tee backup-real.log
+      - name: Keep failed backup exercise diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backup-exercise-output
+          path: backup-real.log
+          retention-days: 7
+          if-no-files-found: ignore
+      - name: Build the production frontend image
+        run: |
+          docker build -f frontend/Dockerfile.prod \
+            --build-arg BACKEND_INTERNAL_URL=http://backend:8000/api \
+            -t facemark-frontend:ci frontend

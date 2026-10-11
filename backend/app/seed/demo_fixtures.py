@@ -28,6 +28,12 @@ from decimal import Decimal
 
 from app.modules.staff.models import StaffRole
 
+# The baseline (presets, event_config) is shared with the real-event
+# bootstrap; re-exported so existing `fx.PRESET_POINTS` users keep working.
+from app.seed.baseline import EVENT_CONFIG_DEFAULTS as EVENT_CONFIG_DEFAULTS
+from app.seed.baseline import PRESET_POINTS as PRESET_POINTS
+from app.seed.baseline import PresetPointFixture as PresetPointFixture
+
 
 @dataclass(frozen=True)
 class InterestFixture:
@@ -47,6 +53,8 @@ class TaskFixture:
     title: str
     description: str | None
     sort_order: int
+    # The award rule: what one award of this activity is worth.
+    points: int = 10
 
 
 @dataclass(frozen=True)
@@ -57,13 +65,6 @@ class BoothFixture:
     location_label: str
     interests: tuple[BoothInterestFixture, ...]
     tasks: tuple[TaskFixture, ...]
-
-
-@dataclass(frozen=True)
-class PresetPointFixture:
-    points: int
-    label: str
-    sort_order: int
 
 
 @dataclass(frozen=True)
@@ -227,17 +228,6 @@ BOOTHS: tuple[BoothFixture, ...] = (
 )
 
 # ---------------------------------------------------------------------------
-# Point presets — global allow-list (ARCHITECTURE.md §7.10, §23.3 item 3:
-# "demo uses global"). booth_id is NULL for all rows here.
-# ---------------------------------------------------------------------------
-
-PRESET_POINTS: tuple[PresetPointFixture, ...] = (
-    PresetPointFixture(5, "Quick interaction", 0),
-    PresetPointFixture(10, "Solid engagement", 1),
-    PresetPointFixture(15, "Deep engagement", 2),
-)
-
-# ---------------------------------------------------------------------------
 # Demo staff — one BOOTH_STAFF per booth, plus one ADMIN.
 #
 # Passwords are NEVER literals here (ARCHITECTURE.md §19.8) — the
@@ -335,16 +325,3 @@ ATTENDEES: tuple[AttendeeFixture, ...] = (
         public_token="s2oiCdKto4pseDLY4YHOtaOxEg1dRP6hGWk8qVy0-kw",
     ),
 )
-
-# ---------------------------------------------------------------------------
-# EventConfig — the singleton row (ARCHITECTURE.md §7.13). id is always 1.
-# ---------------------------------------------------------------------------
-
-EVENT_CONFIG_DEFAULTS: dict[str, object] = {
-    "id": 1,
-    "feedback_points": 5,
-    "allow_repeat_task_points_default": False,
-    "leaderboard_top_n": 10,
-    "dataset_generation": 1,
-    "maintenance_mode": False,
-}

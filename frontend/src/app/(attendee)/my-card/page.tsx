@@ -11,7 +11,7 @@ export const metadata: Metadata = {
 export default function MyCardPage() {
   return (
     <main id="main-content" className="fm-page fm-screen-qr">
-      <PageHeader title="My QR" description="Show your attendee card" kind="qr" />
+      <PageHeader showBack={false} title="My QR" description="Show your attendee card" kind="qr" />
       <MyCard />
       <BrandCredit />
     </main>

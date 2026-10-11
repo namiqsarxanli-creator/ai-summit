@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { T } from "@/components/ui/LanguageProvider";
 import { BrandCredit } from "@/components/ui/BrandCredit";
 import { SessionPanel } from "@/components/auth/SessionPanel";
@@ -20,7 +19,6 @@ export default function Home() {
       <div className="fm-home-content">
         <HomeDashboard />
         <SessionPanel />
-        <Link href="/staff/login" className="fm-staff-entry"><T id="Staff sign in" /> <span aria-hidden="true">→</span></Link>
         <BrandCredit />
       </div>
     </main>

@@ -362,3 +362,6 @@ body:has(.fm-home) .fm-language-switcher { position: absolute; top: 0; left: 50%
 .fm-skip:focus { top: 12px; }
 .fm-credit-plate { display: flex; justify-content: center; padding: 12px 0 24px; }
 .fm-credit-plate .fm-credit { margin: 0; padding: 0 14px; border-radius: 999px; background: #fff; }
+
+.fm-remember { display: flex; align-items: center; gap: 12px; min-height: 48px; font-size: 14px; cursor: pointer; }
+.fm-remember input { flex: none; width: 20px; height: 20px; accent-color: var(--fm-red); }

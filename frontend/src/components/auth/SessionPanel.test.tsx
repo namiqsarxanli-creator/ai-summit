@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { messageFor } from "@/lib/errors";
@@ -35,6 +35,7 @@ describe("SessionPanel", () => {
       "href",
       "/register",
     );
+    expect(screen.getByRole("link", { name: "Staff sign in" })).toHaveAttribute("href", "/staff/login");
     expect(screen.getByRole("link", { name: "Already registered? Sign in" })).toHaveAttribute(
       "href",
       "/login",
@@ -46,44 +47,13 @@ describe("SessionPanel", () => {
     render(<SessionPanel />);
     expect(await screen.findByText("Marcus Lindqvist")).toBeInTheDocument();
     expect(screen.getByText("Data Platform Engineer")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Sign out" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Staff sign in" })).not.toBeInTheDocument();
     // M08: navigation to My Card and Booths now lives in the single
     // shared AttendeeTabBar (rendered by HomeDashboard), not duplicated
     // here as separate quick-link buttons.
     expect(screen.queryByRole("link", { name: "My card & QR" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Booth matches" })).not.toBeInTheDocument();
-  });
-
-  it("signs out, then confirms with the server that the session is gone", async () => {
-    let signedIn = true;
-    const fetchMock = vi.fn(async (url: string) => {
-      if (url === "/api/auth/logout") {
-        signedIn = false;
-        return new Response(null, { status: 204 });
-      }
-      return signedIn ? jsonResponse(200, ATTENDEE) : errorResponse(401, "UNAUTHENTICATED");
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    render(<SessionPanel />);
-    fireEvent.click(await screen.findByRole("button", { name: "Sign out" }));
-
-    expect(await screen.findByRole("link", { name: "Register as an attendee" })).toBeInTheDocument();
-    const urls = fetchMock.mock.calls.map(([u]) => u);
-    expect(urls).toEqual(["/api/attendees/me", "/api/auth/logout", "/api/attendees/me"]);
-  });
-
-  it("keeps the attendee signed in and says why if logout is rejected", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (url: string) =>
-        url === "/api/auth/logout" ? errorResponse(403, "CSRF_REJECTED") : jsonResponse(200, ATTENDEE),
-      ),
-    );
-    render(<SessionPanel />);
-    fireEvent.click(await screen.findByRole("button", { name: "Sign out" }));
-    expect(await screen.findByText(messageFor("CSRF_REJECTED"))).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByText("Marcus Lindqvist")).toBeInTheDocument());
   });
 
   it("reports an unexpected failure but still offers the ways in", async () => {

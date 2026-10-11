@@ -29,15 +29,18 @@ EXPECTED_TABLES = {
     "otp_challenges",
     "consent_audit",
     "admin_audit",
+    # Added after the original architecture inventory: the durable OTP email outbox.
+    "otp_deliveries",
 }
 
 
-def test_all_seventeen_architecture_tables_are_registered() -> None:
+def test_all_architecture_tables_and_the_otp_outbox_are_registered() -> None:
     """ARCHITECTURE.md §7 + §8.2, plus Implementation Clarification C4
     (admin_audit) — IMPLEMENTATION_PLAN.md M02's own 16-row table plus
-    the one added entity. Exactly 17, no more, no fewer."""
+    the one added entity — plus `otp_deliveries` (migration 0008). Exactly
+    18, no more, no fewer."""
     assert set(Base.metadata.tables.keys()) == EXPECTED_TABLES
-    assert len(EXPECTED_TABLES) == 17
+    assert len(EXPECTED_TABLES) == 18
 
 
 def test_no_model_migration_drift() -> None:

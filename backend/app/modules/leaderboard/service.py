@@ -36,9 +36,11 @@ from sqlalchemy.engine import Row
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import Subquery
 
+from app.core.images import SMALL
+from app.core.media import avatar_url
 from app.modules.admin.models import EventConfig
 from app.modules.attendees.models import User, UserStatus
-from app.modules.booths.models import Booth
+from app.modules.booths.models import Booth, Task
 from app.modules.leaderboard.schemas import (
     LeaderboardEntry,
     LeaderboardResponse,
@@ -71,6 +73,9 @@ def _scored() -> Subquery:
             User.first_name,
             User.last_name,
             User.profession,
+            # The photo's random name rides along in the SAME query (no per-row
+            # lookup): it is a column of the row already being aggregated.
+            User.photo_key,
             func.coalesce(func.sum(PointsLog.points), 0).label("total_points"),
             func.max(PointsLog.created_at).label("last_award_at"),
         )
@@ -90,6 +95,7 @@ def _ranked() -> Subquery:
             scored.c.first_name,
             scored.c.last_name,
             scored.c.profession,
+            scored.c.photo_key,
             scored.c.total_points,
             scored.c.last_award_at,
             func.rank().over(order_by=scored.c.total_points.desc()).label("rank"),
@@ -116,6 +122,7 @@ def _entry(row: Row[Any]) -> LeaderboardEntry:
         profession=row.profession,
         total_points=int(row.total_points),
         rank=int(row.rank),
+        photo_url=avatar_url(row.photo_key, SMALL),
     )
 
 
@@ -281,8 +288,10 @@ def my_score(db: Session, *, attendee: User, as_of: datetime) -> ScoreSnapshotRe
             Booth.name.label("booth_name"),
             PointsLog.source,
             PointsLog.created_at,
+            Task.title.label("task_title"),
         )
         .join(Booth, Booth.id == PointsLog.booth_id)
+        .outerjoin(Task, Task.id == PointsLog.task_id)
         .where(PointsLog.user_id == attendee.id)
         # Display order only (§17.4) — never a delivery guarantee, and
         # `id` here is an identity/tiebreak, never a cursor (#22).
@@ -300,6 +309,7 @@ def my_score(db: Session, *, attendee: User, as_of: datetime) -> ScoreSnapshotRe
                 booth_name=r.booth_name,
                 source=r.source,
                 created_at=r.created_at,
+                task_title=r.task_title,
             )
             for r in recent_rows
         ],

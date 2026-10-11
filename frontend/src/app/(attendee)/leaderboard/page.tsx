@@ -16,7 +16,7 @@ export const metadata: Metadata = {
 export default function LeaderboardPage() {
   return (
     <main id="main-content" className="fm-page fm-screen-leaderboard">
-      <PageHeader title="Leaderboard" description="Discover more. Earn more points." kind="leaderboard" />
+      <PageHeader showBack={false} title="Leaderboard" description="Discover more. Earn more points." kind="leaderboard" />
       <LeaderboardView />
       <AttendeeTabBar active="leaderboard" />
       <BrandCredit />

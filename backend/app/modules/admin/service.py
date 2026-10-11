@@ -5,8 +5,21 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from sqlalchemy import func, select, update
-from sqlalchemy.orm import Session
+from sqlalchemy import (
+    ColumnElement,
+    DateTime,
+    Integer,
+    Select,
+    Text,
+    cast,
+    func,
+    literal,
+    or_,
+    select,
+    tuple_,
+    update,
+)
+from sqlalchemy.orm import Session, aliased, undefer
 
 from app.core.auth_session import AuthSession
 from app.core.deps import current_admin
@@ -15,12 +28,21 @@ from app.core.ratelimit import RateLimit, limiter
 from app.core.security import hash_password
 from app.core.sessions import resolve_staff_session
 from app.modules.admin.models import AdminAudit, EventConfig
+from app.modules.admin.pagination import decode_cursor, encode_cursor, filter_fingerprint
 from app.modules.admin.schemas import (
+    AttendeeFilters,
+    AttendeeListQuery,
+    AttendeePage,
+    AttendeeRow,
     BoothEdit,
     BoothWrite,
     ConfigEdit,
     InterestEdit,
     InterestWrite,
+    PointsFilters,
+    PointsLogPage,
+    PointsLogQuery,
+    PointsLogRow,
     PresetEdit,
     PresetWrite,
     StaffCreate,
@@ -28,10 +50,10 @@ from app.modules.admin.schemas import (
     TaskWrite,
     WeightWrite,
 )
-from app.modules.attendees.models import User
+from app.modules.attendees.models import User, UserStatus
 from app.modules.booths.models import Booth, BoothInterest, Task, TaskPresetPoint
 from app.modules.interests.models import Interest
-from app.modules.points.models import PointsLog
+from app.modules.points.models import PointsEntryType, PointsLog, PointsSource
 from app.modules.staff.models import StaffAccount, StaffRole
 
 
@@ -128,7 +150,36 @@ def task_view(row: Task) -> dict[str, Any]:
         "description": row.description,
         "sort_order": row.sort_order,
         "is_active": row.is_active,
+        "points": row.points,
+        # None = inherits the booth's, then the event's, setting.
+        "allow_repeat_points": row.allow_repeat_points,
     }
+
+
+def task_rows(db: Session) -> list[dict[str, Any]]:
+    """Admin activity list, with the repeat policy each activity RESOLVES to
+    so the admin sees the effective rule, not only the override."""
+    from app.modules.points.service import resolve_repeat_policy
+
+    event_default = db.execute(
+        select(EventConfig.allow_repeat_task_points_default).where(EventConfig.id == 1)
+    ).scalar_one()
+    booths = {b.id: b.allow_repeat_task_points for b in db.execute(select(Booth)).scalars()}
+    rows = db.execute(
+        select(Task)
+        .options(undefer(Task.points), undefer(Task.allow_repeat_points))
+        .order_by(Task.id)
+    ).scalars()
+    out = []
+    for row in rows:
+        view = task_view(row)
+        view["repeat_allowed_effective"] = resolve_repeat_policy(
+            task=row.allow_repeat_points,
+            booth=booths.get(row.booth_id),
+            event_default=event_default,
+        )
+        out.append(view)
+    return out
 
 
 def preset_view(row: TaskPresetPoint) -> dict[str, Any]:
@@ -322,20 +373,6 @@ def edit_config(db: Session, actor: StaffAccount, payload: ConfigEdit) -> AdminR
     return "event_config.update", "event_config", before, after, response
 
 
-def attendee_rows(db: Session) -> list[dict[str, Any]]:
-    rows = db.execute(select(User).order_by(User.id).limit(500)).scalars()
-    return [
-        {
-            "id": r.id,
-            "first_name": r.first_name,
-            "last_name": r.last_name,
-            "email": r.email,
-            "status": r.status.value,
-        }
-        for r in rows
-    ]
-
-
 def booth_rows(db: Session) -> list[dict[str, Any]]:
     booths = db.execute(select(Booth).order_by(Booth.id)).scalars()
     return [
@@ -354,21 +391,242 @@ def booth_rows(db: Session) -> list[dict[str, Any]]:
     ]
 
 
-def points_rows(db: Session) -> list[dict[str, Any]]:
+def _escape_like(word: str) -> str:
+    return word.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def attendee_clauses(f: AttendeeFilters) -> list[ColumnElement[bool]]:
+    """The WHERE conditions of the attendee search and filters. The screen's
+    list and the CSV export both build their query from this, so a filter can
+    never mean one thing on screen and another in the file.
+
+    Search: every whitespace-separated word of `q` must occur (case-insensitive,
+    as a substring) in the first name, last name or e-mail; `%` and `_` in the
+    search text are literal. Filters combine with AND."""
+    clauses: list[ColumnElement[bool]] = []
+    if f.q:
+        for word in f.q.split():
+            pattern = f"%{_escape_like(word)}%"
+            clauses.append(
+                or_(
+                    User.first_name.ilike(pattern, escape="\\"),
+                    User.last_name.ilike(pattern, escape="\\"),
+                    cast(User.email, Text).ilike(pattern, escape="\\"),
+                )
+            )
+    if f.status is not None:
+        clauses.append(User.status == UserStatus(f.status))
+    if f.sponsor_consent is not None:
+        clauses.append(User.sponsor_consent.is_(f.sponsor_consent))
+    if f.registered_from is not None:
+        clauses.append(User.created_at >= f.registered_from)
+    if f.registered_to is not None:
+        clauses.append(User.created_at < f.registered_to)
+    return clauses
+
+
+def attendee_page(db: Session, query: AttendeeListQuery) -> AttendeePage:
+    """Attendees, newest registration first, keyset-paginated.
+
+    Search: every whitespace-separated word of `q` must occur (case-insensitive,
+    as a substring) in the first name, last name or e-mail; `%` and `_` in the
+    search text are literal. Filters combine with AND. Needs no extension, so it
+    scans the matching rows: fine for an event-sized table, and the keyset
+    condition keeps each page's cost independent of how deep it is."""
+    filters = {
+        "q": query.q,
+        "status": query.status,
+        "sponsor_consent": query.sponsor_consent,
+        "registered_from": query.registered_from,
+        "registered_to": query.registered_to,
+    }
+    fingerprint = filter_fingerprint("attendees", filters)
+    stmt = select(
+        User.id,
+        User.first_name,
+        User.last_name,
+        User.email,
+        User.status,
+        User.sponsor_consent,
+        User.created_at,
+    )
+    for clause in attendee_clauses(query):
+        stmt = stmt.where(clause)
+    if query.cursor is not None:
+        at, row_id = decode_cursor("attendees", query.cursor, fingerprint=fingerprint)
+        stmt = stmt.where(
+            tuple_(User.created_at, User.id)
+            < tuple_(literal(at, DateTime(timezone=True)), literal(row_id, Integer))
+        )
     rows = db.execute(
-        select(PointsLog).order_by(PointsLog.created_at.desc(), PointsLog.id.desc()).limit(200)
-    ).scalars()
-    return [
-        {
-            "id": r.id,
-            "user_id": r.user_id,
-            "booth_id": r.booth_id,
-            "source": r.source.value,
-            "entry_type": r.entry_type.value,
-            "points": r.points,
-            "entered_by_staff_id": r.entered_by_staff_id,
-            "entered_by_system": r.entered_by_system,
-            "created_at": r.created_at.isoformat(),
-        }
-        for r in rows
-    ]
+        stmt.order_by(User.created_at.desc(), User.id.desc()).limit(query.limit + 1)
+    ).all()
+    page, more = rows[: query.limit], len(rows) > query.limit
+    next_cursor = (
+        encode_cursor(
+            "attendees", created_at=page[-1].created_at, row_id=page[-1].id, fingerprint=fingerprint
+        )
+        if more
+        else None
+    )
+    return AttendeePage(
+        items=[
+            AttendeeRow(
+                id=r.id,
+                first_name=r.first_name,
+                last_name=r.last_name,
+                email=str(r.email),
+                status=r.status.value,
+                sponsor_consent=r.sponsor_consent,
+                created_at=r.created_at,
+            )
+            for r in page
+        ],
+        next_cursor=next_cursor,
+        limit=query.limit,
+    )
+
+
+def points_statement() -> Select[Any]:
+    """The ledger rows with the names joined in for reading. Outer joins: a
+    row whose activity or staff account is gone still lists. A reversal and the
+    entry it reverses are linked both ways: `reverses_points_log_id` on the
+    REVERSAL, `reversed_by_id` (the reversal's id, through the unique
+    `uq_points_reverses`) on the original."""
+    reversal = aliased(PointsLog)
+    return (
+        select(
+            PointsLog.id,
+            PointsLog.user_id,
+            User.first_name,
+            User.last_name,
+            PointsLog.booth_id,
+            Booth.name.label("booth_name"),
+            PointsLog.source,
+            PointsLog.entry_type,
+            PointsLog.points,
+            PointsLog.task_id,
+            Task.title.label("task_title"),
+            PointsLog.entered_by_staff_id,
+            StaffAccount.full_name.label("staff_name"),
+            PointsLog.entered_by_system,
+            PointsLog.created_at,
+            PointsLog.reverses_points_log_id,
+            reversal.id.label("reversed_by_id"),
+            PointsLog.note,
+        )
+        .join(User, User.id == PointsLog.user_id)
+        .outerjoin(reversal, reversal.reverses_points_log_id == PointsLog.id)
+        .outerjoin(Booth, Booth.id == PointsLog.booth_id)
+        .outerjoin(Task, Task.id == PointsLog.task_id)
+        .outerjoin(StaffAccount, StaffAccount.id == PointsLog.entered_by_staff_id)
+    )
+
+
+def reversal_reason(entry_type: str, note: str | None) -> str | None:
+    """The reason of a REVERSAL (kept in `note`); an AWARD has none to show."""
+    return note if entry_type == "REVERSAL" else None
+
+
+def points_clauses(f: PointsFilters) -> list[ColumnElement[bool]]:
+    """The WHERE conditions of the ledger filters; shared by the list and the
+    CSV export (see `attendee_clauses`)."""
+    clauses: list[ColumnElement[bool]] = []
+    if f.user_id is not None:
+        clauses.append(PointsLog.user_id == f.user_id)
+    if f.booth_id is not None:
+        clauses.append(PointsLog.booth_id == f.booth_id)
+    if f.task_id is not None:
+        clauses.append(PointsLog.task_id == f.task_id)
+    if f.staff_id is not None:
+        clauses.append(PointsLog.entered_by_staff_id == f.staff_id)
+    if f.source is not None:
+        clauses.append(PointsLog.source == PointsSource(f.source))
+    if f.entry_type is not None:
+        clauses.append(PointsLog.entry_type == PointsEntryType(f.entry_type))
+    if f.created_from is not None:
+        clauses.append(PointsLog.created_at >= f.created_from)
+    if f.created_to is not None:
+        clauses.append(PointsLog.created_at < f.created_to)
+    return clauses
+
+
+def points_page(db: Session, query: PointsLogQuery) -> PointsLogPage:
+    """The points ledger, newest entry first, keyset-paginated. Read-only: no
+    ledger row is ever changed. Names are joined in for reading; a row whose
+    activity or staff account is gone still lists (outer joins)."""
+    filters = {
+        "user_id": query.user_id,
+        "booth_id": query.booth_id,
+        "task_id": query.task_id,
+        "staff_id": query.staff_id,
+        "source": query.source,
+        "entry_type": query.entry_type,
+        "created_from": query.created_from,
+        "created_to": query.created_to,
+    }
+    fingerprint = filter_fingerprint("points-log", filters)
+    stmt = points_statement()
+    for clause in points_clauses(query):
+        stmt = stmt.where(clause)
+    if query.cursor is not None:
+        at, row_id = decode_cursor("points-log", query.cursor, fingerprint=fingerprint)
+        stmt = stmt.where(
+            tuple_(PointsLog.created_at, PointsLog.id)
+            < tuple_(literal(at, DateTime(timezone=True)), literal(row_id, Integer))
+        )
+    rows = db.execute(
+        stmt.order_by(PointsLog.created_at.desc(), PointsLog.id.desc()).limit(query.limit + 1)
+    ).all()
+    page, more = rows[: query.limit], len(rows) > query.limit
+    next_cursor = (
+        encode_cursor(
+            "points-log",
+            created_at=page[-1].created_at,
+            row_id=page[-1].id,
+            fingerprint=fingerprint,
+        )
+        if more
+        else None
+    )
+    return PointsLogPage(
+        items=[
+            PointsLogRow(
+                id=r.id,
+                user_id=r.user_id,
+                attendee_name=f"{r.first_name} {r.last_name}",
+                booth_id=r.booth_id,
+                booth_name=r.booth_name,
+                source=r.source.value,
+                entry_type=r.entry_type.value,
+                points=r.points,
+                task_id=r.task_id,
+                activity=_activity_label(
+                    r.source.value,
+                    r.task_id,
+                    {r.task_id: r.task_title} if r.task_id is not None and r.task_title else {},
+                ),
+                entered_by_staff_id=r.entered_by_staff_id,
+                staff_name=r.staff_name,
+                entered_by_system=r.entered_by_system,
+                created_at=r.created_at,
+                reverses_entry_id=r.reverses_points_log_id,
+                reversed_by_entry_id=r.reversed_by_id,
+                reason=reversal_reason(r.entry_type.value, r.note),
+            )
+            for r in page
+        ],
+        next_cursor=next_cursor,
+        limit=query.limit,
+    )
+
+
+def _activity_label(source: str, task_id: int | None, titles: dict[int, str]) -> str:
+    """What the ledger shows in the Activity column. Rows from before
+    activities existed have no task_id and are labelled as what they are,
+    never attached to an invented activity."""
+    if task_id is not None:
+        return titles.get(task_id, f"Activity #{task_id}")
+    if source == "FEEDBACK":
+        return "Feedback reward"
+    return "Booth-level award (before activities)"

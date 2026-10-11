@@ -146,6 +146,12 @@ class Rig:
             slug=slug,
             name=f"M14 Test Booth {slug[-6:]}",
         )
+        # Every booth gets one 5-point activity: awards name an activity.
+        _insert_returning_id(
+            "INSERT INTO tasks (booth_id, title, points) VALUES (:b, 'M14 activity', 5) "
+            "RETURNING id",
+            b=booth_id,
+        )
         self.booth_ids.append(booth_id)
         return booth_id
 
@@ -287,6 +293,7 @@ def rig(live_server: str, otp_log: pytest.LogCaptureFixture) -> Iterator[Rig]:
     for booth_id in reversed(r.booth_ids):
         execute("DELETE FROM points_log WHERE booth_id = :b", b=booth_id)
         execute("DELETE FROM feedback WHERE booth_id = :b", b=booth_id)
+        execute("DELETE FROM tasks WHERE booth_id = :b", b=booth_id)
         execute("DELETE FROM booths WHERE id = :b", b=booth_id)
 
 
@@ -322,7 +329,6 @@ def _task_award(
     staff_id: int,
     session_id: int,
     card_token: str,
-    points: int = 5,
     idempotency_key: uuid.UUID | None = None,
 ) -> httpx.Response:
     """A real `POST /api/staff/points/award` — the same request shape
@@ -335,9 +341,17 @@ def _task_award(
         card_token=card_token,
         now=datetime.now(UTC),
     )
+    task_id = fetch_one(
+        "SELECT t.id FROM tasks t JOIN staff_accounts s ON s.booth_id = t.booth_id "
+        "WHERE s.id = :s ORDER BY t.id LIMIT 1",
+        s=staff_id,
+    )[0]
+    from tests.m04_support import rule_revision_in_force
+
     body = {
         "card_token": card_token,
-        "points": points,
+        "task_id": task_id,
+        "rule_revision": rule_revision_in_force(task_id),
         "idempotency_key": str(idempotency_key or uuid.uuid4()),
         "scan_ref": scan_ref,
     }
@@ -575,7 +589,6 @@ def test_a_committed_task_award_publishes_personal_and_broadcast_signals(rig: Ri
             staff_id=staff_id,
             session_id=session_id,
             card_token=card_token,
-            points=5,
         )
         assert award_response.status_code == 200
 
@@ -598,7 +611,6 @@ def test_idempotent_task_award_replay_does_not_publish(rig: Rig) -> None:
         staff_id=staff_id,
         session_id=session_id,
         card_token=card_token,
-        points=5,
         idempotency_key=key,
     )
     assert first.status_code == 200
@@ -617,7 +629,6 @@ def test_idempotent_task_award_replay_does_not_publish(rig: Rig) -> None:
             staff_id=staff_id,
             session_id=session_id,
             card_token=card_token,
-            points=5,
             idempotency_key=key,
         )
         assert replay.status_code == 200

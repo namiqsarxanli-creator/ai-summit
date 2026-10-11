@@ -84,10 +84,15 @@ class EventBus:
             self._broadcast.discard(queue)
 
     def subscriber_count(self, user_id: int) -> int:
-        """Test/introspection helper only — never used for a routing
-        or correctness decision."""
+        """Open streams of one attendee; also the per-attendee stream cap's
+        input (`realtime.routers`)."""
         with self._lock:
             return len(self._personal.get(user_id, ()))
+
+    def total_subscribers(self) -> int:
+        """Open streams in this process; the global stream cap's input."""
+        with self._lock:
+            return len(self._broadcast)
 
     def publish_personal(self, user_id: int, event: str, data: dict[str, object]) -> None:
         with self._lock:

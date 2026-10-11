@@ -32,7 +32,7 @@ def get_public_card(token: str, db: DbSession, ip: ClientIp) -> PublicCard:
     """Unauthenticated. §21.7: 30/min per token, 1200/min per IP. The
     token bucket is keyed on the token's hash, so the limiter never holds
     a copy of a live capability."""
-    limiter.check([(CARD_READ_PER_TOKEN, hash_card_token(token)), (CARD_READ_PER_IP, ip)])
+    limiter.check([(CARD_READ_PER_IP, ip), (CARD_READ_PER_TOKEN, hash_card_token(token))])
     return resolve_public_card(db, token)
 
 

@@ -35,7 +35,14 @@ from app.core.locks import FACEMARK_RESET_FENCE
 
 def _build_engine() -> Engine:
     settings = get_settings()
-    return create_engine(settings.database_url, pool_pre_ping=True, future=True)
+    # connect_timeout: an unreachable database host must fail /api/health/ready in
+    # seconds instead of hanging until a proxy gives up.
+    return create_engine(
+        settings.database_url,
+        pool_pre_ping=True,
+        future=True,
+        connect_args={"connect_timeout": 10},
+    )
 
 
 # Created once per process at import time. Settings are already

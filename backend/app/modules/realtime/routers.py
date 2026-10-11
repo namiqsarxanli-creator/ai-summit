@@ -32,7 +32,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 from starlette.concurrency import run_in_threadpool
 
-from app.core.errors import DomainError
+from app.core.errors import DomainError, RateLimitedError
 from app.core.sessions import SESSION_COOKIE_NAME
 from app.modules.attendees.models import User
 from app.modules.realtime import service as realtime_service
@@ -48,7 +48,18 @@ def _current_attendee_for_stream(request: Request) -> User:
     a short-lived session instead of the pooled request-scoped one.
     Never accepts a client-supplied identity: the only input is the
     HttpOnly session cookie, exactly like every other attendee route."""
-    return resolve_attendee_for_stream(request.cookies.get(SESSION_COOKIE_NAME))
+    attendee = resolve_attendee_for_stream(request.cookies.get(SESSION_COOKIE_NAME))
+    # Each open stream holds a socket and a task on the single worker for up to
+    # 30 minutes and re-validates its session every heartbeat, so one account
+    # may not open them without bound. Refused BEFORE the response starts: the
+    # browser treats a refused EventSource as final and the client falls back to
+    # polling. Checked, then subscribed: a race can overshoot by a few, no more.
+    if (
+        event_bus.subscriber_count(attendee.id) >= realtime_service.MAX_STREAMS_PER_ATTENDEE
+        or event_bus.total_subscribers() >= realtime_service.MAX_STREAMS_TOTAL
+    ):
+        raise RateLimitedError(realtime_service.HEARTBEAT_SECONDS)
+    return attendee
 
 
 CurrentAttendeeForStream = Annotated[User, Depends(_current_attendee_for_stream)]

@@ -104,7 +104,14 @@ def test_profile_returns_registration_data_interests_and_consent(
             {"slug": "generative-ai", "name": "Generative AI"},
             {"slug": "data-analytics", "name": "Data Analytics"},
         ],
+        # Added with profile editing: what an edit must send back, the consent's
+        # time and wording (None while withheld), and the photo (None until set).
+        "sponsor_consent_at": body["sponsor_consent_at"],
+        "sponsor_consent_version": "registration-v1",
+        "version": 1,
+        "photo": None,
     }
+    assert body["sponsor_consent_at"] is not None
 
 
 def test_profile_reflects_consent_false_and_no_linkedin(
@@ -132,7 +139,11 @@ def test_profile_never_includes_internal_ids_or_session_data(
         "profession",
         "linkedin_url",
         "sponsor_consent",
+        "sponsor_consent_at",
+        "sponsor_consent_version",
         "interests",
+        "version",
+        "photo",
     }
 
 

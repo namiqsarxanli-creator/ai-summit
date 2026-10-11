@@ -1,0 +1,156 @@
+# FACEMARK production reverse proxy (Caddy).
+#
+# One public origin, https://{$DOMAIN}:
+#   /api/*  -> backend  (REST + the SSE stream; same origin, so SameSite=Lax
+#                        session cookies keep working - ARCHITECTURE.md 3.2)
+#   others  -> frontend (Next.js)
+# Routing /api/* straight to the backend removes one hop that could buffer
+# or time out the realtime stream (ARCHITECTURE.md 17.9). The Next.js
+# rewrite in next.config.ts therefore sits unused in production.
+#
+# TLS: Caddy obtains and renews a Let's Encrypt certificate for {$DOMAIN}
+# automatically (ports 80 and 443 must be reachable from the internet and
+# the domain's DNS must point at this server). Certificates live in the
+# caddy_data volume - keep it.
+#
+# Forwarding headers: this proxy is the only thing exposed to clients and
+# trusts no upstream proxy, so Caddy REPLACES any X-Forwarded-For /
+# X-Forwarded-Proto / X-Forwarded-Host a client sends with the real values.
+# The backend only believes X-Forwarded-For from this proxy's fixed address
+# (TRUSTED_PROXY_CIDRS) - see docker-compose.prod.yml.
+{
+	email {$ACME_EMAIL}
+	# Empty in production. Smoke tests set it to `local_certs` to use
+	# Caddy's own CA instead of Let's Encrypt.
+	{$CADDY_GLOBAL_OPTIONS:}
+
+	servers {
+		timeouts {
+			read_header 10s
+			idle 2m
+			# `write` stays unset on purpose: a write timeout would cut
+			# the long-lived SSE response.
+		}
+	}
+
+	# Runtime/error log. Two kinds of capability travel in the URL, so every log
+	# line masks them (ARCHITECTURE.md 21.11):
+	#   - a card link's token, in the PATH   (/c/<token>, /api/cards/<token>)
+	#   - a CSV export's one-time ticket, in the QUERY (?ticket=<ticket>),
+	#     wherever it sits among the parameters and however its name, the `=`
+	#     or the `?`/`&` before it is percent-encoded (%74icket, %54%49...,
+	#     ticket%3D..., or the whole link nested in another parameter's value).
+	#   - the WHOLE query string, whatever it holds: the admin screens search with
+	#     GET parameters (?q=<name, e-mail or phone>, ?email=<address>), which are
+	#     personal data. The line keeps the path and shows `?***`.
+	# A log filter takes ONE expression per field, so all three are alternatives
+	# of the single expression below, tried in this order at each position:
+	# card token (only at the start of the path), then the query (from the first
+	# literal `?`), then the encoded-ticket forms that can sit in a path.
+	# `$1$2$3***` keeps the prefix that matched (`/c/`, `?`, or `?ticket=`) and
+	# replaces what follows it.
+	log {
+		output stderr
+		format filter {
+			wrap json
+			fields {
+				request>uri regexp (?i)^(/c/|/api/cards/)[^/?#]+|(\?)[^#]*|((?:[?&]|%(?:25)*(?:3f|26))(?:t|%[57]4)(?:i|%[46]9)(?:c|%[46]3)(?:k|%[46]b)(?:e|%[46]5)(?:t|%[57]4)(?:=|%(?:25)*3d))[^&#]* $1$2$3***
+				request>headers>Cookie delete
+				request>headers>Authorization delete
+				resp_headers>Set-Cookie delete
+			}
+		}
+	}
+}
+
+# The backend upstream, shared by every /api route below.
+(backend_proxy) {
+	reverse_proxy {$BACKEND_UPSTREAM:backend:8000} {
+		# Nothing but the X-Forwarded-For Caddy itself wrote is meaningful
+		# to the backend; drop the other client-controllable variants.
+		header_up -X-Real-IP
+		header_up -Forwarded
+		# Deliver SSE frames (ready / heartbeat / events) the moment the
+		# backend writes them instead of buffering.
+		flush_interval -1
+		transport http {
+			dial_timeout 5s
+			# A photo upload is read and re-encoded before the response starts.
+			response_header_timeout 30s
+			# Shorter than uvicorn's --timeout-keep-alive 75.
+			keepalive 30s
+		}
+	}
+}
+
+{$DOMAIN} {
+	# Access log - same masking as above. Deliberately no request bodies.
+	log {
+		output stderr
+		format filter {
+			wrap json
+			fields {
+				request>uri regexp (?i)^(/c/|/api/cards/)[^/?#]+|(\?)[^#]*|((?:[?&]|%(?:25)*(?:3f|26))(?:t|%[57]4)(?:i|%[46]9)(?:c|%[46]3)(?:k|%[46]b)(?:e|%[46]5)(?:t|%[57]4)(?:=|%(?:25)*3d))[^&#]* $1$2$3***
+				request>headers>Cookie delete
+				request>headers>Authorization delete
+				resp_headers>Set-Cookie delete
+			}
+		}
+	}
+
+	header {
+		Strict-Transport-Security "max-age=15552000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Permissions-Policy "camera=(self), microphone=(), geolocation=()"
+		# Only if the application did not set its own (card pages send
+		# `no-referrer`, which must win - ARCHITECTURE.md 21.11).
+		?Referrer-Policy "strict-origin-when-cross-origin"
+		# No unsafe-eval (ARCHITECTURE.md 21.12). Inline script/style are
+		# needed by the Next.js runtime.
+		?Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; font-src 'self' data:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+		-Server
+	}
+
+	# Request bodies are capped PER ROUTE, never once for the whole site: Caddy
+	# stacks `request_body` limits, so a site-wide 1MB would also cap the photo
+	# upload below. 1MB is generous for every JSON endpoint.
+	#
+	# The one exception: the attendee's profile photo, sent as the raw image
+	# (backend MEDIA_MAX_UPLOAD_BYTES, default 8 MiB). 9MB leaves a little headroom
+	# so the application's own limit - which answers with the documented
+	# PHOTO_TOO_LARGE error - is the one a person normally meets; anything bigger
+	# is cut here before it reaches the backend. This block must stay FIRST.
+	@photo_upload {
+		method PUT
+		path /api/attendees/me/photo
+	}
+	handle @photo_upload {
+		request_body {
+			max_size 9MB
+		}
+		import backend_proxy
+	}
+
+	handle /api/* {
+		request_body {
+			max_size 1MB
+		}
+		import backend_proxy
+	}
+
+	handle {
+		request_body {
+			max_size 1MB
+		}
+		reverse_proxy {$FRONTEND_UPSTREAM:frontend:3000} {
+			header_up -X-Real-IP
+			header_up -Forwarded
+			transport http {
+				dial_timeout 5s
+				response_header_timeout 30s
+				keepalive 30s
+			}
+		}
+	}
+}

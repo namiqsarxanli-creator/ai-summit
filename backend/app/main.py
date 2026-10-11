@@ -32,7 +32,8 @@ from sqlalchemy.exc import OperationalError
 from app.core.config import get_settings
 from app.core.csrf import OriginAssertionMiddleware
 from app.core.errors import DomainError, MaintenanceError, RateLimitedError, error_envelope
-from app.core.privacy import CardPrivacyHeadersMiddleware, install_card_token_log_filter
+from app.core.media import get_store
+from app.core.privacy import CardPrivacyHeadersMiddleware, install_log_masking
 from app.db import all_models  # noqa: F401 — full metadata, or cross-module FKs fail at flush
 from app.db.session import database_is_reachable
 from app.modules.admin.routers import router as admin_router
@@ -44,6 +45,7 @@ from app.modules.feedback.routers import router as feedback_router
 from app.modules.interests.routers import router as interests_router
 from app.modules.leaderboard.routers import router as leaderboard_router
 from app.modules.matching.routers import router as matching_router
+from app.modules.media.routers import router as media_router
 from app.modules.points.routers import router as points_router
 from app.modules.realtime.broker import event_bus
 from app.modules.realtime.listener import run_reset_listener
@@ -79,6 +81,33 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+# Liveness and readiness are different questions, so they are different routes.
+#
+#   /api/health/live   is this PROCESS able to answer at all? Never touches the
+#                      database, so a database outage cannot make a watchdog
+#                      restart a backend that restarting would not fix.
+#   /api/health/ready  may traffic be sent here? True only while the database
+#                      answers. (`/api/health` above is the same check; it keeps
+#                      its locked M01 contract and the Docker healthcheck.)
+#
+# Both are public, so both say only up/down: no versions, hosts, counts, error
+# text. The operator's detail is `python -m app.cli ops-check` (a shell on the
+# server), never an HTTP route.
+_NO_STORE = {"Cache-Control": "no-store"}
+
+
+@api_router.get("/health/live")
+def health_live() -> JSONResponse:
+    return JSONResponse({"status": "ok"}, headers=_NO_STORE)
+
+
+@api_router.get("/health/ready")
+def health_ready() -> JSONResponse:
+    if not database_is_reachable():
+        return JSONResponse({"status": "unavailable"}, status_code=503, headers=_NO_STORE)
+    return JSONResponse({"status": "ok"}, headers=_NO_STORE)
+
+
 def _register_exception_handlers(app: FastAPI) -> None:
     """ARCHITECTURE.md §20: one JSON envelope for every failure, three
     handlers wide enough to cover it. Introduced with the first
@@ -88,7 +117,7 @@ def _register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(DomainError)
     async def _domain_error_handler(request: Request, exc: DomainError) -> JSONResponse:
-        body = error_envelope(exc.code, str(exc))
+        body = error_envelope(exc.code, str(exc), details=exc.details)
         if exc.status_code >= 500:
             logger.error(
                 "Unhandled domain error %s on %s", exc.code, request.url.path, exc_info=exc
@@ -154,19 +183,16 @@ def _configure_logging(demo_mode: bool) -> None:
     written at DEBUG and that one logger is opened to DEBUG only in
     DEMO_MODE, which config already forbids in production.
 
-    Card tokens are masked (§21.11) on uvicorn's access and error
-    loggers, where request paths are recorded, and on the app handler,
-    whose error lines name the request path."""
+    Card tokens and CSV export tickets are masked (§21.11) on every
+    logger that can print a request URL and on each of their handlers
+    (see app/core/privacy.py: `install_log_masking`)."""
     app_logger = logging.getLogger("app")
     if not app_logger.handlers:
         handler = logging.StreamHandler()
         handler.setFormatter(logging.Formatter("%(levelname)s:     %(name)s - %(message)s"))
         app_logger.addHandler(handler)
     app_logger.setLevel(logging.INFO)
-    for app_handler in app_logger.handlers:
-        install_card_token_log_filter(app_handler)
-    install_card_token_log_filter(logging.getLogger("uvicorn.access"))
-    install_card_token_log_filter(logging.getLogger("uvicorn.error"))
+    install_log_masking()
     logging.getLogger("app.modules.auth.otp_delivery").setLevel(
         logging.DEBUG if demo_mode else logging.INFO
     )
@@ -193,6 +219,14 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     """
     event_bus.bind_loop(asyncio.get_running_loop())
     settings = get_settings()
+    # Not fatal (everything but photo uploads works without it), but an operator
+    # should learn at start-up, not from an attendee, that the volume is missing,
+    # read-only or has the wrong owner.
+    if not get_store().check_writable():
+        logger.warning(
+            "MEDIA_ROOT is not writable: profile photo uploads will answer "
+            "503 PHOTO_STORAGE_UNAVAILABLE until the media volume is fixed"
+        )
     listener_task = asyncio.create_task(run_reset_listener(settings.database_url, event_bus))
     try:
         yield
@@ -215,6 +249,7 @@ def create_app() -> FastAPI:
         # the production OpenAPI schema is the same principle applied
         # more broadly — least exposure by default).
         docs_url="/docs" if not settings.is_production else None,
+        openapi_url="/openapi.json" if not settings.is_production else None,
         redoc_url=None,
         lifespan=_lifespan,
     )
@@ -239,6 +274,7 @@ def create_app() -> FastAPI:
     app.include_router(interests_router, prefix="/api")
     app.include_router(leaderboard_router, prefix="/api")
     app.include_router(matching_router, prefix="/api")
+    app.include_router(media_router, prefix="/api")
     app.include_router(points_router, prefix="/api")
     app.include_router(realtime_router, prefix="/api")
     app.include_router(staff_router, prefix="/api")

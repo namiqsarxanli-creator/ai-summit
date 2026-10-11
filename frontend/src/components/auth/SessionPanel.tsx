@@ -6,7 +6,7 @@ import { HomeIcon } from "@/components/ui/HomeIcons";
 import { useEffect, useState } from "react";
 
 import { messageFor } from "@/lib/errors";
-import { fetchSession, logout, type SessionState } from "@/lib/session";
+import { fetchSession, type SessionState } from "@/lib/session";
 
 // M08 gives the signed-in attendee a proper tab bar (Home · Booths ·
 // My QR · Leaderboard · Profile — see AttendeeTabBar, rendered by
@@ -19,9 +19,6 @@ import { fetchSession, logout, type SessionState } from "@/lib/session";
 export function SessionPanel() {
   const { t } = useLanguage();
   const [state, setState] = useState<SessionState>({ kind: "loading" });
-  const [signingOut, setSigningOut] = useState(false);
-  const [logoutError, setLogoutError] = useState<string | null>(null);
-
   useEffect(() => {
     let cancelled = false;
     fetchSession().then((next) => {
@@ -31,20 +28,6 @@ export function SessionPanel() {
       cancelled = true;
     };
   }, []);
-
-  async function onSignOut() {
-    setSigningOut(true);
-    setLogoutError(null);
-    const result = await logout();
-    if (result.ok) {
-      // Ask the server rather than assume: the session is revoked
-      // server-side, so this must now come back signed-out.
-      setState(await fetchSession());
-    } else {
-      setLogoutError(t(messageFor(result.error.code)));
-    }
-    setSigningOut(false);
-  }
 
   if (state.kind === "loading") {
     return <p role="status" className="fm-note">{t("Checking your session…")}</p>;
@@ -61,15 +44,6 @@ export function SessionPanel() {
           <p className="fm-session-name">{attendee.first_name} {attendee.last_name}</p>
           <p className="fm-session-profession">{attendee.profession}</p>
         </div>
-        <button
-          type="button"
-          onClick={onSignOut}
-          disabled={signingOut}
-          className="fm-btn fm-btn-quiet"
-        >
-          {signingOut ? t("Signing out…") : t("Sign out")}
-        </button>
-        {logoutError && <p role="alert" className="fm-error" style={{ width: "100%" }}>{logoutError}</p>}
       </section>
     );
   }
@@ -86,6 +60,7 @@ export function SessionPanel() {
       <Link href="/login" className="fm-btn fm-btn-secondary fm-btn-block">
         {t("Already registered? Sign in")}
       </Link>
+      {state.kind === "signed-out" && <Link href="/staff/login" className="fm-staff-entry">{t("Staff sign in")} <span aria-hidden="true">→</span></Link>}
     </div>
   );
 }

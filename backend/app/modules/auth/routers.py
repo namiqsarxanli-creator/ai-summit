@@ -11,7 +11,9 @@ database outside it.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Response
+from typing import Annotated
+
+from fastapi import APIRouter, Cookie, Response
 
 from app.core.deps import ClientIp, SessionToken
 from app.core.errors import OtpInvalidError
@@ -22,7 +24,13 @@ from app.core.ratelimit import (
     OTP_VERIFY_PER_IP,
     limiter,
 )
-from app.core.sessions import clear_session_cookie, revoke_session, set_session_cookie
+from app.core.sessions import (
+    REGISTRATION_INTENT_COOKIE_NAME,
+    clear_registration_intent_cookie,
+    clear_session_cookie,
+    revoke_session,
+    set_session_cookie,
+)
 from app.db.session import DbSession, mutating_transaction
 from app.modules.attendees.service import verify_otp
 from app.modules.auth.otp_delivery import deliver_otp
@@ -44,11 +52,11 @@ def otp_request(payload: OtpRequestRequest, db: DbSession, ip: ClientIp) -> OtpR
     per-email limit applies whether or not the address is registered,
     so the throttle itself is no membership oracle."""
     email = payload.email.strip().lower()
-    limiter.check([(OTP_REQUEST_PER_EMAIL, email), (OTP_REQUEST_PER_IP, ip)])
+    limiter.check([(OTP_REQUEST_PER_IP, ip), (OTP_REQUEST_PER_EMAIL, email)])
     maintenance_fast_path_check(db)
 
     with mutating_transaction(db) as tx:
-        delivery = request_otp(tx, email)
+        delivery = request_otp(tx, email, payload.language)
 
     if delivery is not None:
         deliver_otp(delivery)
@@ -58,7 +66,13 @@ def otp_request(payload: OtpRequestRequest, db: DbSession, ip: ClientIp) -> OtpR
 
 @router.post("/otp/verify", response_model=OtpVerifyResponse)
 def otp_verify(
-    payload: OtpVerifyRequest, response: Response, db: DbSession, ip: ClientIp
+    payload: OtpVerifyRequest,
+    response: Response,
+    db: DbSession,
+    ip: ClientIp,
+    registration_intent: Annotated[
+        str | None, Cookie(alias=REGISTRATION_INTENT_COOKIE_NAME, max_length=200)
+    ] = None,
 ) -> OtpVerifyResponse:
     """Completes activation (PROVISIONAL, §8.1 Step 3) or login
     (ACTIVE, M05) — the server picks which from the attendee's state.
@@ -66,11 +80,17 @@ def otp_verify(
     failure becomes the client-visible OTP_INVALID only AFTER the
     transaction has committed."""
     email = payload.email.strip().lower()
-    limiter.check([(OTP_VERIFY_PER_EMAIL, email), (OTP_VERIFY_PER_IP, ip)])
+    limiter.check([(OTP_VERIFY_PER_IP, ip), (OTP_VERIFY_PER_EMAIL, email)])
     maintenance_fast_path_check(db)
 
     with mutating_transaction(db) as tx:
-        outcome = verify_otp(tx, email=email, code=payload.code)
+        outcome = verify_otp(
+            tx,
+            email=email,
+            code=payload.code,
+            remember_device=payload.remember_device,
+            registration_intent=registration_intent,
+        )
 
     if not outcome.ok:
         raise OtpInvalidError(
@@ -78,7 +98,9 @@ def otp_verify(
         )
 
     assert outcome.session_token is not None  # ok=True always carries one
-    set_session_cookie(response, outcome.session_token)
+    set_session_cookie(response, outcome.session_token, remember_device=payload.remember_device)
+    if registration_intent is not None:
+        clear_registration_intent_cookie(response)
     return OtpVerifyResponse()
 
 

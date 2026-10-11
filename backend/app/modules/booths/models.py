@@ -70,11 +70,27 @@ class BoothInterest(Base):
 
 
 class Task(IdentityPKMixin, Base):
-    """A descriptive activity at a booth — ARCHITECTURE.md §7.9.
+    """An activity at a booth - ARCHITECTURE.md §7.9, extended.
 
-    "It is descriptive, not the authorization object — the staff flow
-    in §13 awards points without selecting a task, so
-    points_log.task_id is nullable."
+    Originally "descriptive, not the authorization object": staff
+    awarded booth-level preset values and `points_log.task_id` was
+    nullable. Activities now carry their own award rule, so staff pick
+    the activity after scanning and the SERVER decides the points:
+
+    * `points` - the fixed value one award of this activity is worth.
+      NULL only on activities created before this rule existed; they are
+      shown to attendees as before but cannot be awarded until an admin
+      sets a value (nothing is guessed for them).
+    * `allow_repeat_points` - NULL inherits the booth's
+      `allow_repeat_task_points`, which in turn inherits
+      `event_config.allow_repeat_task_points_default`; True/False
+      overrides both for this activity. Repeat policy is per
+      (attendee, activity).
+
+    Both columns are `deferred`: code that only needs the descriptive
+    fields (attendee booth pages, for instance) never selects them, so it
+    keeps working against a database that has not yet been migrated to
+    0009. Code that needs them undefers explicitly.
     """
 
     __tablename__ = "tasks"
@@ -86,8 +102,11 @@ class Task(IdentityPKMixin, Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    points: Mapped[int | None] = mapped_column(Integer, nullable=True, deferred=True)
+    allow_repeat_points: Mapped[bool | None] = mapped_column(Boolean, nullable=True, deferred=True)
 
     __table_args__ = (
+        CheckConstraint("points IS NULL OR (points > 0 AND points <= 100)", name="points_range"),
         # Exists SOLELY so points_log can declare the composite FK
         # (task_id, booth_id) -> tasks (id, booth_id) — ARCHITECTURE.md
         # §7.12: "Without it, a row could reference a task belonging to

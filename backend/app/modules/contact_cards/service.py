@@ -17,6 +17,8 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.errors import InvalidQrError
+from app.core.images import LARGE
+from app.core.media import avatar_url
 from app.core.urls import is_linkedin_url
 from app.modules.attendees.models import User, UserInterest, UserStatus
 from app.modules.contact_cards.models import ContactCard
@@ -75,6 +77,9 @@ def _public_card_for(db: Session, user: User) -> PublicCard:
         profession=user.profession,
         interests=[CardInterest(slug=slug, name=name) for slug, name in interests],
         contact=contact_action_for(linkedin_url=user.linkedin_url, email=user.email),
+        # Public by design: it is what the person chose to show on their card and on
+        # the leaderboard. Read off the row already loaded - no extra query.
+        photo_url=avatar_url(user.photo_key, LARGE),
     )
 
 

@@ -120,7 +120,27 @@ class AdminAudit(IdentityPKMixin, Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
+    # The audit view (admin/audit.py) lists `(created_at DESC, id DESC)` and
+    # filters by actor, action or target: each filter's index ends in that order.
     __table_args__ = (
-        Index("ix_admin_audit_created_at", text("created_at DESC")),
-        Index("ix_admin_audit_staff_account_id", "staff_account_id"),
+        Index("ix_admin_audit_created_at_id", text("created_at DESC"), text("id DESC")),
+        Index(
+            "ix_admin_audit_actor_created_at_id",
+            "staff_account_id",
+            text("created_at DESC"),
+            text("id DESC"),
+        ),
+        Index(
+            "ix_admin_audit_action_created_at_id",
+            "action",
+            text("created_at DESC"),
+            text("id DESC"),
+        ),
+        Index(
+            "ix_admin_audit_target_created_at_id",
+            "target_type",
+            "target_id",
+            text("created_at DESC"),
+            text("id DESC"),
+        ),
     )

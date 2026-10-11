@@ -24,6 +24,7 @@ export function VerifyForm() {
   const [emailOverride, setEmailOverride] = useState<string | null>(null);
   const email = emailOverride ?? storedEmail;
 
+  const [remember, setRemember] = useState(false);
   const [code, setCode] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
@@ -71,6 +72,7 @@ export function VerifyForm() {
     const result = await apiPost<{ status: string }>("/api/auth/otp/verify", {
       email: email.trim(),
       code,
+      ...(remember ? { remember_device: true } : {}),
     });
     inFlight.current = false;
     setSubmitting(false);
@@ -138,6 +140,7 @@ export function VerifyForm() {
         className="fm-input-code"
       />
 
+      <label className="fm-remember"><input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} />{t("Remember me on this device for 30 days")}</label>
       {notice && (
         <p role="status" className="fm-alert fm-alert-info">
           {t(notice)}

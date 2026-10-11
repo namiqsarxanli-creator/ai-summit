@@ -256,7 +256,7 @@ def test_all_catalogue_mutations_audit_without_touching_points(
         ("PATCH", f"interests/{interest_id}", {"name": "Updated interest"}),
         ("PATCH", f"booths/{booth_id}", {"name": "Updated booth"}),
         ("PUT", f"booths/{booth_id}/weights/{interest_id}", {"weight": "0.75"}),
-        ("POST", "tasks", {"booth_id": booth_id, "title": "M16 Task"}),
+        ("POST", "tasks", {"booth_id": booth_id, "title": "M16 Task", "points": 8}),
         ("POST", "presets", {"booth_id": booth_id, "points": 17}),
         ("POST", "presets", {"booth_id": None, "points": 19}),
         ("PATCH", "event-config", {"leaderboard_top_n": 11}),

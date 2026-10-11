@@ -15,7 +15,7 @@ export default async function BoothDetailPage({
     <main id="main-content" className="fm-page">
       <div className="fm-page-header">
         <div className="fm-page-topline">
-          <Link href="/booths" className="fm-back"><span aria-hidden="true">‹</span><T id="Back to booths" /></Link>
+          <span />
           <Link href="/" className="fm-wordmark">AI Summit</Link>
         </div>
       </div>

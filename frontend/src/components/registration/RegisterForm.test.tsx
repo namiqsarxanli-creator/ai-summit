@@ -47,7 +47,7 @@ afterEach(() => {
 function fillValidForm() {
   fireEvent.change(screen.getByLabelText("First name"), { target: { value: "Grace" } });
   fireEvent.change(screen.getByLabelText("Last name"), { target: { value: "Hopper" } });
-  fireEvent.change(screen.getByLabelText("Work email"), {
+  fireEvent.change(screen.getByLabelText("Email"), {
     target: { value: "grace@summit.example.org" },
   });
   fireEvent.change(screen.getByLabelText("Phone"), { target: { value: "+1-555-0142" } });

@@ -658,6 +658,7 @@ def test_leaderboard_dto_never_exposes_pii_fields(rig: Rig) -> None:
         "profession",
         "total_points",
         "rank",
+        "photo_url",  # the profile photo's URL (small rendition) or None - no private field
     }
 
 

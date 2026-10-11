@@ -27,12 +27,17 @@ from app.core.deps import (
 from app.core.errors import (
     AccountLockedError,
     InvalidCredentialsError,
+    OtpInvalidError,
     UnexpectedConstraintViolationError,
 )
 from app.core.ratelimit import (
     SCAN_RESOLVE_PER_STAFF,
     STAFF_LOGIN_PER_EMAIL,
     STAFF_LOGIN_PER_IP,
+    STAFF_RESET_CONFIRM_PER_EMAIL,
+    STAFF_RESET_CONFIRM_PER_IP,
+    STAFF_RESET_REQUEST_PER_EMAIL,
+    STAFF_RESET_REQUEST_PER_IP,
     limiter,
 )
 from app.core.sessions import clear_session_cookie, revoke_session, set_session_cookie
@@ -40,15 +45,25 @@ from app.db.session import DbSession, mutating_transaction
 from app.modules.booths.models import Booth
 from app.modules.contact_cards.service import resolve_card_identity
 from app.modules.points.service import maintenance_fast_path_check
+from app.modules.staff import password as staff_password
 from app.modules.staff.scan_ref import issue_scan_ref
 from app.modules.staff.schemas import (
     PresetOut,
     ScanResolveRequest,
     StaffLoginRequest,
     StaffMe,
+    StaffPasswordChange,
+    StaffPasswordResetConfirm,
+    StaffPasswordResetRequest,
+    StaffPasswordResetRequestResponse,
     StaffScanResult,
+    StaffTaskOut,
 )
-from app.modules.staff.service import login_staff, resolved_presets_for_booth
+from app.modules.staff.service import (
+    awardable_tasks_for_booth,
+    login_staff,
+    resolved_presets_for_booth,
+)
 
 router = APIRouter(prefix="/staff", tags=["staff"])
 
@@ -67,7 +82,7 @@ def login(payload: StaffLoginRequest, response: Response, db: DbSession, ip: Cli
     (§21.7) — so the rate limiter itself cannot be used as an oracle.
     """
     email = payload.email.strip().lower()
-    limiter.check([(STAFF_LOGIN_PER_EMAIL, email), (STAFF_LOGIN_PER_IP, ip)])
+    limiter.check([(STAFF_LOGIN_PER_IP, ip), (STAFF_LOGIN_PER_EMAIL, email)])
     maintenance_fast_path_check(db)
 
     with mutating_transaction(db) as tx:
@@ -80,6 +95,60 @@ def login(payload: StaffLoginRequest, response: Response, db: DbSession, ip: Cli
 
     assert outcome.session_token is not None  # ok=True always carries one
     set_session_cookie(response, outcome.session_token)
+
+
+@router.post("/auth/password", status_code=204)
+def change_password(
+    payload: StaffPasswordChange, response: Response, db: DbSession, token: SessionToken
+) -> None:
+    """A signed-in staff member or administrator sets a new password, proving
+    the current one. On success EVERY session of the account ends (this one too)
+    and the cookie is cleared: sign in again. A wrong current password counts
+    like a wrong login (same lockout) and is only reported after its counter has
+    been committed."""
+    maintenance_fast_path_check(db)
+    with mutating_transaction(db) as tx:
+        outcome = staff_password.change_password(
+            tx,
+            raw_session_token=token,
+            current_password=payload.current_password,
+            new_password=payload.new_password,
+        )
+    staff_password.raise_for_failed_change(outcome)
+    clear_session_cookie(response)
+
+
+@router.post("/auth/password-reset/request", response_model=StaffPasswordResetRequestResponse)
+def request_password_reset(
+    payload: StaffPasswordResetRequest, db: DbSession, ip: ClientIp
+) -> StaffPasswordResetRequestResponse:
+    """ "I forgot my password." The same answer whether or not the address is a
+    staff account; limited per submitted address (known or not) and per IP. The
+    code goes out through the email outbox, to the account's own address."""
+    email = payload.email.strip().lower()
+    limiter.check([(STAFF_RESET_REQUEST_PER_IP, ip), (STAFF_RESET_REQUEST_PER_EMAIL, email)])
+    maintenance_fast_path_check(db)
+    with mutating_transaction(db) as tx:
+        staff_password.request_reset(tx, email=email, language=payload.language)
+    return StaffPasswordResetRequestResponse()
+
+
+@router.post("/auth/password-reset/confirm", status_code=204)
+def confirm_password_reset(payload: StaffPasswordResetConfirm, db: DbSession, ip: ClientIp) -> None:
+    """The emailed code and the new password. One error for every way it can
+    fail (unknown address, deactivated account, no/expired/used/exhausted code,
+    wrong code). On success every session ends and NONE is created: sign in."""
+    email = payload.email.strip().lower()
+    limiter.check([(STAFF_RESET_CONFIRM_PER_IP, ip), (STAFF_RESET_CONFIRM_PER_EMAIL, email)])
+    maintenance_fast_path_check(db)
+    with mutating_transaction(db) as tx:
+        outcome = staff_password.confirm_reset(
+            tx, email=email, code=payload.code, new_password=payload.new_password
+        )
+    if not outcome.ok:
+        raise OtpInvalidError(
+            "This code is invalid, expired, already used, or has too many failed attempts."
+        )
 
 
 @router.post("/auth/logout", status_code=204)
@@ -121,6 +190,16 @@ def points_presets(staff: CurrentBoothStaff, db: DbSession) -> list[PresetOut]:
         raise UnexpectedConstraintViolationError("booth staff account has no booth_id")
     presets = resolved_presets_for_booth(db, staff.booth_id)
     return [PresetOut(points=p.points, label=p.label) for p in presets]
+
+
+@router.get("/tasks", response_model=list[StaffTaskOut])
+def booth_tasks(staff: CurrentBoothStaff, db: DbSession) -> list[StaffTaskOut]:
+    """The activities the signed-in staff member can award, for THEIR OWN
+    booth only (derived from the session; there is no booth parameter).
+    Admins are rejected by `CurrentBoothStaff`: they cannot award."""
+    if staff.booth_id is None:
+        raise UnexpectedConstraintViolationError("booth staff account has no booth_id")
+    return [StaffTaskOut(**row) for row in awardable_tasks_for_booth(db, staff.booth_id)]
 
 
 @router.post("/scan/resolve", response_model=StaffScanResult)

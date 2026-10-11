@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.locks import FACEMARK_RESET_FENCE
 from app.db.session import SessionLocal, mutating_transaction
+from tests.m04_support import ADVISORY_LOCKS_HERE
 
 _PSYCOPG_URL = get_settings().database_url.replace("postgresql+psycopg://", "postgresql://")
 
@@ -82,7 +83,7 @@ def test_fence_is_the_first_statement(db: Session) -> None:
         # at this point, so "a granted shared advisory lock exists at
         # all" is already a specific, meaningful assertion here.
         cur.execute(
-            "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' "
+            f"SELECT count(*) FROM pg_locks WHERE {ADVISORY_LOCKS_HERE} "
             "AND mode = 'ShareLock' AND granted"
         )
         (count,) = cur.fetchone()  # type: ignore[misc]

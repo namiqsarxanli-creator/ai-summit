@@ -42,6 +42,8 @@ class PublicCard(_Strict):
     profession: str
     interests: list[CardInterest]
     contact: ContactAction
+    # The attendee's profile photo, or None (the screen then shows the robot).
+    photo_url: str | None = None
 
 
 class CardIdentity(_Strict):

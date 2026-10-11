@@ -1,6 +1,6 @@
 // Static shell only. Authenticated pages, /api and snapshot data are never cached.
-const CACHE = "facemark-shell-v5";
-const SHELL = ["/offline.html", "/offline-qr.js", "/summit-network.webp", "/summit-original-concept.png", "/aiworks-logo.png", "/app-icon-192.png", "/app-icon-512.png", "/apple-touch-icon.png", "/favicon.ico"];
+const CACHE = "facemark-shell-v6";
+const SHELL = ["/offline.html", "/offline-qr.js", "/summit-hero-clean.png", "/aiworks-logo.png", "/app-icon-192.png", "/app-icon-512.png", "/apple-touch-icon.png", "/favicon.ico"];
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)).then(() => self.skipWaiting()));
 });

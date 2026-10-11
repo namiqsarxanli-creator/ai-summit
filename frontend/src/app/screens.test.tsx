@@ -85,7 +85,9 @@ describe("every attendee and staff screen", () => {
     "%s shows the shared page header with a way back and the AI Summit name",
     async (_name, make) => {
       render(await make());
-      expect(screen.getByRole("link", { name: "Back" })).toBeInTheDocument();
+      if (["booths", "my card", "leaderboard", "profile"].includes(_name)) {
+        expect(screen.queryByRole("link", { name: "Back" })).not.toBeInTheDocument();
+      } else expect(screen.getByRole("link", { name: "Back" })).toBeInTheDocument();
       expect(screen.getByRole("link", { name: "AI Summit" })).toHaveAttribute("href", "/");
     },
   );

@@ -570,6 +570,8 @@ def test_the_mutating_route_inventory_is_what_m16_expects() -> None:
     # unchanged.
     assert _count_mutating_api_routes(app.routes) == len(_mutating_routes())
     baseline = [
+        # The attendee's own profile photo: removal (the upload is the PUT below).
+        ("DELETE", "/api/attendees/me/photo"),
         # M12: attendee feedback submission + automatic reward.
         ("POST", "/api/attendees/feedback"),
         ("POST", "/api/attendees/register"),
@@ -578,11 +580,21 @@ def test_the_mutating_route_inventory_is_what_m16_expects() -> None:
         ("POST", "/api/auth/otp/verify"),
         ("POST", "/api/staff/auth/login"),
         ("POST", "/api/staff/auth/logout"),
+        # Staff passwords: change (signed in) and the emailed reset (public, no oracle).
+        ("POST", "/api/staff/auth/password"),
+        ("POST", "/api/staff/auth/password-reset/confirm"),
+        ("POST", "/api/staff/auth/password-reset/request"),
         # M11: the award mutation itself.
         ("POST", "/api/staff/points/award"),
         # M06: a read, but a POST by definition (§13.1), so it is under
         # the Origin assertion like every other POST.
         ("POST", "/api/staff/scan/resolve"),
+        # The attendee's own profile (ARCHITECTURE.md §8.4): photo upload, details and
+        # interests, and sponsor consent. Each takes the reset fence first and names no
+        # attendee - who is edited is the session's.
+        ("PUT", "/api/attendees/me/photo"),
+        ("PUT", "/api/attendees/me/profile"),
+        ("PUT", "/api/attendees/me/sponsor-consent"),
     ]
     routes = _mutating_routes()
     assert [entry for entry in routes if not entry[1].startswith("/api/admin/")] == baseline
@@ -594,10 +606,18 @@ def test_the_mutating_route_inventory_is_what_m16_expects() -> None:
         ("PATCH", "/api/admin/presets/{preset_id}"),
         ("PATCH", "/api/admin/tasks/{task_id}"),
         ("POST", "/api/admin/booths"),
+        # CSV exports: step 1 of 2 (prepare + one-time ticket); the file itself is a GET.
+        ("POST", "/api/admin/exports/attendees"),
+        ("POST", "/api/admin/exports/points-log"),
+        ("POST", "/api/admin/exports/sponsor-contacts"),
         ("POST", "/api/admin/interests"),
+        # Points reversal: cancels one AWARD in full (administrators only).
+        ("POST", "/api/admin/points-log/{entry_id}/reverse"),
         ("POST", "/api/admin/presets"),
         ("POST", "/api/admin/staff"),
         ("POST", "/api/admin/staff/{staff_id}/deactivate"),
+        # An administrator starts a reset EMAIL for a staff member (no password, no code).
+        ("POST", "/api/admin/staff/{staff_id}/password-reset"),
         ("POST", "/api/admin/tasks"),
         ("PUT", "/api/admin/booths/{booth_id}/weights/{interest_id}"),
     ]
@@ -664,6 +684,9 @@ def test_fourth_otp_request_for_one_email_in_15_minutes_is_refused(
 ) -> None:
     """IMPLEMENTATION_PLAN.md M05 acceptance #2 (second half)."""
     _activate(client, otp_log, unique_email)
+    # Registering counted against the same per-email issuance bucket (it issues
+    # a code too); measure the OTP request limit on its own.
+    limiter.reset()
     for _ in range(3):
         assert client.post(OTP_REQUEST, json={"email": unique_email}).status_code == 200
     fourth = client.post(OTP_REQUEST, json={"email": unique_email.upper()})  # same identity
@@ -676,6 +699,7 @@ def test_otp_request_throttle_is_not_a_membership_oracle(
 ) -> None:
     """Registered and unregistered addresses are throttled identically."""
     _activate(client, otp_log, unique_email)
+    limiter.reset()  # registration shares the issuance bucket; start both from zero
     unknown = new_email()
     known = [client.post(OTP_REQUEST, json={"email": unique_email}).status_code for _ in range(4)]
     ghost = [client.post(OTP_REQUEST, json={"email": unknown}).status_code for _ in range(4)]
@@ -825,3 +849,38 @@ def test_session_near_expiry_is_still_valid(
         h=hash_session_token(token),
     )
     assert _me(client, token).status_code == 200
+
+
+@pytest.mark.parametrize("remember", [False, True])
+def test_remembered_session_lifetime_and_revocation(
+    client: TestClient, unique_email: str, otp_log: pytest.LogCaptureFixture, remember: bool
+) -> None:
+    assert client.post(REGISTER, json=register_payload(unique_email)).status_code == 200
+    response = client.post(
+        VERIFY,
+        json={
+            "email": unique_email,
+            "code": captured_otp(otp_log.records, unique_email),
+            "remember_device": remember,
+        },
+    )
+    assert response.status_code == 200
+    token = response.cookies.get("session")
+    assert token
+    row = _session_row(token)
+    expected = timedelta(days=30) if remember else timedelta(hours=12)
+    assert row.expires_at - row.issued_at == expected
+    cookie = response.headers["set-cookie"]
+    assert f"Max-Age={int(expected.total_seconds())}" in cookie
+    assert "HttpOnly" in cookie and "SameSite=lax" in cookie
+    # Returning with the persisted cookie bypasses OTP but logout still revokes it.
+    assert _me(client, token).status_code == 200
+    assert client.post(LOGOUT, headers={"Cookie": f"session={token}"}).status_code == 204
+    assert _me(client, token).status_code == 401
+
+
+def test_remember_device_requires_a_boolean(client: TestClient) -> None:
+    response = client.post(
+        VERIFY, json={"email": "person@example.com", "code": "123456", "remember_device": "true"}
+    )
+    assert response.status_code == 422

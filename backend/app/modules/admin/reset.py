@@ -62,6 +62,7 @@ _RESET_SENSITIVE_TABLES: tuple[str, ...] = (
     "idempotency_records",
     "feedback",
     "sessions",
+    "otp_deliveries",
     "otp_challenges",
     "consent_audit",
     "user_interests",
@@ -397,14 +398,15 @@ def _reconcile_reference_data(
         for t in b.tasks:
             conn.execute(
                 text(
-                    "INSERT INTO tasks (booth_id, title, description, sort_order) "
-                    "VALUES (:booth_id, :title, :description, :sort_order)"
+                    "INSERT INTO tasks (booth_id, title, description, sort_order, points) "
+                    "VALUES (:booth_id, :title, :description, :sort_order, :points)"
                 ),
                 {
                     "booth_id": booth_ids[b.slug],
                     "title": t.title,
                     "description": t.description,
                     "sort_order": t.sort_order,
+                    "points": t.points,
                 },
             )
     for p in fx.PRESET_POINTS:

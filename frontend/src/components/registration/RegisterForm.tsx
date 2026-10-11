@@ -128,7 +128,7 @@ export function RegisterForm() {
         />
         <TextField
           id="email"
-          label="Work email"
+          label="Email"
           type="email"
           autoComplete="email"
           value={values.email}
