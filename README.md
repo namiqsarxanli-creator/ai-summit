@@ -1,4 +1,4 @@
-# FACEMARK
+# AI Summit
 
 Event networking and gamification platform for an AI Summit demo.
 
