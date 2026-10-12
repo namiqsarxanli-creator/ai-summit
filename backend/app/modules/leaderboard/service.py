@@ -27,6 +27,8 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+import threading
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -36,6 +38,7 @@ from sqlalchemy.engine import Row
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import Subquery
 
+from app.core.config import get_settings
 from app.core.images import SMALL
 from app.core.media import avatar_url
 from app.modules.admin.models import EventConfig
@@ -48,6 +51,7 @@ from app.modules.leaderboard.schemas import (
     ScoreSnapshotResponse,
 )
 from app.modules.points.models import PointsLog
+from app.modules.realtime.broker import event_bus
 
 # §17.4: "the most recent N (default 10)". Fixed — no `event_config`
 # column governs this (M13's own "Database Changes: None"), unlike
@@ -136,14 +140,120 @@ def _dataset_generation(db: Session) -> int:
     )
 
 
+@dataclass(frozen=True)
+class RankingSnapshot:
+    """The whole ACTIVE population, ranked once and shared by every request
+    until the leaderboard may have changed.
+
+    Found by load-testing a production copy: every award broadcasts
+    `leaderboard_changed`, and every open phone then refetches the leaderboard
+    and its score at the same moment. Ranking the full population per request
+    made the single worker CPU-bound with a few hundred phones. Now one request
+    ranks and the rest reuse it. It stays exact for this process: it is built
+    for one `event_bus.leaderboard_version` (bumped by every award, reversal,
+    leaderboard-visible profile change and dataset reset) and is discarded when
+    that moves, and at the latest after `leaderboard_cache_seconds` (for changes
+    another process makes, such as an attendee activating)."""
+
+    version: int
+    built_at: float
+    top_n: int
+    dataset_generation: int
+    entries: tuple[LeaderboardEntry, ...]  # in list order
+    positions: dict[int, LeaderboardEntry]  # user_id -> entry
+
+
+_snapshot: RankingSnapshot | None = None
+_snapshot_lock = threading.Lock()
+
+
+def _fresh(snapshot: RankingSnapshot | None, max_age: float) -> bool:
+    return (
+        snapshot is not None
+        and snapshot.version == event_bus.leaderboard_version
+        and time.monotonic() - snapshot.built_at < max_age
+    )
+
+
+def ranking_snapshot(db: Session) -> RankingSnapshot | None:
+    """The shared ranking, or None when caching is off (then callers query)."""
+    global _snapshot
+    max_age = get_settings().leaderboard_cache_seconds
+    if max_age <= 0:
+        return None
+    current = _snapshot
+    if _fresh(current, max_age):
+        return current
+    with _snapshot_lock:  # one request ranks; the others wait and reuse it
+        current = _snapshot
+        if _fresh(current, max_age):
+            return current
+        built = _build_snapshot(db)
+        _snapshot = built
+        return built
+
+
+def _build_snapshot(db: Session) -> RankingSnapshot:
+    version = event_bus.leaderboard_version  # read BEFORE the query
+    ranked = _ranked()
+    rows = db.execute(
+        select(ranked).order_by(
+            ranked.c.total_points.desc(),
+            ranked.c.last_award_at.asc().nulls_last(),
+            ranked.c.user_id.asc(),
+        )
+    ).all()
+    entries = tuple(_entry(r) for r in rows)
+    return RankingSnapshot(
+        version=version,
+        built_at=time.monotonic(),
+        top_n=top_n_for(db),
+        dataset_generation=_dataset_generation(db),
+        entries=entries,
+        positions={e.user_id: e for e in entries},
+    )
+
+
+def leaderboard_push_payload(db: Session) -> dict[str, object]:
+    """The top-N view as the `leaderboard_changed` event carries it.
+
+    Ranked once per change and pushed to every open stream, so phones no
+    longer all refetch `GET /api/leaderboard` at the same moment. The same
+    rows `GET /api/leaderboard` returns; the caller's own row outside the
+    top N is not in it (the client keeps the one it last fetched until its
+    next reconciliation). `version` lets a client drop an out-of-order push."""
+    snapshot = ranking_snapshot(db) or _build_snapshot(db)
+    return {
+        "entries": [e.model_dump(mode="json") for e in snapshot.entries[: snapshot.top_n]],
+        "dataset_generation": snapshot.dataset_generation,
+        "version": snapshot.version,
+    }
+
+
+def invalidate_ranking_snapshot() -> None:
+    global _snapshot
+    _snapshot = None
+
+
 def leaderboard_top(
-    db: Session, *, attendee: User, top_n: int, as_of: datetime
+    db: Session, *, attendee: User, top_n: int | None = None, as_of: datetime
 ) -> LeaderboardResponse:
     """Default view: top N by list position, plus the caller's own row
     if it falls outside that window — one query, one round trip
     (§16.3: "not a second round trip"), by OR-ing the row-number cutoff
     with the caller's own `user_id` and letting the final `ORDER BY`
     place every returned row correctly."""
+    snapshot = ranking_snapshot(db)
+    if snapshot is not None and attendee.id in snapshot.positions:
+        return LeaderboardResponse(
+            entries=list(snapshot.entries[: snapshot.top_n]),
+            current_user=snapshot.positions[attendee.id],
+            as_of=as_of,
+            dataset_generation=snapshot.dataset_generation,
+            next_cursor=None,
+        )
+    if top_n is None:
+        top_n = top_n_for(db)
     ranked = _ranked()
     rows = db.execute(
         select(ranked)
@@ -278,8 +388,16 @@ def my_score(db: Session, *, attendee: User, as_of: datetime) -> ScoreSnapshotRe
     `CurrentAttendee`, which only ever resolves an ACTIVE session — so
     this row is always present in `_ranked()`'s ACTIVE-only population;
     `.one()` is the correct assertion, not a defensive guess."""
-    ranked = _ranked()
-    row = db.execute(select(ranked).where(ranked.c.user_id == attendee.id)).one()
+    snapshot = ranking_snapshot(db)
+    mine = snapshot.positions.get(attendee.id) if snapshot is not None else None
+    generation: int | None = None
+    if snapshot is not None and mine is not None:
+        total_points, rank = mine.total_points, mine.rank
+        generation = snapshot.dataset_generation
+    else:
+        ranked = _ranked()
+        row = db.execute(select(ranked).where(ranked.c.user_id == attendee.id)).one()
+        total_points, rank = int(row.total_points), int(row.rank)
 
     recent_rows = db.execute(
         select(
@@ -300,8 +418,8 @@ def my_score(db: Session, *, attendee: User, as_of: datetime) -> ScoreSnapshotRe
     ).all()
 
     return ScoreSnapshotResponse(
-        total_points=int(row.total_points),
-        rank=int(row.rank),
+        total_points=total_points,
+        rank=rank,
         recent_awards=[
             RecentAward(
                 id=r.id,
@@ -314,7 +432,7 @@ def my_score(db: Session, *, attendee: User, as_of: datetime) -> ScoreSnapshotRe
             for r in recent_rows
         ],
         as_of=as_of,
-        dataset_generation=_dataset_generation(db),
+        dataset_generation=generation if generation is not None else _dataset_generation(db),
     )
 
 

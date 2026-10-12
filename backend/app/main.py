@@ -29,6 +29,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import OperationalError
 
+from app.core.admission import AdmissionMiddleware
 from app.core.config import get_settings
 from app.core.csrf import OriginAssertionMiddleware
 from app.core.errors import DomainError, MaintenanceError, RateLimitedError, error_envelope
@@ -264,6 +265,9 @@ def create_app() -> FastAPI:
     app.add_middleware(CardPrivacyHeadersMiddleware)
     app.add_middleware(RealtimeStreamHeadersMiddleware)
     app.add_middleware(DatasetGenerationHeaderMiddleware)
+    # Outermost: a request waits for an admission slot BEFORE it takes a worker
+    # thread or a database connection (app/core/admission.py).
+    app.add_middleware(AdmissionMiddleware)
     app.include_router(api_router)
     app.include_router(attendees_router, prefix="/api")
     app.include_router(admin_router, prefix="/api", include_in_schema=not settings.is_production)

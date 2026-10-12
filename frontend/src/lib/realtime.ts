@@ -4,10 +4,13 @@
 // coordinating the authoritative score snapshot (Home/ScoreSummary)
 // and the leaderboard's top-N view while it is mounted.
 //
-// SSE is an invalidation channel ONLY (§17.7): no event payload is
-// ever treated as authoritative state. Every displayed value always
-// comes from a fresh `GET /api/attendees/me/score` or
-// `GET /api/leaderboard` — this file never computes `total += points`.
+// SSE is an invalidation channel (§17.7) with ONE exception: the
+// `leaderboard_changed` event carries the server's freshly ranked top-N
+// view, which is applied as-is (load test, 500 phones on one vCPU: every
+// phone refetching the leaderboard after every award overloaded the
+// single backend worker). The score always comes from a fresh
+// `GET /api/attendees/me/score`, the caller's own row outside the top N
+// from `GET /api/leaderboard` - this file never computes `total += points`.
 //
 // Protocol (§17.4), implemented exactly:
 //   1. Subscribe first, then snapshot — `ready` triggers the first
@@ -17,8 +20,10 @@
 //      new connection, which already triggers this — no separate
 //      reconnect-specific fetch exists here).
 //   4. Visibility regained -> refetch immediately.
-//   5. Every 20s even while connected -> refetch (the correctness
-//      backstop — this is what makes a fully lost signal self-heal).
+//   5. Every ~60s (jittered) even while connected -> refetch (the
+//      correctness backstop — this is what makes a fully lost signal
+//      self-heal). 60s, not 20s, and spread out: 500 phones on a 20s
+//      timer were a load of their own.
 //   6. No frame of any kind for 45s -> treat the stream as dead,
 //      close, reopen, refetch.
 
@@ -32,10 +37,17 @@ import {
 } from "@/lib/leaderboard";
 import { fetchMyScore, type ScoreSnapshot } from "@/lib/score";
 
-const RECONCILE_INTERVAL_MS = 20_000;
+const RECONCILE_INTERVAL_MS = 60_000;
 const DEAD_CONNECTION_MS = 45_000;
 const FALLBACK_AFTER_FAILURES = 3;
-const FALLBACK_POLL_MS = 5_000;
+const FALLBACK_POLL_MS = 20_000;
+// A refetch the server answered with SERVER_BUSY (503) keeps what is on
+// screen and is retried after a random 2-6 s, so a crowd does not retry in step.
+const BUSY_RETRY_MIN_MS = 2_000;
+const BUSY_RETRY_SPREAD_MS = 4_000;
+// When an event comes without a pushed leaderboard, the refetch is spread
+// over this window instead of every phone asking at the same instant.
+const REFETCH_SPREAD_MS = 3_000;
 const FALLBACK_SSE_RETRY_MS = 60_000;
 // EventSource.CLOSED, spelled out so the check does not depend on the global
 // class carrying its static constants.
@@ -102,6 +114,9 @@ class RealtimeStore {
    * to) — on a cold connection it waits for `ready`, same as score,
    * so "subscribe first, then snapshot" holds for both. */
   private readySeen = false;
+  /** The newest pushed leaderboard version applied (drops a late older one). */
+  private lastPushVersion = 0;
+  private spreadTimer: ReturnType<typeof setTimeout> | null = null;
 
   /** Test-only: this store is a module-level singleton, so tests must
    * explicitly return it to a clean slate between cases rather than
@@ -129,6 +144,9 @@ class RealtimeStore {
     this.readySeen = false;
     this.scoreRequestSeq = 0;
     this.leaderboardRequestSeq = 0;
+    this.lastPushVersion = 0;
+    if (this.spreadTimer) clearTimeout(this.spreadTimer);
+    this.spreadTimer = null;
   }
 
   // --- subscription API ---------------------------------------------------
@@ -198,6 +216,9 @@ class RealtimeStore {
       this.resetDeadTimer();
       this.consecutiveFailures = 0;
       this.readySeen = true;
+      // Push versions count per server process: a new connection may be to a
+      // restarted one whose versions start again from 1.
+      this.lastPushVersion = 0;
       this.stopFallback();
       const data = _parse(e);
       if (typeof data.dataset_generation === "number") {
@@ -214,9 +235,10 @@ class RealtimeStore {
       if (this.scoreListeners.size > 0) void this.refetchScore();
     });
 
-    es.addEventListener("leaderboard_changed", () => {
+    es.addEventListener("leaderboard_changed", (e) => {
       this.resetDeadTimer();
-      if (this.leaderboardListeners.size > 0) void this.refetchLeaderboard();
+      if (this.leaderboardListeners.size === 0) return;
+      if (!this.applyLeaderboardPush(_parse(e).leaderboard)) this.spreadRefetchLeaderboard();
     });
 
     es.addEventListener("heartbeat", () => {
@@ -331,10 +353,13 @@ class RealtimeStore {
 
   private startReconciliation(): void {
     if (this.reconcileTimer) return;
+    // A random period per page (48-72 s) so a hall full of phones that all
+    // opened at the keynote do not reconcile in lockstep.
+    const period = RECONCILE_INTERVAL_MS * (0.8 + Math.random() * 0.4);
     this.reconcileTimer = setInterval(() => {
       if (this.scoreListeners.size > 0) void this.refetchScore();
       if (this.leaderboardListeners.size > 0) void this.refetchLeaderboard();
-    }, RECONCILE_INTERVAL_MS);
+    }, period);
   }
 
   private stopReconciliation(): void {
@@ -364,6 +389,10 @@ class RealtimeStore {
     // response (whichever arrives) is authoritative instead. Discard
     // this one unconditionally, even if it happens to be "ok".
     if (seq !== this.scoreRequestSeq) return;
+    if (!result.ok && result.error.code === "SERVER_BUSY" && this.scoreState.status === "ok") {
+      this.retryWhenLessBusy(() => this.refetchScore());
+      return;
+    }
     if (!result.ok) {
       this.setScoreState(
         isSignedOutCode(result.error.code)
@@ -379,6 +408,14 @@ class RealtimeStore {
     const seq = ++this.leaderboardRequestSeq;
     const result = await fetchLeaderboardTop();
     if (seq !== this.leaderboardRequestSeq) return;
+    if (
+      !result.ok &&
+      result.error.code === "SERVER_BUSY" &&
+      this.leaderboardState.status === "ok"
+    ) {
+      this.retryWhenLessBusy(() => this.refetchLeaderboard());
+      return;
+    }
     if (!result.ok) {
       this.setLeaderboardState(
         isSignedOutCode(result.error.code)
@@ -388,6 +425,52 @@ class RealtimeStore {
       return;
     }
     this.setLeaderboardState({ status: "ok", leaderboard: result.data });
+  }
+
+  /** Applies a pushed top-N view; false when there is nothing usable to apply
+   * (no payload, a payload from another dataset, or no leaderboard loaded yet
+   * to keep the caller's own row from), so the caller refetches instead. */
+  private applyLeaderboardPush(pushed: unknown): boolean {
+    if (this.leaderboardState.status !== "ok") return false;
+    if (typeof pushed !== "object" || pushed === null) return false;
+    const { entries, dataset_generation: generation, version } = pushed as Record<string, unknown>;
+    if (!Array.isArray(entries) || typeof generation !== "number" || typeof version !== "number") {
+      return false;
+    }
+    if (this.datasetGeneration !== null && generation !== this.datasetGeneration) return false;
+    if (version < this.lastPushVersion) return true; // an older push arriving late
+    this.lastPushVersion = version;
+    // Any refetch still in flight was issued before this push: drop its answer.
+    this.leaderboardRequestSeq += 1;
+    const current = this.leaderboardState.leaderboard;
+    const rows = entries as LeaderboardEntry[];
+    const mine = current.current_user;
+    const mineNow = mine ? rows.find((e) => e.user_id === mine.user_id) : undefined;
+    this.setLeaderboardState({
+      status: "ok",
+      leaderboard: {
+        ...current,
+        entries: rows,
+        // Inside the top N the pushed row is exact; outside it, the row last
+        // fetched stays until the next reconciliation.
+        current_user: mineNow ?? mine,
+        as_of: new Date().toISOString(),
+        dataset_generation: generation,
+      },
+    });
+    return true;
+  }
+
+  private spreadRefetchLeaderboard(): void {
+    if (this.spreadTimer) return; // one refetch per window, however many events
+    this.spreadTimer = setTimeout(() => {
+      this.spreadTimer = null;
+      if (this.leaderboardListeners.size > 0) void this.refetchLeaderboard();
+    }, Math.random() * REFETCH_SPREAD_MS);
+  }
+
+  private retryWhenLessBusy(retry: () => Promise<void>): void {
+    setTimeout(() => void retry(), BUSY_RETRY_MIN_MS + Math.random() * BUSY_RETRY_SPREAD_MS);
   }
 
   // --- animation (§17.6) -----------------------------------------------------
@@ -455,6 +538,7 @@ class RealtimeStore {
     // to land after this reset and resurrect pre-reset state.
     this.scoreRequestSeq += 1;
     this.leaderboardRequestSeq += 1;
+    this.lastPushVersion = 0;
     this.closeStream();
     this.stopReconciliation();
     this.stopFallback();

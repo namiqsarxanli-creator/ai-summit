@@ -114,36 +114,68 @@ describe("signal-driven refetch", () => {
     unsubscribe();
   });
 
-  it("leaderboard_changed refetches the leaderboard only while it is mounted", async () => {
+  it("leaderboard_changed without a payload refetches, spread out, only while mounted", async () => {
+    vi.useFakeTimers();
     const fetchMock = fetchRouter();
     vi.stubGlobal("fetch", fetchMock);
     const unsubscribeScore = realtimeStore.subscribeScore(() => {});
     MockEventSource.latest().emit("ready", { dataset_generation: 1, heartbeat_seconds: 15 });
-    await flush();
-    await flush();
+    await vi.advanceTimersByTimeAsync(0);
     fetchMock.mockClear();
 
     MockEventSource.latest().emit("leaderboard_changed", {});
-    await flush();
+    await vi.advanceTimersByTimeAsync(3_000);
     expect(fetchMock).not.toHaveBeenCalled();
 
     const unsubscribeLeaderboard = realtimeStore.subscribeLeaderboard(() => {});
-    await flush();
-    await flush();
+    await vi.advanceTimersByTimeAsync(0);
     fetchMock.mockClear();
 
     MockEventSource.latest().emit("leaderboard_changed", {});
-    await flush();
-    await flush();
+    MockEventSource.latest().emit("leaderboard_changed", {}); // same window: one refetch
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledWith("/api/leaderboard", expect.anything());
 
     unsubscribeScore();
     unsubscribeLeaderboard();
   });
+
+  it("a pushed leaderboard is applied without any request", async () => {
+    const fetchMock = fetchRouter();
+    vi.stubGlobal("fetch", fetchMock);
+    const unsubscribe = realtimeStore.subscribeLeaderboard(() => {});
+    MockEventSource.latest().emit("ready", { dataset_generation: 1, heartbeat_seconds: 15 });
+    await flush();
+    await flush();
+    fetchMock.mockClear();
+
+    const pushed = { user_id: 7, first_name: "Ada", last_name: "L", profession: "x", total_points: 90, rank: 1 };
+    MockEventSource.latest().emit("leaderboard_changed", {
+      leaderboard: { entries: [pushed], dataset_generation: 1, version: 3 },
+    });
+    await flush();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(realtimeStore.getLeaderboardSnapshot()).toMatchObject({
+      status: "ok",
+      leaderboard: { entries: [pushed] },
+    });
+
+    // An older push arriving late changes nothing.
+    MockEventSource.latest().emit("leaderboard_changed", {
+      leaderboard: { entries: [], dataset_generation: 1, version: 2 },
+    });
+    await flush();
+    expect(realtimeStore.getLeaderboardSnapshot()).toMatchObject({
+      leaderboard: { entries: [pushed] },
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    unsubscribe();
+  });
 });
 
 describe("periodic reconciliation (§17.4 step 5)", () => {
-  it("refetches every 20s even with no signal at all", async () => {
+  it("refetches about every 60s (jittered) even with no signal at all", async () => {
     vi.useFakeTimers();
     const fetchMock = fetchRouter();
     vi.stubGlobal("fetch", fetchMock);
@@ -153,7 +185,9 @@ describe("periodic reconciliation (§17.4 step 5)", () => {
     await vi.advanceTimersByTimeAsync(0);
     fetchMock.mockClear();
 
-    await vi.advanceTimersByTimeAsync(20_000);
+    await vi.advanceTimersByTimeAsync(47_000);
+    expect(fetchMock).not.toHaveBeenCalled(); // never earlier than 48 s
+    await vi.advanceTimersByTimeAsync(25_000);
     expect(fetchMock).toHaveBeenCalledWith("/api/attendees/me/score", expect.anything());
 
     unsubscribe();
@@ -352,7 +386,7 @@ describe("fallback polling (§17.11)", () => {
 
     await vi.advanceTimersByTimeAsync(0);
     fetchMock.mockClear();
-    await vi.advanceTimersByTimeAsync(5_000);
+    await vi.advanceTimersByTimeAsync(20_000);
     expect(fetchMock).toHaveBeenCalledWith("/api/attendees/me/score", expect.anything());
 
     unsubscribe();
@@ -466,10 +500,12 @@ describe("stale-response race protection", () => {
       }),
     );
 
-    MockEventSource.latest().emit("leaderboard_changed", {}); // Request A
-    await flush();
-    MockEventSource.latest().emit("leaderboard_changed", {}); // Request B, later
-    await flush();
+    // Request A (first signal's spread window), then Request B (a later one).
+    vi.useFakeTimers();
+    MockEventSource.latest().emit("leaderboard_changed", {});
+    await vi.advanceTimersByTimeAsync(3_000);
+    MockEventSource.latest().emit("leaderboard_changed", {});
+    await vi.advanceTimersByTimeAsync(3_000);
     expect(call).toBe(2);
 
     const newerEntry = { attendee_name: "Newer", total_points: 99, rank: 1, is_current_user: false };
@@ -479,8 +515,8 @@ describe("stale-response race protection", () => {
     responses[1]!.resolve(
       jsonResponse(200, { ...LEADERBOARD_BODY, entries: [newerEntry] }),
     );
-    await flush();
-    await flush();
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(0);
     expect(realtimeStore.getLeaderboardSnapshot()).toMatchObject({
       status: "ok",
       leaderboard: { entries: [newerEntry] },
@@ -490,8 +526,8 @@ describe("stale-response race protection", () => {
     responses[0]!.resolve(
       jsonResponse(200, { ...LEADERBOARD_BODY, entries: [olderEntry] }),
     );
-    await flush();
-    await flush();
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(0);
     expect(realtimeStore.getLeaderboardSnapshot()).toMatchObject({
       status: "ok",
       leaderboard: { entries: [newerEntry] },
@@ -603,7 +639,7 @@ describe("a refused stream (the server answered with no event stream at all)", (
     expect(realtimeStore.getScoreSnapshot()).toMatchObject({ status: "ok" });
 
     fetchMock.mockClear();
-    await vi.advanceTimersByTimeAsync(5_000);
+    await vi.advanceTimersByTimeAsync(20_000);
     expect(fetchMock).toHaveBeenCalledWith("/api/attendees/me/score", expect.anything());
     unsubscribe();
   });

@@ -11,13 +11,16 @@ buffered connection.)
 from __future__ import annotations
 
 import logging
+import time
 
 from sqlalchemy import select
 
+from app.core.config import get_settings
 from app.core.sessions import resolve_attendee_session
 from app.db.session import SessionLocal
 from app.modules.admin.models import EventConfig
 from app.modules.attendees.models import User
+from app.modules.leaderboard.service import leaderboard_push_payload
 from app.modules.realtime.broker import event_bus
 
 logger = logging.getLogger(__name__)
@@ -45,6 +48,29 @@ def resolve_attendee_for_stream(raw_token: str | None) -> User:
         db.close()
 
 
+_GENERATION_TTL_SECONDS = 1.0
+_generation_cache: tuple[int, int, float] | None = None  # (bus version, generation, read at)
+
+
+def cached_dataset_generation() -> int:
+    """`current_dataset_generation` for the per-response header: re-read at most
+    once a second, and at once after this process saw a dataset reset (the
+    reset broadcast bumps `event_bus.leaderboard_version`). Every request used to
+    pay a database round trip and a pooled connection for it; under load that
+    alone was a noticeable share of the single worker's time."""
+    global _generation_cache
+    if get_settings().leaderboard_cache_seconds <= 0:  # read caching off (the test suite)
+        return current_dataset_generation()
+    version = event_bus.leaderboard_version
+    cached = _generation_cache
+    now = time.monotonic()
+    if cached is not None and cached[0] == version and now - cached[2] < _GENERATION_TTL_SECONDS:
+        return cached[1]
+    generation = current_dataset_generation()
+    _generation_cache = (version, generation, now)
+    return generation
+
+
 def current_dataset_generation() -> int:
     """Read fresh on every call — never cached in this process. M14
     does not implement reset (M15's job), so this value never actually
@@ -63,6 +89,23 @@ def current_dataset_generation() -> int:
         db.close()
 
 
+def publish_leaderboard_changed() -> None:
+    """Invalidate the shared ranking, rank once, push the new top N to every
+    stream (see `leaderboard_push_payload`). If ranking fails the event still
+    goes out without a payload and clients fall back to refetching."""
+    event_bus.invalidate_leaderboard()
+    payload: dict[str, object] = {}
+    try:
+        db = SessionLocal()
+        try:
+            payload = {"leaderboard": leaderboard_push_payload(db)}
+        finally:
+            db.close()
+    except Exception:
+        logger.exception("failed to build the leaderboard push")
+    event_bus.publish_broadcast("leaderboard_changed", payload)
+
+
 def publish_award_signals(user_id: int) -> None:
     """Best-effort (§17.7.2): "a failure to publish is logged and
     never fails the award. The 20 s reconciliation covers it." Called
@@ -72,7 +115,7 @@ def publish_award_signals(user_id: int) -> None:
     nothing for anyone to be notified about."""
     try:
         event_bus.publish_personal(user_id, "state_changed", {"scope": "personal"})
-        event_bus.publish_broadcast("leaderboard_changed", {})
+        publish_leaderboard_changed()
     except Exception:
         logger.exception("failed to publish realtime signal for user_id=%s", user_id)
 
@@ -88,6 +131,6 @@ def publish_profile_signals(user_id: int, *, leaderboard: bool) -> None:
     try:
         event_bus.publish_personal(user_id, "state_changed", {"scope": "personal"})
         if leaderboard:
-            event_bus.publish_broadcast("leaderboard_changed", {})
+            publish_leaderboard_changed()
     except Exception:
         logger.exception("failed to publish profile signal for user_id=%s", user_id)

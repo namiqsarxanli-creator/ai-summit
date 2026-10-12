@@ -53,6 +53,10 @@ class EventBus:
         self._personal: dict[int, set[asyncio.Queue[RealtimeEvent]]] = defaultdict(set)
         self._broadcast: set[asyncio.Queue[RealtimeEvent]] = set()
         self._lock = threading.Lock()
+        # Bumped by every broadcast that means "the leaderboard may differ now"
+        # (an award, a reversal, a profile or dataset change). The leaderboard's
+        # shared ranking snapshot is valid only for the version it was built at.
+        self.leaderboard_version = 0
 
     def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         self._loop = loop
@@ -99,8 +103,16 @@ class EventBus:
             queues = tuple(self._personal.get(user_id, ()))
         self._deliver(queues, RealtimeEvent(event, data))
 
+    def invalidate_leaderboard(self) -> None:
+        """The leaderboard may differ now: discard the shared ranking. Called
+        BEFORE the new ranking is built for a `leaderboard_changed` push."""
+        with self._lock:
+            self.leaderboard_version += 1
+
     def publish_broadcast(self, event: str, data: dict[str, object]) -> None:
         with self._lock:
+            if event == "dataset_reset":
+                self.leaderboard_version += 1
             queues = tuple(self._broadcast)
         self._deliver(queues, RealtimeEvent(event, data))
 

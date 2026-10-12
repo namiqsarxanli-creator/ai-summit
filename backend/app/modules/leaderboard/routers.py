@@ -35,7 +35,6 @@ from app.modules.leaderboard.service import (
     leaderboard_page,
     leaderboard_top,
     my_score,
-    top_n_for,
 )
 
 router = APIRouter(tags=["leaderboard"])
@@ -58,7 +57,7 @@ def get_leaderboard(
             except ValueError as err:
                 raise InvalidCursorError() from err
         return leaderboard_page(db, cursor=decoded, limit=limit, as_of=as_of)
-    return leaderboard_top(db, attendee=attendee, top_n=top_n_for(db), as_of=as_of)
+    return leaderboard_top(db, attendee=attendee, as_of=as_of)
 
 
 @router.get("/attendees/me/score", response_model=ScoreSnapshotResponse)

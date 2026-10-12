@@ -16,6 +16,9 @@ os.environ["OTP_OUTBOX_ENCRYPTION_KEY_PREVIOUS"] = ""
 # The suite talks plain HTTP: an https APP_ORIGIN (phone mode) would make
 # the session cookie `Secure` and the test client would never send it back.
 os.environ["APP_ORIGIN"] = "http://localhost:3000"
+# Tests change points/users with direct SQL and read them back at once: no
+# shared read caching (tests that cover the cache turn it on themselves).
+os.environ["LEADERBOARD_CACHE_SECONDS"] = "0"
 
 # ...and runs against its OWN database, never the running stack's (see
 # tests/suite_db.py): uniquely named per run and dropped only by this run.

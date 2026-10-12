@@ -186,6 +186,9 @@ class Settings(BaseSettings):
     # to - a "decompression bomb") are capped before any pixel is decoded.
     media_max_upload_bytes: int = Field(default=8 * 1024 * 1024, ge=100_000, le=25 * 1024 * 1024)
     media_max_pixels: int = Field(default=25_000_000, ge=1_000_000, le=100_000_000)
+    # How long the shared leaderboard ranking may be reused when no award or
+    # profile change was signalled in this process (0 = recompute every request).
+    leaderboard_cache_seconds: float = Field(default=5.0, ge=0, le=60)
 
     @field_validator("environment")
     @classmethod

@@ -41,6 +41,12 @@ def _build_engine() -> Engine:
         settings.database_url,
         pool_pre_ping=True,
         future=True,
+        # Comfortably above the admission limit (app/core/admission.py, 12), so
+        # admitted requests, live-stream session checks and photo uploads never
+        # wait on each other for a connection. PostgreSQL's default
+        # max_connections (100) leaves room for the worker and one-off jobs.
+        pool_size=10,
+        max_overflow=10,
         connect_args={"connect_timeout": 10},
     )
 

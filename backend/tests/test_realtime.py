@@ -594,7 +594,7 @@ def test_a_committed_task_award_publishes_personal_and_broadcast_signals(rig: Ri
 
         seen = _collect_non_heartbeat(events, 2)
     assert ("state_changed", {"scope": "personal"}) in seen
-    assert ("leaderboard_changed", {}) in seen
+    assert any(e == "leaderboard_changed" and set(d) == {"leaderboard"} for e, d in seen)
 
 
 def test_idempotent_task_award_replay_does_not_publish(rig: Rig) -> None:
@@ -663,7 +663,7 @@ def test_a_committed_first_feedback_reward_publishes_personal_and_broadcast_sign
 
         seen = _collect_non_heartbeat(events, 2)
     assert ("state_changed", {"scope": "personal"}) in seen
-    assert ("leaderboard_changed", {}) in seen
+    assert any(e == "leaderboard_changed" and set(d) == {"leaderboard"} for e, d in seen)
 
 
 def test_already_rewarded_feedback_does_not_publish(rig: Rig) -> None:
@@ -794,7 +794,7 @@ def test_duplicate_and_rapid_hints_are_each_delivered_and_individually_harmless(
 
         received = _collect_non_heartbeat(events, 4)
     assert received.count(("state_changed", {"scope": "personal"})) == 2
-    assert received.count(("leaderboard_changed", {})) == 2
+    assert sum(1 for e, d in received if e == "leaderboard_changed" and "leaderboard" in d) == 2
 
 
 # --------------------------------------------------------------------------
@@ -974,14 +974,18 @@ def test_ready_generation_reflects_a_change_made_before_connecting(rig: Rig) -> 
 
 
 # --------------------------------------------------------------------------
-# Privacy: no event payload carries points, totals, ranks, names, or PII
+# Privacy: no event payload carries points, totals, ranks, names, or PII -
+# except `leaderboard_changed`, which pushes the public top-N view (load test:
+# every phone refetching it after every award overloaded the single worker).
+# That view is exactly what `GET /api/leaderboard` returns to any signed-in
+# attendee, and the stream itself is attendee-only.
 # --------------------------------------------------------------------------
 
 
 _ALLOWED_EVENT_DATA_KEYS: dict[str, set[str]] = {
     "ready": {"dataset_generation", "heartbeat_seconds"},
     "state_changed": {"scope"},
-    "leaderboard_changed": set(),
+    "leaderboard_changed": {"leaderboard"},
     "heartbeat": {"t"},
     "session_invalid": {"reason"},
     "dataset_reset": {"dataset_generation"},
@@ -1025,8 +1029,29 @@ def test_every_event_payload_is_minimal_and_carries_no_attendee_data(
         allowed = _ALLOWED_EVENT_DATA_KEYS.get(event)
         assert allowed is not None, f"unexpected event type: {event}"
         assert set(data.keys()) <= allowed, (event, data)
+        if event == "leaderboard_changed":
+            _assert_public_leaderboard_push(data["leaderboard"])
+            continue
         for key in data:
             assert not any(bad in key.lower() for bad in _FORBIDDEN_SUBSTRINGS), (event, data)
+
+
+_PUBLIC_ENTRY_KEYS = {
+    "user_id",
+    "first_name",
+    "last_name",
+    "profession",
+    "total_points",
+    "rank",
+    "photo_url",
+}
+
+
+def _assert_public_leaderboard_push(pushed: Any) -> None:
+    """Only the public top-N view: no email, phone, LinkedIn, consent or token."""
+    assert set(pushed) == {"entries", "dataset_generation", "version"}
+    for entry in pushed["entries"]:
+        assert set(entry) <= _PUBLIC_ENTRY_KEYS, entry
 
 
 def test_no_sse_id_field_is_ever_sent(rig: Rig) -> None:

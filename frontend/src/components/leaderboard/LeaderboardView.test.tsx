@@ -159,7 +159,7 @@ describe("LeaderboardView — top view", () => {
     expect(screen.getAllByText("Ada Lovelace")).toHaveLength(1);
   });
 
-  it("refetches when another attendee's score changes the leaderboard (broadcast)", async () => {
+  it("shows the pushed leaderboard when another attendee's score changes it (broadcast)", async () => {
     let call = 0;
     vi.stubGlobal(
       "fetch",
@@ -186,9 +186,18 @@ describe("LeaderboardView — top view", () => {
     openReady();
     await screen.findByText("#2");
 
-    MockEventSource.latest().emit("leaderboard_changed", {});
+    MockEventSource.latest().emit("leaderboard_changed", {
+      leaderboard: {
+        entries: [
+          entry({ user_id: 1, first_name: "Ada-Updated", last_name: "Lovelace", rank: 1, total_points: 90 }),
+        ],
+        dataset_generation: 1,
+        version: 1,
+      },
+    });
 
     expect(await screen.findByText("#1")).toBeInTheDocument();
+    expect(call).toBe(1); // applied from the push, no refetch
     expect(screen.getByText("90 pts")).toBeInTheDocument();
   });
 });

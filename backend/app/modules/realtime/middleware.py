@@ -20,7 +20,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from app.modules.realtime.service import current_dataset_generation
+from app.modules.realtime.service import cached_dataset_generation
 
 
 class DatasetGenerationHeaderMiddleware:
@@ -32,7 +32,7 @@ class DatasetGenerationHeaderMiddleware:
             await self.app(scope, receive, send)
             return
 
-        generation = await run_in_threadpool(current_dataset_generation)
+        generation = await run_in_threadpool(cached_dataset_generation)
 
         async def send_with_header(message: Message) -> None:
             if message["type"] == "http.response.start":
