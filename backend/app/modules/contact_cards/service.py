@@ -64,7 +64,7 @@ def _live_card_owner(db: Session, token: str) -> User | None:
     ).scalar_one_or_none()
 
 
-def _public_card_for(db: Session, user: User) -> PublicCard:
+def _public_card_for(db: Session, user: User, viewer_id: int | None = None) -> PublicCard:
     interests = db.execute(
         select(Interest.slug, Interest.name)
         .join(UserInterest, UserInterest.interest_id == Interest.id)
@@ -76,7 +76,11 @@ def _public_card_for(db: Session, user: User) -> PublicCard:
         last_name=user.last_name,
         profession=user.profession,
         interests=[CardInterest(slug=slug, name=name) for slug, name in interests],
-        contact=contact_action_for(linkedin_url=user.linkedin_url, email=user.email),
+        contact=(
+            contact_action_for(linkedin_url=user.linkedin_url, email=user.email)
+            if viewer_id is not None and _connected(db, viewer_id, user.id)
+            else None
+        ),
         # Public by design: it is what the person chose to show on their card and on
         # the leaderboard. Read off the row already loaded - no extra query.
         photo_url=avatar_url(user.photo_key, LARGE),
@@ -95,11 +99,17 @@ def resolve_active_attendee(db: Session, token: str) -> User:
     return user
 
 
-def resolve_public_card(db: Session, token: str) -> PublicCard:
+def _connected(db: Session, a: int, b: int) -> bool:
+    from app.modules.people.connections import connected
+
+    return connected(db, a, b)
+
+
+def resolve_public_card(db: Session, token: str, viewer_id: int | None = None) -> PublicCard:
     user = _live_card_owner(db, token)
     if user is None:
         raise InvalidQrError()
-    return _public_card_for(db, user)
+    return _public_card_for(db, user, viewer_id)
 
 
 def resolve_card_identity(db: Session, token: str) -> CardIdentity:

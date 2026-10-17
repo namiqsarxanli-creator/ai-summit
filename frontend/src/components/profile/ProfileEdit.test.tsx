@@ -23,6 +23,8 @@ const PROFILE: AttendeeProfile = {
   sponsor_consent_at: null,
   sponsor_consent_version: null,
   interests: [{ slug: "generative-ai", name: "Generative AI" }],
+  company: null,
+  interest_card: { sector: null, topics: [], seeking: [], offering: [] },
   version: 1,
   photo: null,
 };
@@ -179,6 +181,8 @@ describe("editing the profile", () => {
       profession: "Systems Engineer",
       linkedin_url: null,
       interest_slugs: ["generative-ai", "robotics"],
+      company: null,
+      interest_card: { sector: null, topics: [], seeking: [], offering: [] },
       expected_version: 1,
     });
     expect(api.puts()[0]?.body).not.toHaveProperty("email");
@@ -625,4 +629,131 @@ describe("sponsor consent, on its own", () => {
     expect(within(form).getByLabelText("First name")).toHaveValue("Augusta");
     expect(within(form).getByText("Unsaved changes")).toBeInTheDocument();
   });
+
+describe("the company and the interest card", () => {
+  it("shows them on the private profile, then edits and saves them with the loaded version", async () => {
+    const api = server({
+      profile: {
+        ...PROFILE,
+        company: "AIWorks",
+        interest_card: { sector: "telecom_it", topics: ["data"], seeking: [], offering: [] },
+      },
+    });
+    render(<ProfileView />);
+    expect(await screen.findByText("AIWorks")).toBeInTheDocument();
+    const shown = within(screen.getByRole("region", { name: "Interest card" }));
+    expect(shown.getByText("Telecom and IT")).toBeInTheDocument();
+    expect(shown.getAllByText("Not answered")).toHaveLength(2);
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit profile" }));
+    const form = await screen.findByRole("form", { name: "Edit profile" });
+    expect(within(form).getByLabelText("Company (optional)")).toHaveValue("AIWorks");
+    fireEvent.change(within(form).getByLabelText("Company (optional)"), { target: { value: "Facemark" } });
+    const topics = within(within(form).getByRole("group", { name: "Topics I'm interested in" }));
+    expect(topics.getByLabelText("Data")).toBeChecked();
+    fireEvent.click(topics.getByLabelText("Data")); // remove
+    fireEvent.click(topics.getByLabelText("ERP"));
+    fireEvent.click(within(within(form).getByRole("group", { name: "What I offer" })).getByLabelText("A vacancy"));
+    fireEvent.click(within(form).getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(api.puts()).toHaveLength(1));
+    expect(api.puts()[0]?.body).toMatchObject({
+      company: "Facemark",
+      interest_card: { sector: "telecom_it", topics: ["erp"], seeking: [], offering: ["vacancy"] },
+      expected_version: 1,
+    });
+  });
+
+  it("puts the saved card back on cancel and sends nothing", async () => {
+    const api = server({
+      profile: { ...PROFILE, interest_card: { sector: null, topics: ["hr"], seeking: [], offering: [] } },
+    });
+    const form = await openEditor();
+    const topics = within(within(form).getByRole("group", { name: "Topics I'm interested in" }));
+    fireEvent.click(topics.getByLabelText("HR"));
+    fireEvent.click(topics.getByLabelText("Design"));
+    expect(within(form).getByText("Unsaved changes")).toBeInTheDocument();
+    fireEvent.click(within(form).getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
+    expect(api.puts()).toHaveLength(0);
+
+    const reopened = await openEditorAgain();
+    const again = within(within(reopened).getByRole("group", { name: "Topics I'm interested in" }));
+    expect(again.getByLabelText("HR")).toBeChecked();
+    expect(again.getByLabelText("Design")).not.toBeChecked();
+  });
+
+  it("lets a profile with many older interests edit everything else", async () => {
+    const many = ["generative-ai", "data-analytics", "robotics"].map((slug) => ({ slug, name: slug }));
+    const api = server({ profile: { ...PROFILE, interests: [...many, { slug: "extra", name: "Extra" }] } });
+    const form = await openEditor();
+    fireEvent.change(within(form).getByLabelText("Company (optional)"), { target: { value: "Acme" } });
+    fireEvent.click(within(form).getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(api.puts()).toHaveLength(1));
+    expect((api.puts()[0]?.body as { interest_slugs: string[] }).interest_slugs).toHaveLength(4);
+  });
+
+  it("shows the card in a conflict so the person can choose", async () => {
+    const newer: AttendeeProfile = {
+      ...PROFILE,
+      version: 2,
+      interest_card: { sector: "energy", topics: [], seeking: [], offering: [] },
+    };
+    server({ put: () => failure(409, "PROFILE_CONFLICT", { profile: newer }) });
+    const form = await openEditor();
+    fireEvent.click(within(within(form).getByRole("group", { name: "My field" })).getByLabelText("Education"));
+    fireEvent.click(within(form).getByRole("button", { name: "Save changes" }));
+    const heading = await within(form).findByText("Your profile was changed on another device");
+    const alert = heading.closest("section")!;
+    expect(alert).toHaveTextContent("Interest card");
+    expect(alert).toHaveTextContent("Education");
+    expect(alert).toHaveTextContent("Energy");
+  });
+});
+
+describe("an interest-card answer retired from the list", () => {
+  const RETIRED: AttendeeProfile = {
+    ...PROFILE,
+    interest_card: { sector: "retired_sector", topics: ["data", "retired_topic"], seeking: [], offering: [] },
+  };
+
+  it("is marked on the private profile view", async () => {
+    server({ profile: RETIRED });
+    render(<ProfileView />);
+    const shown = within(await screen.findByRole("region", { name: "Interest card" }));
+    expect(shown.getByText("Data, retired_topic (no longer offered)")).toBeInTheDocument();
+  });
+
+  it("does not stop the rest of the profile being saved, and is kept as it is", async () => {
+    const api = server({ profile: RETIRED });
+    const form = await openEditor();
+    fireEvent.change(within(form).getByLabelText("Profession / role"), { target: { value: "CTO" } });
+    fireEvent.click(within(form).getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(api.puts()).toHaveLength(1));
+    expect(api.puts()[0]?.body).toMatchObject({
+      profession: "CTO",
+      interest_card: { sector: "retired_sector", topics: ["data", "retired_topic"], seeking: [], offering: [] },
+    });
+    expect(within(form).queryByText("Check your interest card choices.")).toBeNull();
+  });
+
+  it("can be removed by the person, and the freed place used for a listed answer", async () => {
+    const api = server({ profile: RETIRED });
+    const form = await openEditor();
+    const topics = within(within(form).getByRole("group", { name: "Topics I'm interested in" }));
+    fireEvent.click(topics.getByLabelText(/retired_topic/));
+    fireEvent.click(topics.getByLabelText("ERP"));
+    fireEvent.click(within(form).getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(api.puts()).toHaveLength(1));
+    expect((api.puts()[0]?.body as { interest_card: { topics: string[] } }).interest_card.topics).toEqual([
+      "data",
+      "erp",
+    ]);
+  });
+});
+
+async function openEditorAgain() {
+  fireEvent.click(await screen.findByRole("button", { name: "Edit profile" }));
+  return screen.findByRole("form", { name: "Edit profile" });
+}
 });

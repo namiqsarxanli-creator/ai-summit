@@ -1,0 +1,70 @@
+"""The Beyond Now competition: 100 points, earned only by VERIFIED participation.
+
+Source: Beyond_Now_oyun_telimati_teqdimat.pdf, "Bal cədvəli: maksimum 100".
+Each category has its own per-unit value and its own maximum; the 100 is the sum
+of the category maximums, never a clamp on the total.
+
+| Category    | Per unit                         | Maximum |
+|-------------|----------------------------------|---------|
+| PROFILE     | 5, once                          | 5       |
+| PANEL       | 8 per panel (entry AND exit QR)  | 16      |
+| QMETER      | 2 per panel (Game Master check)  | 4       |
+| MASTERCLASS | 12 per block (entry AND exit)    | 24      |
+| PLAYGROUND  | 3 per distinct booth, first 8    | 24      |
+| CONNECTION  | 3 match / 1 other, best 4        | 12      |
+| MENTOR      | 5, once                          | 5       |
+| FOUNDER     | 10, once (all four zones)        | 10      |
+
+Decisions recorded with the organiser (16 Oct 2026):
+* Legacy booth TASK / FEEDBACK rewards stay in the ledger history but do NOT
+  count in the competition ranking once competition mode is on.
+* PROFILE completion = an ACTIVE (e-mail verified) attendee whose interest card
+  answers all four questions: a sector, at least one topic, at least one "looking
+  for" and at least one "offering". Company and LinkedIn stay optional.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Final
+
+from app.modules.points.models import PointsSource
+
+
+@dataclass(frozen=True)
+class Category:
+    source: PointsSource
+    maximum: int
+
+
+PROFILE_POINTS: Final = 5
+PANEL_POINTS: Final = 8
+QMETER_POINTS: Final = 2
+MASTERCLASS_POINTS: Final = 12
+PLAYGROUND_POINTS: Final = 3
+PLAYGROUND_SCORING_BOOTHS: Final = 8
+MENTOR_POINTS: Final = 5
+FOUNDER_POINTS: Final = 10
+
+CATEGORIES: Final[dict[PointsSource, Category]] = {
+    c.source: c
+    for c in (
+        Category(PointsSource.PROFILE, 5),
+        Category(PointsSource.PANEL, 16),
+        Category(PointsSource.QMETER, 4),
+        Category(PointsSource.MASTERCLASS, 24),
+        Category(PointsSource.PLAYGROUND, 24),
+        Category(PointsSource.CONNECTION, 12),
+        Category(PointsSource.MENTOR, 5),
+        Category(PointsSource.FOUNDER, 10),
+    )
+}
+COMPETITION_SOURCES: Final = tuple(CATEGORIES)
+assert sum(c.maximum for c in CATEGORIES.values()) == 100
+
+# Scan windows (PDF "Kim, nəyi, nə vaxt skan edir").
+PANEL_ENTRY_MINUTES: Final = 15  # first 15 minutes
+PANEL_EXIT_MINUTES: Final = 10  # last 10 minutes
+MASTERCLASS_ENTRY_MINUTES: Final = 10
+MASTERCLASS_EXIT_MINUTES: Final = 10
+MASTERCLASS_NO_SHOW_MINUTES: Final = 5  # an unclaimed seat is released after +5

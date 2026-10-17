@@ -63,6 +63,14 @@ const MESSAGES: Record<string, string> = {
   PHOTO_TOO_LARGE: "That photo is too large. Choose a smaller picture.",
   PHOTO_BUSY: "Photos are being processed right now. Please try again in a moment.",
   PHOTO_STORAGE_UNAVAILABLE: "Photo storage is unavailable right now. Please try again later.",
+  // Masterclass reservations: nothing changed in any of these cases.
+  MASTERCLASS_CHOICE_CONFLICT: "Your choice changed on another device. Review the refreshed choices and try again.",
+  MASTERCLASS_NOT_FOUND: "This masterclass is not available. Refresh the programme.",
+  MASTERCLASS_FULL: "This masterclass is full.",
+  MASTERCLASS_WAITLIST_FULL: "There are no places left in this masterclass, not even on the waitlist.",
+  MASTERCLASS_CHANGES_CLOSED: "Choices for this block can no longer be changed.",
+  MASTERCLASS_SEAT_WOULD_BE_LOST: "This would give up your confirmed seat. Confirm it to continue.",
+  MASTERCLASS_ADMIN_CONFLICT: "This change would break existing reservations, so it was not saved.",
 };
 
 export const FALLBACK_MESSAGE = "Something went wrong. Please try again.";
@@ -79,6 +87,8 @@ const FIELD_MESSAGES: Record<string, string> = {
   profession: "Enter your profession or role.",
   linkedin_url: "Enter a full LinkedIn URL, e.g. https://www.linkedin.com/in/your-name",
   interest_slugs: "Choose interests from the list.",
+  company: "Company name is too long.",
+  interest_card: "Check your interest card choices.",
   sponsor_consent: "Choose whether to share your details with sponsors.",
   code: "Enter the 6-digit code from your email.",
 };

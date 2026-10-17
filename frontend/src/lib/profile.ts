@@ -9,7 +9,15 @@
 
 import { apiGet, apiPutBinary, apiRequest, type ApiResult } from "@/lib/api";
 import { photoUrlsFrom, type PhotoUrls } from "@/lib/avatar";
-import { isLinkedInUrl } from "@/components/registration/validation";
+import { companyAndCardErrors, isLinkedInUrl } from "@/components/registration/validation";
+import {
+  cardFrom,
+  CARD_GROUPS,
+  labelOf,
+  sameCard,
+  selectedIn,
+  type InterestCard,
+} from "@/lib/interestCard";
 
 export type ProfileInterest = { slug: string; name: string };
 
@@ -25,6 +33,9 @@ export type AttendeeProfile = {
   sponsor_consent_at: string | null;
   sponsor_consent_version: string | null;
   interests: ProfileInterest[];
+  // Private to the attendee: never on the public card, leaderboard or exports.
+  company: string | null;
+  interest_card: InterestCard;
   // What an edit must send back as `expected_version` (optimistic concurrency).
   version: number;
   photo: PhotoUrls | null;
@@ -38,6 +49,8 @@ export function normalizeProfile(raw: AttendeeProfile): AttendeeProfile {
     ...raw,
     sponsor_consent_at: raw.sponsor_consent_at ?? null,
     sponsor_consent_version: raw.sponsor_consent_version ?? null,
+    company: typeof raw.company === "string" ? raw.company : null,
+    interest_card: cardFrom(raw.interest_card),
     version: typeof raw.version === "number" ? raw.version : 1,
     photo: photoUrlsFrom(raw.photo),
   };
@@ -73,6 +86,8 @@ export type ProfileDraft = {
   profession: string;
   linkedin_url: string;
   interest_slugs: string[];
+  company: string;
+  interest_card: InterestCard;
 };
 
 export function draftOf(profile: AttendeeProfile): ProfileDraft {
@@ -83,6 +98,8 @@ export function draftOf(profile: AttendeeProfile): ProfileDraft {
     profession: profile.profession,
     linkedin_url: profile.linkedin_url ?? "",
     interest_slugs: profile.interests.map((interest) => interest.slug),
+    company: profile.company ?? "",
+    interest_card: profile.interest_card,
   };
 }
 
@@ -96,6 +113,8 @@ export function normalizedDraft(draft: ProfileDraft): ProfileDraft {
     profession: draft.profession.trim(),
     linkedin_url: draft.linkedin_url.trim(),
     interest_slugs: [...new Set(draft.interest_slugs)].sort(),
+    company: draft.company.trim(),
+    interest_card: draft.interest_card,
   };
 }
 
@@ -106,13 +125,15 @@ export function sameDraft(a: ProfileDraft, b: ProfileDraft): boolean {
     x.first_name === y.first_name && x.last_name === y.last_name && x.phone === y.phone &&
     x.profession === y.profession && x.linkedin_url === y.linkedin_url &&
     x.interest_slugs.length === y.interest_slugs.length &&
-    x.interest_slugs.every((slug, index) => slug === y.interest_slugs[index])
+    x.interest_slugs.every((slug, index) => slug === y.interest_slugs[index]) &&
+    x.company === y.company && sameCard(x.interest_card, y.interest_card)
   );
 }
 
 // The same rules as registration (and the server re-checks them all): fast
 // feedback only. Keys are the field ids; values are texts for `t()`.
-export function validateProfile(draft: ProfileDraft): Record<string, string> {
+// `savedCard`: the interest card as loaded, whose retired answers may be kept.
+export function validateProfile(draft: ProfileDraft, savedCard?: InterestCard): Record<string, string> {
   const errors: Record<string, string> = {};
   if (!draft.first_name.trim()) errors.first_name = "Enter your first name.";
   if (!draft.last_name.trim()) errors.last_name = "Enter your last name.";
@@ -122,6 +143,8 @@ export function validateProfile(draft: ProfileDraft): Record<string, string> {
   if (linkedin && !isLinkedInUrl(linkedin)) {
     errors.linkedin_url = "Enter a full LinkedIn URL, e.g. https://www.linkedin.com/in/your-name";
   }
+  // The same company and card rules as registration (one shared check).
+  Object.assign(errors, companyAndCardErrors(draft.company, draft.interest_card, savedCard));
   return errors;
 }
 
@@ -137,6 +160,8 @@ export function updateProfile(
     profession: d.profession,
     linkedin_url: d.linkedin_url === "" ? null : d.linkedin_url,
     interest_slugs: d.interest_slugs,
+    company: d.company === "" ? null : d.company,
+    interest_card: d.interest_card,
     expected_version: expectedVersion,
   }).then((result) => (result.ok ? { ok: true, data: normalizeProfile(result.data) } : result));
 }
@@ -149,11 +174,12 @@ export function diffDrafts(
   mine: ProfileDraft,
   theirs: ProfileDraft,
   interestName: (slug: string) => string,
+  translate: (text: string) => string = (text) => text,
 ): FieldDiff[] {
   const a = normalizedDraft(mine);
   const b = normalizedDraft(theirs);
   const diffs: FieldDiff[] = [];
-  for (const field of ["first_name", "last_name", "phone", "profession", "linkedin_url"] as const) {
+  for (const field of ["first_name", "last_name", "phone", "profession", "company", "linkedin_url"] as const) {
     if (a[field] !== b[field]) diffs.push({ field, mine: a[field], theirs: b[field] });
   }
   if (a.interest_slugs.join("|") !== b.interest_slugs.join("|")) {
@@ -163,7 +189,22 @@ export function diffDrafts(
       theirs: b.interest_slugs.map(interestName).join(", "),
     });
   }
+  if (!sameCard(a.interest_card, b.interest_card)) {
+    diffs.push({
+      field: "interest_card",
+      mine: cardSummary(a.interest_card, translate),
+      theirs: cardSummary(b.interest_card, translate),
+    });
+  }
   return diffs;
+}
+
+// The card in one line ("Banking and finance; Data, Fintech; ..."), for a
+// conflict screen.
+export function cardSummary(card: InterestCard, translate: (text: string) => string): string {
+  return CARD_GROUPS.map((g) => selectedIn(card, g.key).map((id) => translate(labelOf(g.key, id))).join(", "))
+    .filter(Boolean)
+    .join("; ");
 }
 
 // --- sponsor consent -------------------------------------------------------------

@@ -117,6 +117,49 @@ def test_purge_orphan_photos_removes_only_old_unreferenced_files(
     assert store.exists(mine)
 
 
+def test_purge_orphan_photos_keeps_pair_photos_that_no_user_row_names(
+    emails: Emails,
+    attendee: Attendee,
+    media_root: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Pair photos (migration 0025) live on the same volume. A file is not an orphan
+    just because `users.photo_key` does not name it."""
+    first, _ = attendee(emails())
+    second, _ = attendee(emails())
+    a = fetch_one("SELECT id FROM users WHERE email = :e", e=first)[0]
+    b = fetch_one("SELECT id FROM users WHERE email = :e", e=second)[0]
+    store = MediaStore(media_root)
+    pair, orphan = new_key(), new_key()
+    for key in (pair, orphan):
+        store.write(key, {128: b"\xff\xd8\xff a", 384: b"\xff\xd8\xff b"})
+        for size in (128, 384):
+            _age(store.path_for(key, size), 7200)
+    execute(
+        "INSERT INTO pair_photos (uploader_id, partner_id, photo_key, status, accepted_at) "
+        "VALUES (:a, :b, :k, 'ACCEPTED', now())",
+        a=a,
+        b=b,
+        k=pair,
+    )
+    # A withdrawn photo keeps no key and protects nothing.
+    execute(
+        "INSERT INTO pair_photos (uploader_id, partner_id, status, withdrawn_at, withdrawn_by_id) "
+        "VALUES (:a, :b, 'WITHDRAWN', now(), :a)",
+        a=a,
+        b=b,
+    )
+    try:
+        main(["purge-orphan-photos"])
+        out = capsys.readouterr().out  # counts FILES: two renditions per key
+        assert "removed orphan photo files:  2" in out
+        assert "kept (referenced):          2" in out
+        assert store.exists(pair)  # referenced by a pair photo
+        assert not store.path_for(orphan, 384).exists()  # referenced by nothing
+    finally:
+        execute("DELETE FROM pair_photos WHERE uploader_id = :a", a=a)
+
+
 def test_purge_orphan_photos_works_when_nothing_was_ever_uploaded(
     media_root: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

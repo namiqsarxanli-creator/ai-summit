@@ -14,6 +14,9 @@ Behaviour
 * Every loop also does maintenance: expire rows whose code has lapsed, give
   up on rows whose workers keep dying.
 * Roughly hourly it deletes finished rows past the retention period.
+* Programme reminders (app/modules/reminders) ride the same provider: planned
+  every `PLAN_EVERY_SECONDS`, due ones sent each loop - only while an
+  administrator has switched them on and only to attendees who opted in.
 * SIGTERM/SIGINT: finish the batch in hand, then exit 0.
 * Writes a heartbeat file so the container health check can tell a wedged
   worker from a live one.
@@ -34,6 +37,7 @@ import time
 import uuid
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime
 from pathlib import Path
 
 from sqlalchemy.orm import Session
@@ -43,6 +47,7 @@ from app.db.session import SessionLocal, mutating_transaction
 from app.modules.auth import otp_outbox
 from app.modules.auth.otp_provider import EmailProvider, ResendProvider
 from app.modules.auth.otp_throttle import SendThrottle
+from app.modules.reminders import service as reminders
 
 logger = logging.getLogger("facemark.worker")
 
@@ -50,6 +55,7 @@ POLL_SECONDS = 1.0
 IDLE_POLL_SECONDS = 5.0  # when there is nothing to do and nothing configured
 CONCURRENCY = 2  # modest: providers rate-limit (Resend's default is 2 requests/second)
 PURGE_EVERY_SECONDS = 3600.0
+PLAN_EVERY_SECONDS = 300.0
 HEARTBEAT_FILE = Path(os.environ.get("OTP_WORKER_HEARTBEAT_FILE", "/tmp/otp-worker.heartbeat"))  # noqa: S108
 # What the heartbeat file cannot say: is the loop merely turning, or is it getting
 # anywhere? Read by `python -m app.cli ops-check --worker-heartbeat`. Numbers only -
@@ -124,6 +130,7 @@ def run_forever(
     throttle: SendThrottle | None = None,
 ) -> None:
     last_purge = 0.0
+    last_plan = 0.0
     started_at = time.time()
     last_ok_at: float | None = None
     failures = 0
@@ -141,6 +148,11 @@ def run_forever(
                 if time.monotonic() - last_purge > PURGE_EVERY_SECONDS:
                     last_purge = time.monotonic()
                     _purge(session_factory)
+                if time.monotonic() - last_plan > PLAN_EVERY_SECONDS:
+                    last_plan = time.monotonic()
+                    attempted += _remind(session_factory, provider, worker_id, throttle, plan=True)
+                else:
+                    attempted += _remind(session_factory, provider, worker_id, throttle, plan=False)
                 failures = 0
                 last_ok_at = time.time()
             except Exception as exc:  # noqa: BLE001 - a bad poll must not kill the worker
@@ -177,6 +189,41 @@ def _publish_status(
         sent_in_window=state.sent_in_window if state else None,
         rate_limit=state.limit if state else None,
     )
+
+
+def _remind(
+    session_factory: Callable[[], Session],
+    provider: EmailProvider,
+    worker_id: str,
+    throttle: SendThrottle | None,
+    *,
+    plan: bool,
+) -> int:
+    """Programme reminders, isolated: a failure here never holds up sign-in codes."""
+    try:
+        if plan:
+            db = session_factory()
+            try:
+                with mutating_transaction(db) as tx:
+                    counts = reminders.plan(tx, datetime.now(UTC))
+                if any(counts.values()):
+                    logger.info("reminders planned: %s", counts)
+            finally:
+                db.close()
+        # Reminders share the provider's pace with sign-in codes, which go first.
+        room = throttle.available() if throttle is not None else reminders.BATCH
+        sent = reminders.run_once(
+            session_factory,
+            provider=provider,
+            worker_id=worker_id,
+            limit=min(room, reminders.BATCH),
+        )
+        if throttle is not None and sent:
+            throttle.reserve(sent)
+        return sent
+    except Exception as exc:  # noqa: BLE001 - reminders must not stop the OTP worker
+        logger.error("reminder poll failed (%s); retrying", type(exc).__name__)
+        return 0
 
 
 def _purge(session_factory: Callable[[], Session]) -> None:

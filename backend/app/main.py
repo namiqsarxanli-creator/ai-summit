@@ -41,12 +41,26 @@ from app.modules.admin.routers import router as admin_router
 from app.modules.attendees.routers import router as attendees_router
 from app.modules.auth.routers import router as auth_router
 from app.modules.booths.routers import router as booths_router
+from app.modules.competition.final_routers import router as final_router
+from app.modules.competition.offline_routers import router as offline_router
+from app.modules.competition.routers import admin_router as competition_admin_router
+from app.modules.competition.routers import router as competition_router
 from app.modules.contact_cards.routers import router as contact_cards_router
 from app.modules.feedback.routers import router as feedback_router
 from app.modules.interests.routers import router as interests_router
 from app.modules.leaderboard.routers import router as leaderboard_router
+from app.modules.masterclasses.routers import admin_router as masterclass_admin_router
+from app.modules.masterclasses.routers import router as masterclasses_router
 from app.modules.matching.routers import router as matching_router
 from app.modules.media.routers import router as media_router
+from app.modules.mentors.routers import admin_router as mentors_admin_router
+from app.modules.mentors.routers import router as mentors_router
+from app.modules.people.pair_photo_routers import admin_router as pair_photo_admin_router
+from app.modules.people.pair_photo_routers import router as pair_photo_router
+from app.modules.people.routers import admin_router as people_admin_router
+from app.modules.people.routers import router as people_router
+from app.modules.playground.routers import admin_router as playground_admin_router
+from app.modules.playground.routers import router as playground_router
 from app.modules.points.routers import router as points_router
 from app.modules.realtime.broker import event_bus
 from app.modules.realtime.listener import run_reset_listener
@@ -55,6 +69,7 @@ from app.modules.realtime.middleware import (
     RealtimeStreamHeadersMiddleware,
 )
 from app.modules.realtime.routers import router as realtime_router
+from app.modules.reminders.routers import router as reminders_router
 from app.modules.staff.routers import router as staff_router
 
 logger = logging.getLogger(__name__)
@@ -119,12 +134,15 @@ def _register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(DomainError)
     async def _domain_error_handler(request: Request, exc: DomainError) -> JSONResponse:
         body = error_envelope(exc.code, str(exc), details=exc.details)
-        if exc.status_code >= 500:
+        if exc.status_code >= 500 and not getattr(exc, "expected", False):
             logger.error(
                 "Unhandled domain error %s on %s", exc.code, request.url.path, exc_info=exc
             )
+        retry_after = getattr(exc, "retry_after", None)
         headers = (
-            {"Retry-After": str(exc.retry_after)} if isinstance(exc, RateLimitedError) else None
+            {"Retry-After": str(retry_after)}
+            if isinstance(exc, RateLimitedError) or retry_after is not None
+            else None
         )
         return JSONResponse(status_code=exc.status_code, content=body, headers=headers)
 
@@ -273,14 +291,41 @@ def create_app() -> FastAPI:
     app.include_router(admin_router, prefix="/api", include_in_schema=not settings.is_production)
     app.include_router(auth_router, prefix="/api")
     app.include_router(booths_router, prefix="/api")
+    app.include_router(competition_router, prefix="/api")
+    app.include_router(
+        competition_admin_router, prefix="/api", include_in_schema=not settings.is_production
+    )
+    app.include_router(final_router, prefix="/api")
+    app.include_router(offline_router, prefix="/api")
     app.include_router(contact_cards_router, prefix="/api")
     app.include_router(feedback_router, prefix="/api")
     app.include_router(interests_router, prefix="/api")
     app.include_router(leaderboard_router, prefix="/api")
+    app.include_router(masterclasses_router, prefix="/api")
+    app.include_router(
+        masterclass_admin_router, prefix="/api", include_in_schema=not settings.is_production
+    )
     app.include_router(matching_router, prefix="/api")
     app.include_router(media_router, prefix="/api")
+    app.include_router(mentors_router, prefix="/api")
+    app.include_router(
+        mentors_admin_router, prefix="/api", include_in_schema=not settings.is_production
+    )
     app.include_router(points_router, prefix="/api")
+    app.include_router(people_router, prefix="/api")
+    app.include_router(pair_photo_router, prefix="/api")
+    app.include_router(
+        pair_photo_admin_router, prefix="/api", include_in_schema=not settings.is_production
+    )
+    app.include_router(
+        people_admin_router, prefix="/api", include_in_schema=not settings.is_production
+    )
+    app.include_router(playground_router, prefix="/api")
+    app.include_router(
+        playground_admin_router, prefix="/api", include_in_schema=not settings.is_production
+    )
     app.include_router(realtime_router, prefix="/api")
+    app.include_router(reminders_router, prefix="/api")
     app.include_router(staff_router, prefix="/api")
 
     return app

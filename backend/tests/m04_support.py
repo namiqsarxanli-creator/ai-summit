@@ -160,6 +160,21 @@ def cleanup_email(email: str) -> None:
             db.execute(text("DELETE FROM consent_audit WHERE user_id = ANY(:ids)"), ids)
             db.execute(text("DELETE FROM contact_cards WHERE user_id = ANY(:ids)"), ids)
             db.execute(text("DELETE FROM user_interests WHERE user_id = ANY(:ids)"), ids)
+            # People (migration 0021): a test's connections and one-way scans.
+            db.execute(
+                text(
+                    "DELETE FROM connections WHERE user_low_id = ANY(:ids) "
+                    "OR user_high_id = ANY(:ids)"
+                ),
+                ids,
+            )
+            db.execute(
+                text(
+                    "DELETE FROM connection_scans WHERE scanner_id = ANY(:ids) "
+                    "OR scanned_id = ANY(:ids)"
+                ),
+                ids,
+            )
             db.execute(text("DELETE FROM users WHERE id = ANY(:ids)"), ids)
         db.commit()
     finally:

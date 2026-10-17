@@ -36,6 +36,16 @@ from app.db.base import Base, IdentityPKMixin
 class PointsSource(enum.StrEnum):
     TASK = "TASK"
     FEEDBACK = "FEEDBACK"
+    # The Beyond Now competition (migration 0020, competition/rules.py). Only
+    # these count in the competition ranking; TASK / FEEDBACK stay as history.
+    PROFILE = "PROFILE"
+    PANEL = "PANEL"
+    QMETER = "QMETER"
+    MASTERCLASS = "MASTERCLASS"
+    PLAYGROUND = "PLAYGROUND"
+    CONNECTION = "CONNECTION"
+    MENTOR = "MENTOR"
+    FOUNDER = "FOUNDER"
 
 
 class PointsEntryType(enum.StrEnum):
@@ -88,6 +98,11 @@ class PointsLog(IdentityPKMixin, Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+    # Migration 0027: when the scored activity happened, as verified (a reviewed
+    # offline scan is recorded after the close but happened before it). NULL on
+    # rows written before 0027 and on entries without an activity of their own;
+    # read as `created_at` then (competition/founder.py).
+    occurred_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
         CheckConstraint("points <> 0", name="points_nonzero"),
@@ -106,7 +121,12 @@ class PointsLog(IdentityPKMixin, Base):
             "(source = 'FEEDBACK' AND booth_id IS NOT NULL "
             "AND entered_by_staff_id IS NULL AND entered_by_system = true) OR "
             "(source = 'FEEDBACK' AND entry_type = 'REVERSAL' AND booth_id IS NOT NULL "
-            "AND entered_by_staff_id IS NOT NULL AND entered_by_system = false)",
+            "AND entered_by_staff_id IS NOT NULL AND entered_by_system = false) OR "
+            # Competition entries (migration 0020): made by a scoped staff member
+            # (a scan, a Game Master check) or by the system (profile, founder).
+            "(source IN ('PROFILE', 'PANEL', 'QMETER', 'MASTERCLASS', 'PLAYGROUND', "
+            "'CONNECTION', 'MENTOR', 'FOUNDER') "
+            "AND (entered_by_staff_id IS NULL) = entered_by_system)",
             name="source_attribution",
         ),
         # The reason of a reversal lives here; bounded unconditionally.

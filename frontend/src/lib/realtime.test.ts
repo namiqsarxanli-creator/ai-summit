@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { installMockEventSource, MockEventSource } from "@/test-utils/mockEventSource";
+import { teardownRealtime } from "@/test-utils/realtimeTeardown";
 
 import { realtimeStore } from "./realtime";
 
@@ -55,8 +56,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  realtimeStore.resetForTests();
-  vi.unstubAllGlobals();
+  teardownRealtime();
   vi.useRealTimers();
 });
 

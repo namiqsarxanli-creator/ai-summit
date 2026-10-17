@@ -67,6 +67,7 @@ from app.modules.points.models import (
     IdempotencyRecord,
     PointsEntryType,
     PointsLog,
+    PointsSource,
 )
 from app.modules.points.schemas import ReversalRequest, ReversalResponse
 from app.modules.staff.models import StaffAccount
@@ -172,6 +173,17 @@ def reverse_entry(
     ).scalar_one_or_none()
     if original is None:
         raise PointsEntryNotFoundError("No such points entry.")
+    if original.source == PointsSource.FOUNDER:
+        # Derived from the four zones: correct the evidence, and the bonus follows.
+        return _replayed_or(
+            db,
+            actor.id,
+            request,
+            fingerprint,
+            PointsNotReversibleError(
+                "The Founder bonus follows its evidence; reverse the zone's award instead."
+            ),
+        )
     if original.entry_type != PointsEntryType.AWARD:
         return _replayed_or(
             db,
@@ -246,6 +258,10 @@ def reverse_entry(
         # in between, which the row lock should make impossible: a backstop).
         raise translate_integrity_error(err) from err
 
+    from app.modules.competition.founder import ZONES, recompute
+
+    if any(original.source in sources for sources in ZONES.values()):
+        recompute(db, original.user_id)  # e.g. the only masterclass of a Founder
     total = db.execute(
         select(func.coalesce(func.sum(PointsLog.points), 0)).where(
             PointsLog.user_id == original.user_id

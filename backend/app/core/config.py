@@ -189,6 +189,11 @@ class Settings(BaseSettings):
     # How long the shared leaderboard ranking may be reused when no award or
     # profile change was signalled in this process (0 = recompute every request).
     leaderboard_cache_seconds: float = Field(default=5.0, ge=0, le=60)
+    # Beyond Now Founder: which activities complete a zone is NOT confirmed by the
+    # organiser (competition/founder.py). Until an operator sets this after that
+    # decision, no Founder bonus is awarded and no final result names Founders or
+    # Lucky Draw entrants.
+    founder_rule_confirmed: bool = False
 
     @field_validator("environment")
     @classmethod

@@ -43,13 +43,34 @@ def resolve_attendee_for_stream(raw_token: str | None) -> User:
     must propagate to open streams")."""
     db = SessionLocal()
     try:
-        return resolve_attendee_session(db, raw_token)
+        return resolve_attendee_session(db, raw_token, identity_only=True)
     finally:
         db.close()
 
 
 _GENERATION_TTL_SECONDS = 1.0
 _generation_cache: tuple[int, int, float] | None = None  # (bus version, generation, read at)
+# maintenance_mode from the same once-a-second read (bus version, flag, read at),
+# for the mutations' ADVISORY maintenance fast path only - never the fence.
+_maintenance_cache: tuple[int, bool, float] | None = None
+
+
+def peek_cached_dataset_generation() -> int | None:
+    """Read an unexpired header value without I/O or a worker-thread dispatch.
+
+    A miss still uses cached_dataset_generation off the event loop. Keep the
+    same TTL, reset-version check and cache-disabled behavior as that reader.
+    """
+    if get_settings().leaderboard_cache_seconds <= 0:
+        return None
+    cached = _generation_cache
+    if (
+        cached is not None
+        and cached[0] == event_bus.leaderboard_version
+        and time.monotonic() - cached[2] < _GENERATION_TTL_SECONDS
+    ):
+        return cached[1]
+    return None
 
 
 def cached_dataset_generation() -> int:
@@ -59,16 +80,54 @@ def cached_dataset_generation() -> int:
     pay a database round trip and a pooled connection for it; under load that
     alone was a noticeable share of the single worker's time."""
     global _generation_cache
+    cached = peek_cached_dataset_generation()
+    if cached is not None:
+        return cached
     if get_settings().leaderboard_cache_seconds <= 0:  # read caching off (the test suite)
         return current_dataset_generation()
-    version = event_bus.leaderboard_version
-    cached = _generation_cache
-    now = time.monotonic()
-    if cached is not None and cached[0] == version and now - cached[2] < _GENERATION_TTL_SECONDS:
+    return _refresh_event_state()[0]
+
+
+def cached_maintenance_mode() -> bool | None:
+    """`event_config.maintenance_mode` for `maintenance_fast_path_check`, read at
+    most once a second together with the generation (one statement), with the
+    same TTL and reset-version rule. None when read caching is off (the test
+    suite): the caller then reads it fresh, as before.
+
+    Advisory only (A6, §19.4): a reset's exclusive fence is what actually stops
+    a mutation (its lock timeout is answered MAINTENANCE), so up to a second of
+    staleness here only means such a request waits for the fence instead of being
+    refused at once. It saves every mutation a statement, a pooled-connection
+    checkout with its liveness ping, and a rollback."""
+    if get_settings().leaderboard_cache_seconds <= 0:
+        return None
+    cached = _maintenance_cache
+    if (
+        cached is not None
+        and cached[0] == event_bus.leaderboard_version
+        and time.monotonic() - cached[2] < _GENERATION_TTL_SECONDS
+    ):
         return cached[1]
-    generation = current_dataset_generation()
-    _generation_cache = (version, generation, now)
-    return generation
+    return _refresh_event_state()[1]
+
+
+def _refresh_event_state() -> tuple[int, bool]:
+    """One read of generation and maintenance flag; refreshes both caches."""
+    global _generation_cache, _maintenance_cache
+    version = event_bus.leaderboard_version
+    now = time.monotonic()
+    db = SessionLocal()
+    try:
+        generation, maintenance = db.execute(
+            select(EventConfig.dataset_generation, EventConfig.maintenance_mode).where(
+                EventConfig.id == 1
+            )
+        ).one()
+    finally:
+        db.close()
+    _generation_cache = (version, int(generation), now)
+    _maintenance_cache = (version, bool(maintenance), now)
+    return int(generation), bool(maintenance)
 
 
 def current_dataset_generation() -> int:

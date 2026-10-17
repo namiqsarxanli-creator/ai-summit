@@ -570,51 +570,116 @@ def test_the_mutating_route_inventory_is_what_m16_expects() -> None:
     # unchanged.
     assert _count_mutating_api_routes(app.routes) == len(_mutating_routes())
     baseline = [
+        # Masterclass reservations: the session's own choice per block (cancel / set).
+        # Fenced, and no request names an attendee.
+        ("DELETE", "/api/attendees/me/masterclasses/{block_id}"),
         # The attendee's own profile photo: removal (the upload is the PUT below).
         ("DELETE", "/api/attendees/me/photo"),
         # M12: attendee feedback submission + automatic reward.
         ("POST", "/api/attendees/feedback"),
+        # Beyond Now: the attendee scans a panel's screen QR (own session only).
+        ("POST", "/api/attendees/me/blocks"),
+        # People (migration 0021): mutual scan, requests; one's own session only.
+        ("POST", "/api/attendees/me/connections/scan"),
+        ("POST", "/api/attendees/me/meeting-requests"),
+        ("POST", "/api/attendees/me/meeting-requests/{request_id}/cancel"),
+        ("POST", "/api/attendees/me/meeting-requests/{request_id}/respond"),
+        # Pair photos (migration 0025): one's own upload, answer, consent, withdrawal.
+        ("POST", "/api/attendees/me/pair-photos"),
+        ("POST", "/api/attendees/me/pair-photos/{photo_id}/answer"),
+        ("POST", "/api/attendees/me/pair-photos/{photo_id}/screen"),
+        ("POST", "/api/attendees/me/pair-photos/{photo_id}/withdraw"),
+        ("POST", "/api/attendees/me/panels/scan"),
         ("POST", "/api/attendees/register"),
         ("POST", "/api/auth/logout"),
         ("POST", "/api/auth/otp/request"),
         ("POST", "/api/auth/otp/verify"),
+        # Meet the Mentor (migration 0022): the session's own booking only.
+        ("POST", "/api/mentor-bookings/{booking_id}/cancel"),
+        ("POST", "/api/mentor-sessions/{session_id}/book"),
+        ("POST", "/api/playground/bookings/{booking_id}/cancel"),
+        ("POST", "/api/playground/invitations/accept"),
+        ("POST", "/api/playground/invitations/inspect"),
+        ("POST", "/api/playground/slots/{slot_id}/book"),
+        ("POST", "/api/playground/slots/{slot_id}/invite"),
         ("POST", "/api/staff/auth/login"),
         ("POST", "/api/staff/auth/logout"),
         # Staff passwords: change (signed in) and the emailed reset (public, no oracle).
         ("POST", "/api/staff/auth/password"),
         ("POST", "/api/staff/auth/password-reset/confirm"),
         ("POST", "/api/staff/auth/password-reset/request"),
+        # The final result (migration 0023): Game Master or administrator only.
+        ("POST", "/api/staff/final"),
+        ("POST", "/api/staff/final/{result_id}/discard"),
+        ("POST", "/api/staff/final/{result_id}/publish"),
         # M11: the award mutation itself.
+        # Verified participation: a scoped door volunteer, the slot's own booth
+        # staff, a Game Master. Each re-checks its scope inside the fence.
+        ("POST", "/api/staff/masterclasses/{masterclass_id}/door"),
+        ("POST", "/api/staff/mentor-sessions/{session_id}/complete"),
+        # Offline scans (migration 0026): replay-safe submission and the review.
+        ("POST", "/api/staff/offline-scans"),
+        ("POST", "/api/staff/offline-scans/{scan_id}/approve"),
+        ("POST", "/api/staff/offline-scans/{scan_id}/reject"),
+        ("POST", "/api/staff/playground/bookings/{booking_id}/admit"),
+        ("POST", "/api/staff/playground/slots/{slot_id}/complete"),
         ("POST", "/api/staff/points/award"),
+        ("POST", "/api/staff/qmeter/award"),
+        ("POST", "/api/staff/qmeter/identify"),
         # M06: a read, but a POST by definition (§13.1), so it is under
         # the Origin assertion like every other POST.
         ("POST", "/api/staff/scan/resolve"),
         # The attendee's own profile (ARCHITECTURE.md §8.4): photo upload, details and
         # interests, and sponsor consent. Each takes the reset fence first and names no
         # attendee - who is edited is the session's.
+        ("PUT", "/api/attendees/me/masterclasses/{block_id}"),
         ("PUT", "/api/attendees/me/photo"),
         ("PUT", "/api/attendees/me/profile"),
+        # Programme reminders (migration 0024): the session's own opt-in only.
+        ("PUT", "/api/attendees/me/reminders"),
         ("PUT", "/api/attendees/me/sponsor-consent"),
     ]
     routes = _mutating_routes()
     assert [entry for entry in routes if not entry[1].startswith("/api/admin/")] == baseline
     assert [entry for entry in routes if entry[1].startswith("/api/admin/")] == [
         ("DELETE", "/api/admin/booths/{booth_id}/weights/{interest_id}"),
+        # The masterclass programme (audited; refused when it would break reservations).
+        ("DELETE", "/api/admin/masterclasses/{masterclass_id}"),
         ("PATCH", "/api/admin/booths/{booth_id}"),
         ("PATCH", "/api/admin/event-config"),
         ("PATCH", "/api/admin/interests/{interest_id}"),
+        ("PATCH", "/api/admin/masterclass-blocks/{block_id}"),
+        ("PATCH", "/api/admin/masterclass-events/{event_id}"),
+        ("PATCH", "/api/admin/masterclass-rooms/{room_id}"),
+        ("PATCH", "/api/admin/masterclasses/{masterclass_id}"),
+        ("PATCH", "/api/admin/match-tables/{table_id}"),
+        ("PATCH", "/api/admin/mentor-sessions/{session_id}"),
+        # The competition: panels, a person's eligibility, staff scopes.
+        ("PATCH", "/api/admin/panels/{panel_id}"),
         ("PATCH", "/api/admin/presets/{preset_id}"),
         ("PATCH", "/api/admin/tasks/{task_id}"),
+        ("PATCH", "/api/admin/users/{user_id}/competition-eligibility"),
         ("POST", "/api/admin/booths"),
         # CSV exports: step 1 of 2 (prepare + one-time ticket); the file itself is a GET.
         ("POST", "/api/admin/exports/attendees"),
         ("POST", "/api/admin/exports/points-log"),
         ("POST", "/api/admin/exports/sponsor-contacts"),
         ("POST", "/api/admin/interests"),
+        ("POST", "/api/admin/masterclass-blocks"),
+        ("POST", "/api/admin/masterclass-events"),
+        ("POST", "/api/admin/masterclass-rooms"),
+        ("POST", "/api/admin/masterclasses"),
+        ("POST", "/api/admin/match-tables"),
+        ("POST", "/api/admin/mentor-sessions"),
+        ("POST", "/api/admin/pair-photos/{photo_id}/moderate"),
+        ("POST", "/api/admin/panels"),
         # Points reversal: cancels one AWARD in full (administrators only).
+        ("POST", "/api/admin/playground/prepare"),
         ("POST", "/api/admin/points-log/{entry_id}/reverse"),
         ("POST", "/api/admin/presets"),
         ("POST", "/api/admin/staff"),
+        ("POST", "/api/admin/staff-scopes"),
+        ("POST", "/api/admin/staff-scopes/{scope_id}/revoke"),
         ("POST", "/api/admin/staff/{staff_id}/deactivate"),
         # An administrator starts a reset EMAIL for a staff member (no password, no code).
         ("POST", "/api/admin/staff/{staff_id}/password-reset"),

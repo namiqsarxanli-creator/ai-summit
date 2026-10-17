@@ -10,7 +10,8 @@ export type ApiError = {
 
 export type ApiResult<T> =
   | { ok: true; data: T }
-  | { ok: false; status: number; error: ApiError };
+  // `retryAfterSeconds`: the server's Retry-After, when it sent one (429/503).
+  | { ok: false; status: number; error: ApiError; retryAfterSeconds?: number };
 
 // A frontend-only code (§20.3): a failure that never reached the
 // server is never dressed up as a fictional HTTP response.
@@ -78,7 +79,22 @@ async function request<T>(path: string, init: RequestInit): Promise<ApiResult<T>
   if (response.ok) {
     return { ok: true, data: body as T };
   }
-  return { ok: false, status: response.status, error: parseError(body) };
+  const retryAfterSeconds = parseRetryAfter(response.headers.get("Retry-After"));
+  return {
+    ok: false,
+    status: response.status,
+    error: parseError(body),
+    ...(retryAfterSeconds === undefined ? {} : { retryAfterSeconds }),
+  };
+}
+
+// Retry-After is either delay-seconds or an HTTP date (RFC 9110 10.2.3).
+function parseRetryAfter(raw: string | null): number | undefined {
+  if (raw === null || raw.trim() === "") return undefined;
+  const seconds = Number(raw.trim());
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds;
+  const at = Date.parse(raw);
+  return Number.isNaN(at) ? undefined : Math.max(0, (at - Date.now()) / 1000);
 }
 
 export function apiGet<T>(path: string): Promise<ApiResult<T>> {
@@ -98,6 +114,14 @@ export function apiPost<T>(path: string, payload: unknown): Promise<ApiResult<T>
 export function apiPutBinary<T>(path: string, body: Blob): Promise<ApiResult<T>> {
   return request<T>(path, {
     method: "PUT",
+    headers: { "Content-Type": body.type || "application/octet-stream", Accept: "application/json" },
+    body,
+  });
+}
+
+export function apiPostBinary<T>(path: string, body: Blob): Promise<ApiResult<T>> {
+  return request<T>(path, {
+    method: "POST",
     headers: { "Content-Type": body.type || "application/octet-stream", Accept: "application/json" },
     body,
   });

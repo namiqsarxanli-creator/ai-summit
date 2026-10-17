@@ -27,7 +27,7 @@ from sqlalchemy import (
 )
 from sqlalchemy import Enum as PgEnum
 from sqlalchemy import text as sql_text
-from sqlalchemy.dialects.postgresql import CITEXT, JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, CITEXT, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
@@ -102,8 +102,37 @@ class User(IdentityPKMixin, Base):
     # The server-made random name of the profile photo's files (see
     # app/core/media.py); NULL = no photo. Unique, so a key belongs to one row.
     photo_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Migration 0016. The company, separate from `profession` (the role); NULL =
+    # not given. And the Beyond Now interest card as stable identifiers
+    # (app/modules/attendees/interest_card.py) - unrelated to `user_interests`,
+    # which keeps driving booth recommendations. Private to the attendee.
+    # Migration 0020: why this person is NOT in the competition (organiser
+    # team, volunteer, sponsor, speaker). Set only by an administrator; nothing
+    # an attendee can edit changes it. NULL = eligible.
+    competition_excluded_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Migration 0024: when the attendee opted in to programme reminders by email
+    # (NULL = no reminders). Withdrawing sets it back to NULL.
+    reminder_consent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    company: Mapped[str | None] = mapped_column(Text, nullable=True)
+    card_sector: Mapped[str | None] = mapped_column(Text, nullable=True)
+    card_topics: Mapped[list[str]] = mapped_column(
+        ARRAY(Text), nullable=False, server_default=sql_text("'{}'::text[]")
+    )
+    card_seeking: Mapped[list[str]] = mapped_column(
+        ARRAY(Text), nullable=False, server_default=sql_text("'{}'::text[]")
+    )
+    card_offering: Mapped[list[str]] = mapped_column(
+        ARRAY(Text), nullable=False, server_default=sql_text("'{}'::text[]")
+    )
 
     __table_args__ = (
+        # The card's maximums hold in the database too, whoever writes.
+        CheckConstraint("cardinality(card_topics) <= 3", name="card_topics_max"),
+        CheckConstraint("cardinality(card_seeking) <= 2", name="card_seeking_max"),
+        CheckConstraint("cardinality(card_offering) <= 2", name="card_offering_max"),
+        CheckConstraint(
+            "company IS NULL OR char_length(company) BETWEEN 1 AND 200", name="company_length"
+        ),
         CheckConstraint(
             "photo_key IS NULL OR photo_key ~ '^[0-9a-f]{32}$'", name="photo_key_format"
         ),

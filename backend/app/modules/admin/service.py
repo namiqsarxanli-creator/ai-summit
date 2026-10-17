@@ -198,12 +198,15 @@ def config_view(row: EventConfig) -> dict[str, Any]:
         "feedback_points": row.feedback_points,
         "leaderboard_top_n": row.leaderboard_top_n,
         "allow_repeat_task_points_default": row.allow_repeat_task_points_default,
+        "competition_mode": row.competition_mode,
+        "reminders_enabled": row.reminders_enabled,
     }
 
 
 def create_staff(db: Session, actor: StaffAccount, payload: StaffCreate) -> AdminResult:
-    if (payload.role == StaffRole.ADMIN) != (payload.booth_id is None):
-        raise AdminInvalid("Booth staff need a booth; admins cannot own a booth.")
+    if (payload.role == StaffRole.BOOTH_STAFF) != (payload.booth_id is not None):
+        # A volunteer (migration 0020) has no booth: only granted scopes.
+        raise AdminInvalid("Booth staff need a booth; admins and volunteers cannot own one.")
     if payload.booth_id is not None:
         booth = required(db, Booth, payload.booth_id)
         if not booth.is_active:

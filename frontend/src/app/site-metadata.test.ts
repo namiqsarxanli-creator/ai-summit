@@ -9,6 +9,7 @@ import { siteOrigin } from "@/lib/site";
 import { metadata as boothsMeta } from "./(attendee)/booths/page";
 import { metadata as leaderboardMeta } from "./(attendee)/leaderboard/page";
 import { metadata as loginMeta } from "./(attendee)/login/page";
+import { metadata as masterclassesMeta } from "./(attendee)/masterclasses/page";
 import { metadata as myCardMeta } from "./(attendee)/my-card/page";
 import { metadata as profileMeta } from "./(attendee)/profile/page";
 import { metadata as registerMeta } from "./(attendee)/register/page";
@@ -25,6 +26,7 @@ import { metadata as staffScanMeta } from "./staff/scan/page";
 
 const PAGES: [string, Metadata][] = [
   ["booths", boothsMeta], ["leaderboard", leaderboardMeta], ["login", loginMeta],
+  ["masterclasses", masterclassesMeta],
   ["my card", myCardMeta], ["profile", profileMeta], ["register", registerMeta],
   ["verify", verifyMeta], ["admin", adminMeta], ["public card", cardMeta],
   ["not found", notFoundMeta], ["staff sign in", staffLoginMeta], ["staff panel", staffMeta],

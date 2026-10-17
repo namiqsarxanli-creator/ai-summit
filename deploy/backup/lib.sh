@@ -120,6 +120,41 @@ fm_copy_column() {
   '
 }
 
+# Pair photos (migration 0025): their files share the media volume with profile
+# photos. A row's verified state is: id, status, photo key (or \N), whether each
+# of the two people gave screen consent (t/f), moderation. Timestamps are left out
+# on purpose: their text depends on the session time zone, the flags do not.
+# Prints one tab-separated line per row, by id. Nothing when the table is absent
+# (a backup of a database older than 0025).
+fm_pair_state_from_dump() {
+  fm_copy_rows "$1" pair_photos | awk '
+    /^COPY / && !inrows {
+      head = $0; sub(/^[^(]*\(/, "", head); sub(/\).*$/, "", head)
+      n = split(head, cols, /, /)
+      for (i = 1; i <= n; i++) { c = cols[i]; gsub(/"/, "", c); at[c] = i }
+      inrows = 1; next
+    }
+    inrows && $0 == "\\." { inrows = 0; next }
+    inrows {
+      split($0, f, "\t")
+      u = (f[at["uploader_screen_at"]] == "\\N") ? "f" : "t"
+      p = (f[at["partner_screen_at"]] == "\\N") ? "f" : "t"
+      printf "%s\t%s\t%s\t%s\t%s\t%s\n", f[at["id"]], f[at["status"]], f[at["photo_key"]], u, p, f[at["moderation"]]
+    }
+  ' | LC_ALL=C sort -t "$(printf '\t')" -k1,1n
+}
+
+# The same from a restored database ($1); nothing when the table does not exist.
+fm_sql_has_pair_photos() { [ "$(psql_q "$1" "SELECT to_regclass('public.pair_photos') IS NOT NULL")" = t ]; }
+fm_sql_pair_state() {
+  fm_sql_has_pair_photos "$1" || return 0
+  psql_q "$1" "SELECT concat_ws(E'\t', id, status, coalesce(photo_key, E'\\\\N'), CASE WHEN uploader_screen_at IS NULL THEN 'f' ELSE 't' END, CASE WHEN partner_screen_at IS NULL THEN 'f' ELSE 't' END, moderation) FROM pair_photos ORDER BY id"
+}
+fm_sql_pair_keys() {
+  fm_sql_has_pair_photos "$1" || return 0
+  psql_q "$1" "SELECT photo_key FROM pair_photos WHERE photo_key IS NOT NULL ORDER BY photo_key COLLATE \"C\""
+}
+
 fm_copy_count() { fm_copy_rows "$1" "$2" | awk '/^COPY / && !inrows {inrows=1; next} inrows && $0=="\\." {inrows=0; next} inrows {n++} END {print n+0}'; }
 
 fm_sha256_of_text() { printf '%s' "$1" | sha256sum | cut -d' ' -f1; }

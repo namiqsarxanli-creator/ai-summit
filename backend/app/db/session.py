@@ -30,6 +30,7 @@ from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import get_settings
+from app.core.errors import MaintenanceError
 from app.core.locks import FACEMARK_RESET_FENCE
 
 
@@ -96,6 +97,23 @@ def database_is_reachable() -> bool:
 # place; `lock_timeout_ms` is always an internal, caller-supplied int.
 DEFAULT_FENCE_LOCK_TIMEOUT_MS = 2_000
 
+# Set on a session by `maintenance_fast_path_check` (every HTTP mutation calls it
+# first): its fenced transactions then re-read the maintenance flag after the
+# fence. CLI and background jobs never set it and keep working in maintenance.
+_MAINTENANCE_GATED = "facemark.maintenance_gated"
+
+
+def gate_on_maintenance(db: Session) -> None:
+    """Make every later `mutating_transaction` on `db` refuse with MAINTENANCE
+    while `event_config.maintenance_mode` is on - read fresh, inside the fence.
+
+    The flag is persistent state: a failed reset leaves it ON after releasing
+    the fence (ARCHITECTURE.md §19.7), so while no fence is held the flag is the
+    only thing that keeps mutations out. It must not depend on an in-process
+    cache, a notification or a TTL; the reset may run in another process and fail
+    before it can notify anyone."""
+    db.info[_MAINTENANCE_GATED] = True
+
 
 @contextmanager
 def mutating_transaction(
@@ -150,6 +168,18 @@ def mutating_transaction(
         {"key": FACEMARK_RESET_FENCE},
     )
     try:
+        # After the fence (no reset is between steps 3 and 7 now) and before any
+        # authentication or business read: a reset that failed, or maintenance
+        # switched on by hand, keeps this mutation out - whatever a cache says.
+        if (
+            db.info.get(_MAINTENANCE_GATED)
+            and db.execute(
+                text("SELECT maintenance_mode FROM event_config WHERE id = 1")
+            ).scalar_one_or_none()
+        ):
+            raise MaintenanceError(
+                "The service is briefly unavailable. Please try again in a moment."
+            )
         yield db
         db.commit()
     except Exception:

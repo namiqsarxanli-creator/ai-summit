@@ -6,6 +6,10 @@ Real event (production-safe)::
     python -m app.cli bootstrap                         # settings only, no content
     python -m app.cli create-admin --email E --name N   # password asked, hidden
     python -m app.cli demo-inventory [--json]           # read-only demo-data report
+    python -m app.cli masterclass-skeleton              # event, 2 blocks, 5 rooms; no masterclasses
+    python -m app.cli competition-report                # read-only dry run before activation
+    python -m app.cli competition-backfill-profile --confirm
+    python -m app.cli founder-recompute [--confirm]   # only once FOUNDER_RULE_CONFIRMED=true
 
 Demo / rehearsal only (DEMO_MODE=true, never production)::
 
@@ -301,6 +305,10 @@ def _cmd_purge_orphan_photos(*, grace_minutes: int, dry_run: bool) -> None:
             .all()
             if key is not None
         }
+        # Pair photos (migration 0025) share the media volume: their files are in use too.
+        from app.modules.people.pair_photos import referenced_keys
+
+        referenced |= referenced_keys(db)
     finally:
         db.close()
     store = get_store()
@@ -410,6 +418,85 @@ def _cmd_maintenance(*, off: bool) -> None:
     print("Maintenance mode is OFF.")
 
 
+def _cmd_masterclass_skeleton() -> None:
+    """Adds the confirmed frame of the masterclass programme (event, blocks,
+    rooms) - no masterclass titles or speakers. Safe to re-run: only what is
+    missing is added. Fenced like every other mutation."""
+    from app.modules.masterclasses.skeleton import create_program_skeleton
+
+    db = SessionLocal()
+    try:
+        with mutating_transaction(db) as tx:
+            report = create_program_skeleton(tx)
+    finally:
+        db.close()
+    print(
+        f"Masterclass programme: event {'created' if report.event_created else 'already present'}, "
+        f"{report.blocks_created} block(s) and {report.rooms_created} room(s) added."
+    )
+
+
+def _cmd_competition_report() -> None:
+    """Read-only: what activating the competition would change."""
+    from app.modules.competition.activation import report
+
+    db = SessionLocal()
+    try:
+        r = report(db)
+    finally:
+        db.rollback()
+        db.close()
+    print(f"competition_mode: {r.competition_mode}")
+    close = r.closes_at.isoformat() if r.closes_at else "NOT SET (nothing can be earned)"
+    print(f"closes_at: {close}")
+    print(f"active attendees: {r.active_attendees}")
+    print(f"excluded by the organiser: {r.excluded_attendees}")
+    print(
+        f"legacy booth points that stop counting: {r.legacy_points_total} in {r.legacy_rows} rows"
+    )
+    print(f"competition points so far: {r.competition_points_total}")
+    print(f"complete profiles not yet paid PROFILE: {r.profile_backfill_candidates}")
+
+
+def _cmd_founder_recompute(*, confirm: bool) -> None:
+    """BEYOND_NOW.md, "Runtime safeguards": after the organiser confirms the Founder
+    rule and FOUNDER_RULE_CONFIRMED is set. Without --confirm: a read-only report."""
+    from app.core.config import get_settings
+    from app.modules.competition.founder import recompute_all
+
+    if not get_settings().founder_rule_confirmed:
+        raise SystemExit(
+            "Refusing: FOUNDER_RULE_CONFIRMED is false. The organiser must confirm the "
+            "Founder rule first (BEYOND_NOW.md)."
+        )
+    db = SessionLocal()
+    try:
+        with mutating_transaction(db) as tx:
+            counts = recompute_all(tx, apply=confirm)
+    finally:
+        db.close()
+    for key, value in counts.items():
+        print(f"{key}: {value}")
+    if not confirm:
+        print(
+            "Dry run: nothing was written. Re-run with --confirm, then take a new final snapshot."
+        )
+
+
+def _cmd_competition_backfill_profile(*, confirm: bool) -> None:
+    if not confirm:
+        raise SystemExit("Refusing without --confirm. Run competition-report first.")
+    from app.modules.competition.activation import backfill_profile
+
+    db = SessionLocal()
+    try:
+        with mutating_transaction(db) as tx:
+            paid = backfill_profile(tx)
+    finally:
+        db.close()
+    print(f"PROFILE paid to {paid} complete profile(s).")
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="python -m app.cli")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -418,6 +505,22 @@ def main(argv: list[str] | None = None) -> None:
         help="Load the fictional demo summit (safe to re-run). DEMO_MODE only; never production.",
     )
     subparsers.add_parser("seed", help="Removed - use `bootstrap` (real) or `seed-demo` (demo).")
+    subparsers.add_parser(
+        "competition-report", help="Read-only report before activating the competition."
+    )
+    backfill_parser = subparsers.add_parser(
+        "competition-backfill-profile", help="Pay PROFILE to existing complete profiles."
+    )
+    backfill_parser.add_argument("--confirm", action="store_true")
+    founder_parser = subparsers.add_parser(
+        "founder-recompute",
+        help="After the Founder rule is confirmed: align every bonus (dry run by default).",
+    )
+    founder_parser.add_argument("--confirm", action="store_true")
+    subparsers.add_parser(
+        "masterclass-skeleton",
+        help="Add the masterclass event, its 2 blocks and 5 rooms (no masterclasses; re-runnable).",
+    )
     subparsers.add_parser(
         "bootstrap",
         help="Real event: create only the required initial settings (safe to re-run).",
@@ -522,6 +625,14 @@ def main(argv: list[str] | None = None) -> None:
         _cmd_reset_demo(confirm=args.confirm)
     elif args.command == "maintenance":
         _cmd_maintenance(off=args.off)
+    elif args.command == "masterclass-skeleton":
+        _cmd_masterclass_skeleton()
+    elif args.command == "competition-report":
+        _cmd_competition_report()
+    elif args.command == "competition-backfill-profile":
+        _cmd_competition_backfill_profile(confirm=args.confirm)
+    elif args.command == "founder-recompute":
+        _cmd_founder_recompute(confirm=args.confirm)
 
 
 if __name__ == "__main__":

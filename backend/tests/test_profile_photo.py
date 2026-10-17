@@ -512,7 +512,9 @@ def test_the_public_card_carries_the_large_photo_and_nothing_private(
     }
     assert not (PRIVATE_KEYS & set(body))
     assert "photo_key" not in card.text
-    assert email not in card.text.replace(body["contact"]["value"], "")  # only the chosen contact
+    # Migration 0021 contact gate: an anonymous viewer gets no contact at all.
+    assert body["contact"] is None
+    assert email not in card.text
 
 
 def test_a_card_without_a_photo_says_so(

@@ -23,7 +23,9 @@ export type AttendeeTabKey = (typeof TABS)[number]["key"];
 // Fixed to the bottom; the page shell (`.fm-page:has(.fm-tabbar)`) reserves the
 // space for it plus the device's bottom safe area, so it never covers content.
 // Every link is at least 56px tall — above the 44px touch-target floor.
-export function AttendeeTabBar({ active }: { active: AttendeeTabKey }) {
+// `active` is left out on a page that is not one of the five tabs (it is reached
+// from Home, e.g. the masterclass programme): then no tab is highlighted.
+export function AttendeeTabBar({ active }: { active?: AttendeeTabKey }) {
   const { t } = useLanguage();
   return (
     <nav aria-label={t("Attendee navigation")} className="fm-tabbar">

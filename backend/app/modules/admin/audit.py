@@ -180,6 +180,8 @@ _CONFIG: dict[str, _Coerce] = {
     "feedback_points": _integer,
     "leaderboard_top_n": _integer,
     "allow_repeat_task_points_default": _boolean,
+    "competition_mode": _boolean,
+    "reminders_enabled": _boolean,
 }
 
 # A points reversal (points/reversal.py). `reason` is the administrator's own
@@ -191,7 +193,18 @@ _REVERSAL: dict[str, _Coerce] = {
     "user_id": _integer,
     "booth_id": _optional(_integer),
     "task_id": _optional(_integer),
-    "source": _one_of("TASK", "FEEDBACK"),
+    "source": _one_of(
+        "TASK",
+        "FEEDBACK",
+        "PROFILE",
+        "PANEL",
+        "QMETER",
+        "MASTERCLASS",
+        "PLAYGROUND",
+        "CONNECTION",
+        "MENTOR",
+        "FOUNDER",
+    ),
     "points": _integer,
     "reversed": _boolean,
     "reason": _text,
@@ -203,6 +216,125 @@ _PASSWORD_CHANGED: dict[str, _Coerce] = {"id": _integer, "sessions_revoked": _in
 _PASSWORD_RESET_REQUESTED: dict[str, _Coerce] = {
     "id": _integer,
     "initiated_by": _one_of("self", "admin"),
+}
+
+# The masterclass programme (masterclasses/admin.py). Titles, descriptions and
+# speakers are administrator text; times are ISO strings; the rest are ids,
+# counts and flags. No attendee data is ever written into these events.
+_MC_EVENT: dict[str, _Coerce] = {
+    "id": _integer,
+    "code": _text,
+    "title": _text,
+    "venue": _optional(_text),
+    "timezone": _text,
+    "event_date": _text,
+    "competition_closes_at": _optional(_text),
+}
+_MC_BLOCK: dict[str, _Coerce] = {
+    "id": _integer,
+    "event_id": _integer,
+    "code": _text,
+    "title": _text,
+    "starts_at": _text,
+    "ends_at": _text,
+    "change_deadline": _text,
+    "sort_order": _integer,
+    "display_number": _optional(_integer),
+}
+_MC_ROOM: dict[str, _Coerce] = {
+    "id": _integer,
+    "event_id": _integer,
+    "name": _text,
+    "sort_order": _integer,
+    "display_number": _optional(_integer),
+}
+_MASTERCLASS: dict[str, _Coerce] = {
+    "id": _integer,
+    "event_id": _integer,
+    "block_id": _optional(_integer),
+    "room_id": _optional(_integer),
+    "title": _text,
+    "description": _optional(_text),
+    "speaker": _optional(_text),
+    "capacity": _integer,
+    "waitlist_capacity": _integer,
+    "is_published": _boolean,
+    "sort_order": _integer,
+    "standing_capacity": _integer,
+}
+
+# Beyond Now competition (competition/routers.py, competition/panels.py). The
+# Qmeter reason is the Game Master's own text; the attendee is shown by id only.
+_PANEL: dict[str, _Coerce] = {
+    "id": _integer,
+    "event_id": _integer,
+    "code": _text,
+    "title": _text,
+    "starts_at": _text,
+    "ends_at": _text,
+    "qr_version": _integer,
+}
+_SCOPE: dict[str, _Coerce] = {
+    "id": _integer,
+    "staff_account_id": _integer,
+    "scope": _one_of("MASTERCLASS_DOOR", "GAME_MASTER", "MENTOR_HOST"),
+    "target_id": _optional(_integer),
+    "revoked": _boolean,
+}
+_ELIGIBILITY: dict[str, _Coerce] = {
+    "id": _integer,
+    "excluded": _boolean,
+    "reason": _optional(_text),
+}
+_MATCH_TABLE: dict[str, _Coerce] = {
+    "id": _integer,
+    "event_id": _integer,
+    "label": _text,
+    "is_active": _boolean,
+}
+_MENTOR_SESSION: dict[str, _Coerce] = {
+    "id": _integer,
+    "event_id": _integer,
+    "code": _text,
+    "title": _text,
+    "mentor_name": _optional(_text),
+    "starts_at": _text,
+    "ends_at": _text,
+    "capacity": _integer,
+    "waitlist_capacity": _integer,
+    "is_open": _boolean,
+}
+_FINAL: dict[str, _Coerce] = {
+    "id": _integer,
+    "version": _integer,
+    "status": _one_of("draft", "published", "superseded", "discarded"),
+    "created_at": _text,
+    "published_at": _optional(_text),
+    "entries": _integer,
+    "founders": _integer,
+    "founder_rule_confirmed": _boolean,
+}
+_PAIR_PHOTO: dict[str, _Coerce] = {
+    "id": _integer,
+    "moderation": _one_of("pending", "approved", "rejected"),
+    "on_screen": _boolean,
+}
+_OFFLINE_SCAN: dict[str, _Coerce] = {
+    "id": _integer,
+    "status": _one_of("pending_review", "applied", "rejected", "failed"),
+    "reason": _optional(_text),
+    # What the phone claimed and what the reviewer verified, side by side.
+    "device_scanned_at": _optional(_text),
+    "verified_at": _optional(_text),
+    "outcome": _optional(_text),
+}
+_BOOTH_LEADS: dict[str, _Coerce] = {"id": _integer, "leads": _integer}
+_QMETER: dict[str, _Coerce] = {
+    "id": _integer,
+    "user_id": _integer,
+    "panel_id": _integer,
+    "points": _integer,
+    "reason": _text,
 }
 
 # action -> allowlist. A writer that adds an action must add it here (a test runs
@@ -226,6 +358,33 @@ FIELD_ALLOWLISTS: Mapping[str, Mapping[str, _Coerce]] = {
     "staff.password_change": _PASSWORD_CHANGED,
     "staff.password_reset": _PASSWORD_CHANGED,
     "staff.password_reset_requested": _PASSWORD_RESET_REQUESTED,
+    "masterclass_event.create": _MC_EVENT,
+    "masterclass_event.update": _MC_EVENT,
+    "masterclass_block.create": _MC_BLOCK,
+    "masterclass_block.update": _MC_BLOCK,
+    "masterclass_room.create": _MC_ROOM,
+    "masterclass_room.update": _MC_ROOM,
+    "masterclass.create": _MASTERCLASS,
+    "masterclass.update": _MASTERCLASS,
+    "masterclass.delete": _MASTERCLASS,
+    "panel.create": _PANEL,
+    "panel.update": _PANEL,
+    "staff_scope.grant": _SCOPE,
+    "staff_scope.revoke": _SCOPE,
+    "competition.eligibility": _ELIGIBILITY,
+    "competition.qmeter": _QMETER,
+    "match_table.create": _MATCH_TABLE,
+    "match_table.update": _MATCH_TABLE,
+    "mentor_session.create": _MENTOR_SESSION,
+    "mentor_session.update": _MENTOR_SESSION,
+    "final.create": _FINAL,
+    "final.publish": _FINAL,
+    "final.discard": _FINAL,
+    "final.export": _FINAL,
+    "pair_photo.moderate": _PAIR_PHOTO,
+    "offline_scan.approve": _OFFLINE_SCAN,
+    "offline_scan.reject": _OFFLINE_SCAN,
+    "booth.leads": _BOOTH_LEADS,
 }
 EXPORT_ACTIONS = ("export.started", "export.finished", "export.rejected")
 KNOWN_ACTIONS: tuple[str, ...] = (*FIELD_ALLOWLISTS, *EXPORT_ACTIONS)

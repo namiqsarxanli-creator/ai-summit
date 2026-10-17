@@ -218,6 +218,13 @@ ids="$(fm_copy_column "$TMP/db.dump" users id | LC_ALL=C sort -n | paste -sd, -)
 keys_sorted="$(fm_copy_column "$TMP/db.dump" users photo_key | LC_ALL=C sort)"
 keys_joined="$(printf '%s' "$keys_sorted" | paste -sd, -)"
 photos_referenced="$(printf '%s' "$keys_sorted" | grep -c . || true)"
+# Pair photos (migration 0025) are files on the same volume: they are referenced
+# too, so they are verified like profile photos and never counted as orphans.
+pair_keys_sorted="$(fm_copy_column "$TMP/db.dump" pair_photos photo_key | LC_ALL=C sort)"
+pair_keys_joined="$(printf '%s' "$pair_keys_sorted" | paste -sd, -)"
+pair_photos_referenced="$(printf '%s' "$pair_keys_sorted" | grep -c . || true)"
+pair_state="$(fm_pair_state_from_dump "$TMP/db.dump")"
+pair_rows="$(printf '%s' "$pair_state" | grep -c . || true)"
 
 # Which referenced photos does the archive really hold (every rendition)?
 present_keys="$(
@@ -226,7 +233,7 @@ present_keys="$(
         END { for (k in keys) { ok = 1; for (i = 1; i <= n; i++) if (!((k " " s[i]) in have)) ok = 0; if (ok) print k } }' \
     | LC_ALL=C sort
 )"
-printf '%s\n' "$keys_sorted" | sed '/^$/d' > "$TMP/.referenced"
+printf '%s\n%s\n' "$keys_sorted" "$pair_keys_sorted" | sed '/^$/d' | LC_ALL=C sort -u > "$TMP/.referenced"
 printf '%s\n' "$present_keys" | sed '/^$/d' > "$TMP/.present"
 comm -23 "$TMP/.referenced" "$TMP/.present" > "$TMP/missing-photos.txt"
 missing="$(grep -c . "$TMP/missing-photos.txt" || true)"
@@ -262,6 +269,10 @@ fi
   echo "users_ids_sha256=$(fm_sha256_of_text "$ids")"
   echo "users_with_photo=$photos_referenced"
   echo "photo_keys_sha256=$(fm_sha256_of_text "$keys_joined")"
+  echo "pair_photo_rows=$pair_rows"
+  echo "pair_photos_with_file=$pair_photos_referenced"
+  echo "pair_photo_keys_sha256=$(fm_sha256_of_text "$pair_keys_joined")"
+  echo "pair_photos_state_sha256=$(fm_sha256_of_text "$pair_state")"
   echo "photos_missing_files=$missing"
   echo "photos_present=$referenced_present"
   echo "media_orphan_keys=$orphans"

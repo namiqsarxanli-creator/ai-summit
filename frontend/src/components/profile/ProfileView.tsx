@@ -8,6 +8,7 @@ import { AttendeeTabBar } from "@/components/nav/AttendeeTabBar";
 import type { ApiResult } from "@/lib/api";
 import type { PhotoUrls } from "@/lib/avatar";
 import { messageFor } from "@/lib/errors";
+import { CARD_GROUPS, labelOf, selectedIn } from "@/lib/interestCard";
 import { fetchProfile, type AttendeeProfile } from "@/lib/profile";
 import { logout } from "@/lib/session";
 
@@ -129,6 +130,7 @@ export function ProfileView() {
             </h2>
             <p className="fm-small">{profile.profession}</p>
             <dl className="fm-dl">
+              {profile.company && <ProfileRow label={t("Company")} value={profile.company} />}
               <ProfileRow label={t("Email")} value={profile.email} />
               <ProfileRow label={t("Phone")} value={profile.phone} />
               {profile.linkedin_url && <ProfileRow label={t("LinkedIn")} value={profile.linkedin_url} />}
@@ -153,8 +155,37 @@ export function ProfileView() {
       </section>
 
       {!editing && (
+        <section className="fm-section" aria-label={t("Interest card")}>
+          <h2 className="fm-eyebrow">{t("Interest card")}</h2>
+          <p className="fm-hint">{t("Optional. Kept on your private profile only: it is not shown on your contact card and does not change your booth recommendations.")}</p>
+          <dl className="fm-dl">
+            {CARD_GROUPS.map((group) => {
+              const chosen = selectedIn(profile.interest_card, group.key);
+              return (
+                <div key={group.key}>
+                  <dt>{t(group.title)}</dt>
+                  <dd>
+                    {chosen.length === 0
+                      ? t("Not answered")
+                      : chosen
+                          .map((id) =>
+                            group.options.some((o) => o.id === id)
+                              ? t(labelOf(group.key, id))
+                              : `${id} (${t("no longer offered")})`,
+                          )
+                          .join(", ")}
+                  </dd>
+                </div>
+              );
+            })}
+          </dl>
+        </section>
+      )}
+
+      {!editing && (
         <section className="fm-section">
           <h2 className="fm-eyebrow">{t("Your interests")}</h2>
+          <p className="fm-hint">{t("These shape your booth recommendations and appear on your contact card. They are separate from the interest card.")}</p>
           {profile.interests.length === 0 ? (
             <p className="fm-empty">{t("You haven't selected any interests yet.")}</p>
           ) : (

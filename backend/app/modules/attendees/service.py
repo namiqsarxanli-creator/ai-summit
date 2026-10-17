@@ -32,6 +32,7 @@ from app.core.security import (
     verify_secret,
 )
 from app.core.sessions import create_attendee_session
+from app.modules.attendees.interest_card import InterestCard, card_of, ensure_known
 from app.modules.attendees.models import (
     ConsentAudit,
     OtpChallenge,
@@ -185,11 +186,21 @@ def _registration_snapshot(payload: RegisterRequest, interest_ids: list[int]) ->
         "linkedin_url": payload.linkedin_url,
         "interest_ids": sorted(set(interest_ids)),
         "sponsor_consent": payload.sponsor_consent,
+        "company": payload.company,
+        "interest_card": payload.interest_card.model_dump(),
     }
     # A digest of the submission, so tests and audits can tell two apart
     # without comparing personal data field by field.
     snapshot["digest"] = hashlib.sha256(canonical_json(dict(snapshot))).hexdigest()
     return snapshot
+
+
+def _write_company_and_card(user: User, company: str | None, card: InterestCard) -> None:
+    user.company = company
+    user.card_sector = card.sector
+    user.card_topics = list(card.topics)
+    user.card_seeking = list(card.seeking)
+    user.card_offering = list(card.offering)
 
 
 def _register_new(
@@ -218,6 +229,7 @@ def _register_new(
         sponsor_consent_version=CONSENT_VERSION if payload.sponsor_consent else None,
         status=UserStatus.PROVISIONAL,
     )
+    _write_company_and_card(user, payload.company, payload.interest_card)
     db.add(user)
     try:
         db.flush()
@@ -280,6 +292,7 @@ def _reregister_provisional(
     existing.sponsor_consent = payload.sponsor_consent
     existing.sponsor_consent_at = datetime.now(UTC) if payload.sponsor_consent else None
     existing.sponsor_consent_version = CONSENT_VERSION if payload.sponsor_consent else None
+    _write_company_and_card(existing, payload.company, payload.interest_card)
 
     db.execute(delete(UserInterest).where(UserInterest.user_id == existing.id))
     db.add_all([UserInterest(user_id=existing.id, interest_id=iid) for iid in interest_ids])
@@ -328,6 +341,9 @@ def register_attendee(
     from itself becoming a membership oracle."""
     email = payload.email.strip().lower()
     interest_ids = _resolve_interest_ids(db, payload.interest_slugs)
+    # The card's catalogue check, likewise before branching. Registration has
+    # nothing stored yet, so only the current catalogue is accepted.
+    ensure_known(payload.interest_card)
 
     existing = db.execute(
         select(User).where(User.email == email).with_for_update()
@@ -394,6 +410,18 @@ def _bind_activation(db: Session, user: User, intent: str | None, now: datetime)
         db.execute(delete(UserInterest).where(UserInterest.user_id == user.id))
         db.add_all([UserInterest(user_id=user.id, interest_id=iid) for iid in sorted(active)])
         consent = snapshot.get("sponsor_consent") is True
+        # Snapshots written before migration 0016 have neither key: keep the row's.
+        if "company" in snapshot or "interest_card" in snapshot:
+            raw_company = snapshot.get("company")
+            raw_card = snapshot.get("interest_card")
+            card = (
+                InterestCard.model_validate(raw_card)
+                if isinstance(raw_card, dict)
+                else InterestCard()
+            )
+            _write_company_and_card(
+                user, str(raw_company) if isinstance(raw_company, str) else None, card
+            )
 
     if user.sponsor_consent != consent:
         user.sponsor_consent = consent
@@ -481,6 +509,12 @@ def verify_otp(
         _bind_activation(db, user, registration_intent, now)
         user.status = UserStatus.ACTIVE
         user.activated_at = now
+        db.flush()
+        # A card completed at registration earns PROFILE now that the e-mail is
+        # proven (competition/profile.py); never before activation.
+        from app.modules.competition.profile import maybe_award_profile
+
+        maybe_award_profile(db, user, now)
         # "Activate the contact card": the card issued at registration
         # becomes resolvable purely because users.status is now ACTIVE —
         # card resolution (M06) gates on that via a join, so no row in
@@ -528,6 +562,10 @@ def attendee_profile(db: Session, user: User) -> AttendeeProfile:
         sponsor_consent_at=user.sponsor_consent_at,
         sponsor_consent_version=user.sponsor_consent_version,
         interests=[ProfileInterest(slug=slug, name=name) for slug, name in rows],
+        company=user.company,
+        interest_card=card_of(
+            user.card_sector, user.card_topics, user.card_seeking, user.card_offering
+        ),
         version=user.profile_version,
         photo=own_photo_urls(user.photo_key),
     )

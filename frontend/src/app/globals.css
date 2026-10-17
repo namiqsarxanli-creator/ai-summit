@@ -153,6 +153,13 @@ html { scroll-padding-bottom: calc(var(--fm-tabbar-h) + env(safe-area-inset-bott
 .fm-choice:has(input:focus-visible) { outline: 3px solid var(--fm-red); outline-offset: 2px; }
 .fm-choice[data-unavailable="true"] { border-color: var(--fm-red); background: var(--fm-red-soft); color: var(--fm-red); }
 .fm-choice input { position: absolute; width: 1px; height: 1px; min-height: 0; opacity: 0; overflow: hidden; }
+/* A full group (interest card): unchosen chips rest, chosen ones stay removable. */
+.fm-choice { max-width: 100%; overflow-wrap: anywhere; }
+.fm-choice-note { color: inherit; font-size: 13px; font-weight: 400; }
+.fm-choice:has(input:disabled) { opacity: .45; cursor: not-allowed; }
+.fm-choice:has(input:disabled):hover { border-color: var(--fm-line-strong); }
+.fm-card-group { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.fm-card-group-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; }
 .fm-option { display: flex; align-items: center; gap: 12px; min-height: var(--fm-tap); color: var(--fm-ink); font-size: 16px; cursor: pointer; }
 .fm-option input { width: 22px; height: 22px; min-height: 0; flex: none; accent-color: var(--fm-red); }
 

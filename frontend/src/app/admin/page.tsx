@@ -9,12 +9,16 @@ import { messageFor } from "@/lib/errors";
 import { startStaffPasswordReset } from "@/lib/staffPassword";
 import { AdminList } from "@/components/admin/AdminList";
 import { AuditLog } from "@/components/admin/AuditLog";
+import { PlaygroundAdmin } from "@/components/admin/PlaygroundAdmin";
+import { CompetitionAdmin } from "@/components/admin/CompetitionAdmin";
+import { ConnectionHubAdmin } from "@/components/admin/ConnectionHubAdmin";
+import { MasterclassAdmin } from "@/components/admin/MasterclassAdmin";
 import { Records, type RecordValue } from "@/components/admin/Records";
 
-type Section = "attendees" | "booths" | "interests" | "staff" | "tasks" | "presets" | "event-config" | "points-log" | "audit" | "otp-deliveries" | "demo-otps";
+type Section = "competition" | "connection-hub" | "playground" | "attendees" | "masterclasses" | "booths" | "interests" | "staff" | "tasks" | "presets" | "event-config" | "points-log" | "audit" | "otp-deliveries" | "demo-otps";
 
-const sections: Section[] = ["attendees", "booths", "interests", "staff", "tasks", "presets", "event-config", "points-log", "audit", "otp-deliveries", "demo-otps"];
-const titles: Record<Section, string> = { attendees: "Attendees", booths: "Booths", interests: "Interests", staff: "Staff", tasks: "Tasks", presets: "Point presets (legacy)", "event-config": "Event settings", "points-log": "Points ledger", audit: "Audit log", "otp-deliveries": "Email delivery", "demo-otps": "Demo codes" };
+const sections: Section[] = ["attendees", "competition", "connection-hub", "playground", "masterclasses", "booths", "interests", "staff", "tasks", "presets", "event-config", "points-log", "audit", "otp-deliveries", "demo-otps"];
+const titles: Record<Section, string> = { competition: "Beyond Now competition", "connection-hub": "Connection Hub", playground: "AI Playground", attendees: "Attendees", masterclasses: "Masterclass programme", booths: "Booths", interests: "Interests", staff: "Staff", tasks: "Tasks", presets: "Point presets (legacy)", "event-config": "Event settings", "points-log": "Points ledger", audit: "Audit log", "otp-deliveries": "Email delivery", "demo-otps": "Demo codes" };
 
 type DeliveryPage = {
   items: RecordValue[];
@@ -120,7 +124,8 @@ export default function AdminPage() {
   useEffect(() => { sectionNow.current = section; }, [section]);
   // The paged lists (attendees, ledger) own their loading; this makes them reload.
   const [refreshKey, setRefreshKey] = useState(0);
-  const paged = (item: Section) => item === "attendees" || item === "points-log" || item === "audit";
+  // Sections whose component loads (and reloads) its own data.
+  const paged = (item: Section) => item === "competition" || item === "connection-hub" || item === "playground" || item === "attendees" || item === "points-log" || item === "audit" || item === "masterclasses";
 
   const load = useCallback((target: Section): Promise<void> => {
     const mine = ++newestLoad.current;
@@ -211,7 +216,9 @@ export default function AdminPage() {
       </div>
       <section className="min-w-0 rounded-2xl border border-slate-700 bg-slate-900/80 p-4" aria-label={`${section} data`}>
         <h2 className="mb-4 text-xl font-semibold">{t(titles[section])}</h2>
-        {section === "audit"
+        {section === "competition" ? <CompetitionAdmin key={`${section}-${refreshKey}`} /> : section === "connection-hub" ? <ConnectionHubAdmin key={`${section}-${refreshKey}`} /> : section === "playground" ? <PlaygroundAdmin /> : section === "masterclasses"
+          ? <MasterclassAdmin key={`${section}-${refreshKey}`} />
+          : section === "audit"
           ? <AuditLog key={section} refreshKey={refreshKey} />
           : paged(section)
           ? <AdminList key={section} kind={section as "attendees" | "points-log"} refreshKey={refreshKey} />
@@ -225,7 +232,7 @@ export default function AdminPage() {
       {section === "attendees" && <p className="text-sm text-slate-300">{t("Attendee records are for inspection only.")}</p>}
       {section === "points-log" && <p className="text-sm text-slate-300">{t("The ledger itself is never edited. An award can be reversed in full, with a reason: the reversal is a new entry linked to it.")}</p>}
       {section === "demo-otps" && <p className="text-sm text-slate-300">{t("Recent codes are visible only in demo mode to signed-in administrators.")}</p>}
-      {section !== "attendees" && section !== "points-log" && section !== "audit" && section !== "otp-deliveries" && section !== "demo-otps" && <fieldset disabled={busy} className="grid max-w-lg gap-3 rounded-2xl border border-slate-700 bg-slate-900/80 p-5 disabled:opacity-60">
+      {section !== "attendees" && section !== "competition" && section !== "masterclasses" && section !== "playground" && section !== "points-log" && section !== "audit" && section !== "otp-deliveries" && section !== "demo-otps" && <fieldset disabled={busy} className="grid max-w-lg gap-3 rounded-2xl border border-slate-700 bg-slate-900/80 p-5 disabled:opacity-60">
         <h2 className="text-lg font-medium">{t("Manage")} {t(titles[section])}</h2>
         {section === "staff" && <>
           <Field label={t("Email" )} value={email} set={setEmail} /><Field label={t("Full name" )} value={name} set={setName} />

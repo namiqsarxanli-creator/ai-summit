@@ -22,6 +22,9 @@ from app.db.base import Base, IdentityPKMixin
 class StaffRole(enum.StrEnum):
     BOOTH_STAFF = "BOOTH_STAFF"
     ADMIN = "ADMIN"
+    # Migration 0020: a volunteer / host / Game Master has NO powers of its own -
+    # only the revocable scopes an administrator grants (competition/models.py).
+    VOLUNTEER = "VOLUNTEER"
 
 
 class StaffAccount(IdentityPKMixin, Base):
@@ -57,7 +60,8 @@ class StaffAccount(IdentityPKMixin, Base):
         # already-final name, so the convention leaves it untouched.
         CheckConstraint(
             "(role = 'BOOTH_STAFF' AND booth_id IS NOT NULL) OR "
-            "(role = 'ADMIN' AND booth_id IS NULL)",
+            "(role = 'ADMIN' AND booth_id IS NULL) OR "
+            "(role = 'VOLUNTEER' AND booth_id IS NULL)",
             name=conv("ck_staff_role_booth"),
         ),
     )

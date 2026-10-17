@@ -116,16 +116,28 @@
 	# stacks `request_body` limits, so a site-wide 1MB would also cap the photo
 	# upload below. 1MB is generous for every JSON endpoint.
 	#
-	# The one exception: the attendee's profile photo, sent as the raw image
-	# (backend MEDIA_MAX_UPLOAD_BYTES, default 8 MiB). 9MB leaves a little headroom
-	# so the application's own limit - which answers with the documented
-	# PHOTO_TOO_LARGE error - is the one a person normally meets; anything bigger
-	# is cut here before it reaches the backend. This block must stay FIRST.
+	# The exceptions: the two raw-image uploads - the attendee's profile photo and a
+	# pair photo (Beyond Now Photo) - both bounded by the backend's
+	# MEDIA_MAX_UPLOAD_BYTES (default 8 MiB). 9MB leaves a little headroom so the
+	# application's own limit - which answers with the documented PHOTO_TOO_LARGE
+	# error - is the one a person normally meets; anything bigger is cut here
+	# before it reaches the backend. Exact method AND path: nothing else gets the
+	# larger limit. These blocks must stay FIRST.
 	@photo_upload {
 		method PUT
 		path /api/attendees/me/photo
 	}
 	handle @photo_upload {
+		request_body {
+			max_size 9MB
+		}
+		import backend_proxy
+	}
+	@pair_photo_upload {
+		method POST
+		path /api/attendees/me/pair-photos
+	}
+	handle @pair_photo_upload {
 		request_body {
 			max_size 9MB
 		}

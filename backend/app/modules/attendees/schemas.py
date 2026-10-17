@@ -21,6 +21,7 @@ from pydantic import (
 
 from app.core.languages import DEFAULT_LANGUAGE, RequestLanguage
 from app.core.urls import is_linkedin_url
+from app.modules.attendees.interest_card import InterestCard, clean_company
 
 
 def _validate_linkedin_url(value: str) -> str:
@@ -33,7 +34,25 @@ def _validate_linkedin_url(value: str) -> str:
     return value
 
 
-class RegisterRequest(BaseModel):
+class CompanyAndCard(BaseModel):
+    """What registration and profile editing share about the company and the
+    interest card - ONE contract, so the two forms cannot drift apart. Both are
+    optional: an attendee without a company, or who skips the card, registers
+    and edits normally."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Separate from `profession` (the role): never merged into it.
+    company: str | None = Field(default=None, max_length=200)
+    interest_card: InterestCard = Field(default_factory=InterestCard)
+
+    @field_validator("company")
+    @classmethod
+    def _clean_company(cls, v: str | None) -> str | None:
+        return clean_company(v)
+
+
+class RegisterRequest(CompanyAndCard):
     model_config = ConfigDict(extra="forbid")
 
     first_name: str = Field(min_length=1, max_length=200)
@@ -68,9 +87,13 @@ class RegisterRequest(BaseModel):
         return v
 
 
-class ProfileUpdate(BaseModel):
+class ProfileUpdate(CompanyAndCard):
     """`PUT /api/attendees/me/profile`: the attendee's own editable details, the
     WHOLE set (a form's current state), plus the version the form was loaded at.
+
+    `company` and `interest_card` (shared with registration) may be left out by a
+    client that predates them - a cached page of the app - and are then left as
+    they are; sent, they replace what is stored (see `update_profile`).
 
     Same rules as registration (lengths, stripped text, LinkedIn URL shape; the
     parity is tested). Not here, on purpose: `email` (changing it is a separate,
@@ -198,6 +221,9 @@ class AttendeeProfile(BaseModel):
     sponsor_consent_at: datetime | None = None
     sponsor_consent_version: str | None = None
     interests: list[ProfileInterest]
+    # Private, own-view only - never on the public card, leaderboard or exports.
+    company: str | None = None
+    interest_card: InterestCard = Field(default_factory=InterestCard)
     # What `PUT /me/profile` must send back as `expected_version`.
     version: int = 1
     photo: PhotoUrls | None = None

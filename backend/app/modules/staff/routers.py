@@ -174,7 +174,15 @@ def me(staff: CurrentStaff, db: DbSession) -> StaffMe:
     if staff.booth_id is not None:
         booth = db.get(Booth, staff.booth_id)
         booth_name = booth.name if booth is not None else None
-    return StaffMe(full_name=staff.full_name, role=staff.role, booth_name=booth_name)
+    from app.modules.competition.offline import current_generation, queue_owner
+
+    return StaffMe(
+        full_name=staff.full_name,
+        role=staff.role,
+        booth_name=booth_name,
+        queue_owner=queue_owner(staff.id),
+        dataset_generation=current_generation(db),
+    )
 
 
 @router.get("/points/presets", response_model=list[PresetOut])

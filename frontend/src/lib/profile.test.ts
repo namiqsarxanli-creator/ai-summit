@@ -33,6 +33,8 @@ const PROFILE: AttendeeProfile = {
     { slug: "generative-ai", name: "Generative AI" },
     { slug: "data-analytics", name: "Data Analytics" },
   ],
+  company: "AIWorks",
+  interest_card: { sector: "bank_finance", topics: ["data"], seeking: [], offering: ["mentoring"] },
   version: 3,
   photo: null,
 };
@@ -114,6 +116,8 @@ describe("drafts", () => {
         profession: " P ",
         linkedin_url: " ",
         interest_slugs: ["b", "a", "b"],
+        company: "  Acme  ",
+        interest_card: { sector: null, topics: [], seeking: [], offering: [] },
       }),
     ).toEqual({
       first_name: "A",
@@ -122,6 +126,8 @@ describe("drafts", () => {
       profession: "P",
       linkedin_url: "",
       interest_slugs: ["a", "b"],
+      company: "Acme",
+      interest_card: { sector: null, topics: [], seeking: [], offering: [] },
     });
   });
 });
@@ -140,6 +146,8 @@ describe("validateProfile (the rules registration has)", () => {
       profession: "  ",
       linkedin_url: "https://example.com/in/x",
       interest_slugs: [],
+      company: "",
+      interest_card: { sector: null, topics: [], seeking: [], offering: [] },
     });
     expect(Object.keys(errors).sort()).toEqual(
       ["first_name", "last_name", "linkedin_url", "phone", "profession"],
@@ -170,6 +178,8 @@ describe("updateProfile", () => {
       profession: "Systems Engineer",
       linkedin_url: null,
       interest_slugs: ["data-analytics", "generative-ai"],
+      company: "AIWorks",
+      interest_card: { sector: "bank_finance", topics: ["data"], seeking: [], offering: ["mentoring"] },
       expected_version: 3,
     });
     expect(result.ok && result.data.version).toBe(4);

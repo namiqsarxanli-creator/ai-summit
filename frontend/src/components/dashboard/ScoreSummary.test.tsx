@@ -2,8 +2,8 @@ import { render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { messageFor } from "@/lib/errors";
-import { realtimeStore } from "@/lib/realtime";
 import { installMockEventSource, MockEventSource } from "@/test-utils/mockEventSource";
+import { teardownRealtime } from "@/test-utils/realtimeTeardown";
 
 import { ScoreSummary } from "./ScoreSummary";
 
@@ -33,8 +33,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  realtimeStore.resetForTests();
-  vi.unstubAllGlobals();
+  teardownRealtime();
 });
 
 describe("ScoreSummary", () => {

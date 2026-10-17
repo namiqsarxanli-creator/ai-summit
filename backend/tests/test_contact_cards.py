@@ -290,10 +290,37 @@ def test_public_card_linkedin_case_without_authentication(
         {"slug": "generative-ai", "name": "Generative AI"},
         {"slug": "data-analytics", "name": "Data Analytics"},
     ]
-    assert body["contact"] == {
+    # Beyond Now contact gate (migration 0021): no contact for an anonymous viewer.
+    assert body["contact"] is None
+
+
+def _connect(a_email: str, b_email: str) -> None:
+    low, high = sorted((_user_id(a_email), _user_id(b_email)))
+    execute(
+        "INSERT INTO connections (user_low_id, user_high_id, kind, same_company, established_at) "
+        "VALUES (:l, :h, 'OTHER', false, now())",
+        l=low,
+        h=high,
+    )
+
+
+def test_the_contact_opens_only_to_a_connected_signed_in_viewer(
+    emails: Callable[[], str], attendee: Callable[..., Any], anonymous: TestClient
+) -> None:
+    """The server-chosen action (LinkedIn first, e-mail as fallback) is shown
+    only after the mutual QR scan; another signed-in attendee gets nothing."""
+    owner, token, _ = attendee(emails(), sponsor_consent=True)
+    viewer, _, viewer_client = attendee(emails(), linkedin_url=None)
+    stranger_email, _, stranger_client = attendee(emails(), linkedin_url=None)
+    assert viewer_client.get(card_path(token)).json()["contact"] is None
+    _connect(owner, viewer)
+    assert viewer_client.get(card_path(token)).json()["contact"] == {
         "type": "LINKEDIN",
         "value": "https://www.linkedin.com/in/grace-hopper-demo",
     }
+    assert stranger_client.get(card_path(token)).json()["contact"] is None
+    assert anonymous.get(card_path(token)).json()["contact"] is None
+    del stranger_email
 
 
 def test_public_card_response_leaks_nothing_private(
@@ -324,7 +351,10 @@ def test_public_card_email_fallback_case(
     emails: Callable[[], str], attendee: Callable[..., Any], anonymous: TestClient
 ) -> None:
     email, token, _ = attendee(emails(), linkedin_url=None)
-    body = anonymous.get(card_path(token)).json()
+    viewer, _, viewer_client = attendee(emails(), linkedin_url=None)
+    assert anonymous.get(card_path(token)).json()["contact"] is None
+    _connect(email, viewer)
+    body = viewer_client.get(card_path(token)).json()
     assert body["contact"] == {"type": "EMAIL", "value": email}
     assert set(body) == PUBLIC_CARD_KEYS
     assert "phone" not in body and "+1-555-0142" not in str(body)
@@ -343,7 +373,7 @@ def test_every_fixed_demo_token_resolves_to_its_attendee(
         a.profession,
     )
     assert {i["slug"] for i in body["interests"]} == set(a.interest_slugs)
-    assert body["contact"] == {"type": "EMAIL", "value": a.email}
+    assert body["contact"] is None  # the contact gate: anonymous sees none
     assert a.phone not in str(body)
 
 

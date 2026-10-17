@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { messageFor } from "@/lib/errors";
@@ -125,6 +125,8 @@ describe("RegisterForm", () => {
       email: "grace@summit.example.org",
       phone: "+1-555-0142",
       profession: "Systems Engineer",
+      company: null, // left empty: no company is invented
+      interest_card: { sector: null, topics: [], seeking: [], offering: [] }, // every card group is optional
       interest_slugs: ["robotics"],
       sponsor_consent: false,
       language: "en", // the OTP email is written in the language in use
@@ -199,5 +201,45 @@ describe("RegisterForm", () => {
     render(<RegisterForm />);
     fireEvent.click(await screen.findByRole("button", { name: "Retry" }));
     expect(await screen.findByLabelText("Generative AI")).toBeInTheDocument();
+  });
+
+  it("sends the company and the interest card with the same contract profile editing uses", async () => {
+    render(<RegisterForm />);
+    await screen.findByLabelText("Robotics");
+    fillValidForm();
+    fireEvent.change(screen.getByLabelText("Company (optional)"), { target: { value: "  Kapital Bank " } });
+    const card = within(screen.getByTestId("interest-card"));
+    fireEvent.click(within(card.getByRole("group", { name: "My field" })).getByLabelText("Banking and finance"));
+    const topics = within(card.getByRole("group", { name: "Topics I'm interested in" }));
+    for (const label of ["Data", "AI strategy", "Fintech", "Design"]) fireEvent.click(topics.getByLabelText(label));
+    fireEvent.click(within(card.getByRole("group", { name: "What I'm looking for" })).getByLabelText("A partner"));
+    fireEvent.click(within(card.getByRole("group", { name: "What I offer" })).getByLabelText("Mentoring"));
+    fireEvent.click(screen.getByLabelText("No, don't share my details"));
+    fireEvent.click(screen.getByRole("button", { name: "Register and get my code" }));
+
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/verify"));
+    const body = JSON.parse((registerCalls()[0] as [string, RequestInit])[1].body as string);
+    expect(body.company).toBe("Kapital Bank");
+    expect(body.profession).toBe("Systems Engineer"); // the role stays its own field
+    expect(body.interest_card).toEqual({
+      sector: "bank_finance",
+      topics: ["data", "ai_strategy", "fintech"], // the fourth tap was refused at the limit
+      seeking: ["partner"],
+      offering: ["mentoring"],
+    });
+    expect(body.sponsor_consent).toBe(false); // the card has nothing to do with consent
+  });
+
+  it("names a card problem the server reports on the card itself", async () => {
+    registerResponse = () =>
+      errorResponse(422, "VALIDATION_ERROR", {
+        errors: [{ loc: ["body", "interest_card", "topics"], msg: "x", type: "value_error" }],
+      });
+    render(<RegisterForm />);
+    await screen.findByLabelText("Robotics");
+    fillValidForm();
+    fireEvent.click(screen.getByLabelText("No, don't share my details"));
+    fireEvent.click(screen.getByRole("button", { name: "Register and get my code" }));
+    expect(await screen.findByText("Check your interest card choices.")).toBeInTheDocument();
   });
 });

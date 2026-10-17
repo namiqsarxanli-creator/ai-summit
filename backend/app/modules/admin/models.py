@@ -67,6 +67,13 @@ class EventConfig(Base):
     # a demo run rehearsed many times over months must never wrap.
     dataset_generation: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="1")
     maintenance_mode: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    # Migration 0020: when true the ranking counts ONLY the Beyond Now competition
+    # categories (competition/rules.py). Off until an administrator activates it
+    # after the dry-run report (`python -m app.cli competition-report`).
+    competition_mode: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    # Migration 0024: programme reminder emails. Off until an administrator
+    # switches them on; even then only attendees who opted in receive them.
+    reminders_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

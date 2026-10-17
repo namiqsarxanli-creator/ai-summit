@@ -18,8 +18,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 from fastapi import Response
-from sqlalchemy import func, select, update
-from sqlalchemy.orm import Session
+from sqlalchemy import bindparam, func, select, update
+from sqlalchemy.orm import Session, load_only
 
 from app.core.auth_session import AuthSession, PrincipalType
 from app.core.config import get_settings
@@ -37,6 +37,21 @@ from app.modules.staff.models import StaffAccount
 SESSION_COOKIE_NAME = "session"
 SESSION_TTL = timedelta(hours=12)
 REMEMBERED_SESSION_TTL = timedelta(days=30)
+
+# Reuse the query structure, never its result: expiry and revocation are still
+# read from PostgreSQL on every call. Building this ORM expression per request
+# is a measurable CPU cost during a burst of authenticated reads/heartbeats.
+_ATTENDEE_SESSION_QUERY = (
+    select(User)
+    .join(AuthSession, AuthSession.user_id == User.id)
+    .where(
+        AuthSession.token_hash == bindparam("session_token_hash"),
+        AuthSession.principal_type == PrincipalType.ATTENDEE,
+        AuthSession.revoked_at.is_(None),
+        AuthSession.expires_at > func.now(),
+    )
+)
+_ATTENDEE_IDENTITY_QUERY = _ATTENDEE_SESSION_QUERY.options(load_only(User.id, User.status))
 
 
 def create_attendee_session(
@@ -75,7 +90,9 @@ def create_staff_session(db: Session, *, staff_account_id: int, now: datetime) -
     return raw_token
 
 
-def resolve_attendee_session(db: Session, raw_token: str | None) -> User:
+def resolve_attendee_session(
+    db: Session, raw_token: str | None, *, identity_only: bool = False
+) -> User:
     """The authenticated attendee, or an exception — never a guess.
 
     Missing, unknown, expired, revoked, or a session of another
@@ -89,15 +106,9 @@ def resolve_attendee_session(db: Session, raw_token: str | None) -> User:
     """
     if not raw_token:
         raise UnauthenticatedError("Please sign in.")
+    query = _ATTENDEE_IDENTITY_QUERY if identity_only else _ATTENDEE_SESSION_QUERY
     user = db.execute(
-        select(User)
-        .join(AuthSession, AuthSession.user_id == User.id)
-        .where(
-            AuthSession.token_hash == hash_session_token(raw_token),
-            AuthSession.principal_type == PrincipalType.ATTENDEE,
-            AuthSession.revoked_at.is_(None),
-            AuthSession.expires_at > func.now(),
-        )
+        query, {"session_token_hash": hash_session_token(raw_token)}
     ).scalar_one_or_none()
     if user is None:
         raise UnauthenticatedError("Please sign in.")

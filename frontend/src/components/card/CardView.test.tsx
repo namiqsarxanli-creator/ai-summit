@@ -43,6 +43,13 @@ describe("CardView", () => {
     expect(screen.queryByRole("link", { name: /linkedin/i })).not.toBeInTheDocument();
   });
 
+  it("shows no contact at all until the pair has scanned each other's QR", () => {
+    const card: PublicCard = { ...BASE, contact: null };
+    const { container } = render(<CardView card={card} />);
+    expect(container.querySelector("a")).toBeNull();
+    expect(screen.getByText("Scan each other's QR in AI Summit to exchange contacts.")).toBeInTheDocument();
+  });
+
   it("never turns a non-http LinkedIn value into a link", () => {
     const card: PublicCard = { ...BASE, contact: { type: "LINKEDIN", value: "javascript:alert(1)" } };
     const { container } = render(<CardView card={card} />);

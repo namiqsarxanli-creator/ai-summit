@@ -17,7 +17,7 @@ import sys
 import psycopg
 import pytest
 
-from tests import suite_db
+from tests import ledger_snapshot, suite_db
 from tests.reset_support import BACKEND_ROOT
 from tests.test_admin_lists_migration import _alembic
 
@@ -109,9 +109,13 @@ def _plant(dsn: str) -> dict[str, int]:
     }
 
 
-def _snapshot(dsn: str) -> tuple[list[tuple[object, ...]], list[tuple[object, ...]]]:
+def _snapshot(
+    dsn: str, ledger_columns: list[str]
+) -> tuple[list[tuple[object, ...]], list[tuple[object, ...]]]:
+    """The ledger by the columns that existed before the upgrade (by name), and
+    the OTP challenges - comparable across later revisions that add columns."""
     with psycopg.connect(dsn) as conn:
-        ledger = conn.execute("SELECT * FROM points_log ORDER BY id").fetchall()
+        ledger = ledger_snapshot.rows(conn, "points_log", ledger_columns)
         otp = conn.execute(
             "SELECT id, email::text, purpose::text, code_hash FROM otp_challenges ORDER BY id"
         ).fetchall()
@@ -166,7 +170,10 @@ def test_0012_and_0013_keep_every_row_and_only_widen_what_is_allowed() -> None:
     with suite_db.scratch_database("reversal", migrate_to="0011_audit_view") as scratch:
         dsn = scratch.psycopg_url
         ids = _plant(dsn)
-        before = _snapshot(dsn)
+        with psycopg.connect(dsn) as conn:
+            old_columns = ledger_snapshot.columns(conn, "points_log")
+            old_ids = [int(r[0]) for r in conn.execute("SELECT id FROM points_log")]
+        before = _snapshot(dsn, old_columns)
         assert _enum_values(dsn) == ["ACTIVATION", "LOGIN"]
         assert NOTE_LENGTH not in _constraint_names(dsn)
         # under the OLD rule an administrator's FEEDBACK reversal is refused
@@ -177,7 +184,13 @@ def test_0012_and_0013_keep_every_row_and_only_widen_what_is_allowed() -> None:
 
         # (the head moves on with later revisions; this test is about 0012 and 0013)
         assert "(head)" in _alembic(scratch.url, "current")
-        assert _snapshot(dsn) == before  # nothing was read back changed, nothing lost
+        # Every historical value, column by column, is exactly what it was.
+        assert _snapshot(dsn, old_columns) == before  # nothing changed, nothing lost
+        # Columns added by later revisions invent nothing for these old rows.
+        with psycopg.connect(dsn) as conn:
+            added = ledger_snapshot.added_values(conn, "points_log", old_columns, old_ids)
+        assert "occurred_at" in added  # migration 0027's evidence field exists...
+        assert all(v is None for values in added.values() for v in values), added
         assert _enum_values(dsn) == ["ACTIVATION", "LOGIN", "STAFF_PASSWORD_RESET"]
         assert {ATTRIBUTION, NOTE_LENGTH} <= _constraint_names(dsn)
         _alembic(scratch.url, "check")  # the models and the migrations agree
@@ -215,7 +228,7 @@ def test_0012_and_0013_keep_every_row_and_only_widen_what_is_allowed() -> None:
         # DOWN 0013: the staff reset challenge goes, the attendee's rows stay
         _alembic(scratch.url, "downgrade", "0012_points_reversal")
         assert _enum_values(dsn) == ["ACTIVATION", "LOGIN"]
-        assert _snapshot(dsn)[1] == before[1]
+        assert _snapshot(dsn, old_columns)[1] == before[1]
 
         # DOWN 0012 refuses while the administrator-made reversal exists, changing nothing
         refusal = _alembic_status(scratch.url, "downgrade", "0011_audit_view")
@@ -232,10 +245,15 @@ def test_0012_and_0013_keep_every_row_and_only_widen_what_is_allowed() -> None:
 
         _alembic(scratch.url, "downgrade", "0011_audit_view")
         assert NOTE_LENGTH not in _constraint_names(dsn)
-        assert _snapshot(dsn) == before
+        with psycopg.connect(dsn) as conn:  # the old schema exactly, column for column
+            assert ledger_snapshot.columns(conn, "points_log") == old_columns
+        assert _snapshot(dsn, old_columns) == before
         with pytest.raises(psycopg.errors.CheckViolation):
             _admin_feedback_reversal(dsn, ids)  # the old rule is back
 
         _alembic(scratch.url, "upgrade", "head")
         assert "(head)" in _alembic(scratch.url, "current")
-        assert _snapshot(dsn) == before
+        assert _snapshot(dsn, old_columns) == before
+        with psycopg.connect(dsn) as conn:
+            again = ledger_snapshot.added_values(conn, "points_log", old_columns, old_ids)
+        assert all(v is None for values in again.values() for v in values), again

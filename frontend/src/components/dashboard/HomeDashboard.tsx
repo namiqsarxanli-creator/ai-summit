@@ -79,6 +79,11 @@ export function HomeDashboard() {
   return (
     <div className="fm-stack">
       <ScoreSummary />
+      <Link href="/programme" className="fm-btn fm-btn-secondary">{t("My programme")} →</Link>
+      <Link href="/report" className="fm-btn fm-btn-secondary">{t("My report")} →</Link>
+      <Link href="/points" className="fm-btn fm-btn-secondary">{t("My points")} →</Link>
+      <Link href="/people" className="fm-btn fm-btn-secondary">{t("People to meet")} →</Link>
+      <Link href="/playground" className="fm-btn fm-btn-secondary">{t("AI Playground")} →</Link>
 
       <div className="fm-actions" aria-label={t("Quick actions")}>
         <Link href="/booths" className="fm-action fm-action-booths">
@@ -92,6 +97,16 @@ export function HomeDashboard() {
           <span className="fm-action-arrow"><HomeIcon name="arrow" /></span>
         </Link>
       </div>
+
+      <section className="fm-section" aria-labelledby="home-masterclasses">
+        <div className="fm-row-between">
+          <h2 id="home-masterclasses" className="fm-eyebrow">{t("Masterclasses")}</h2>
+          <Link href="/masterclasses" className="fm-link fm-link-block">
+            {t("Programme →")}
+          </Link>
+        </div>
+        <p className="fm-small">{t("Reserve a seat in a masterclass or join its waitlist.")}</p>
+      </section>
 
       <section className="fm-section">
         <div className="fm-row-between">

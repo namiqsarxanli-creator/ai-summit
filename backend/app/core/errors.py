@@ -481,6 +481,71 @@ class PasswordResetUnavailableError(DomainError):
     status_code = 503
 
 
+class MasterclassNotFoundError(DomainError):
+    """No such masterclass or block - or one an attendee cannot see (not
+    published, not scheduled). One answer for all."""
+
+    code = "MASTERCLASS_NOT_FOUND"
+    status_code = 404
+
+
+class MasterclassFullError(DomainError):
+    """Every seat is taken (or people are already queueing for one). Nothing
+    changed - a choice the attendee already holds in the block is kept.
+    `details.waitlist_open` says whether the waitlist still has room."""
+
+    code = "MASTERCLASS_FULL"
+    status_code = 409
+
+    def __init__(self, *, waitlist_open: bool = False) -> None:
+        super().__init__("This masterclass is full.")
+        self.details = {"waitlist_open": waitlist_open}
+
+
+class MasterclassWaitlistFullError(DomainError):
+    """Seats and waitlist are both full: there is no place at all."""
+
+    code = "MASTERCLASS_WAITLIST_FULL"
+    status_code = 409
+
+
+class MasterclassChangesClosedError(DomainError):
+    """The block's change deadline has passed (server clock)."""
+
+    code = "MASTERCLASS_CHANGES_CLOSED"
+    status_code = 409
+
+
+class MasterclassSeatWouldBeLostError(DomainError):
+    """The change would give up a CONFIRMED seat for a waitlist place. Nothing
+    changed; the client must ask the attendee and resend with
+    `give_up_confirmed_seat: true`."""
+
+    code = "MASTERCLASS_SEAT_WOULD_BE_LOST"
+    status_code = 409
+
+
+class MasterclassChoiceConflictError(DomainError):
+    """A stale request cannot replace a newer choice. Refresh before retrying."""
+
+    code = "MASTERCLASS_CHOICE_CONFLICT"
+    status_code = 409
+
+
+class MasterclassAdminConflictError(DomainError):
+    """An administrator change that would break existing reservations (capacity
+    below the confirmed seats, deleting or moving a masterclass that has
+    reservations, overlapping blocks). Nothing changed; `details.reason` is a
+    short machine code."""
+
+    code = "MASTERCLASS_ADMIN_CONFLICT"
+    status_code = 409
+
+    def __init__(self, reason: str, message: str, **details: object) -> None:
+        super().__init__(message)
+        self.details = {"reason": reason, **details}
+
+
 class IdempotencyKeyConflict(Exception):  # noqa: N818 — deliberately not an Error suffix; see docstring
     """NOT a DomainError.
 
@@ -517,6 +582,11 @@ CONSTRAINT_ERROR_MAP: Final[dict[str, type[Exception]]] = {
     "fk_points_task_booth": UnexpectedConstraintViolationError,
     "pk_user_interests": UnexpectedConstraintViolationError,
     "uq_preset_global_points": UnexpectedConstraintViolationError,
+    # --- masterclasses (migration 0017): the service checks first under the
+    # masterclass row lock, so these firing means a writer skipped that path.
+    "ck_masterclass_reservations_capacity": MasterclassFullError,
+    "ck_masterclass_reservations_waitlist_capacity": MasterclassWaitlistFullError,
+    "uq_masterclass_reservations_one_active_per_block": UnexpectedConstraintViolationError,
 }
 
 
@@ -552,3 +622,16 @@ def translate_integrity_error(err: IntegrityError) -> Exception:
         return UnexpectedConstraintViolationError("unexpected constraint violation")
 
     return error_cls()
+
+
+class ClientUpdateRequiredError(DomainError):
+    """A page of an earlier version sent a request this server no longer accepts
+    in that form (an offline scan queue without its owner label). Answered as a
+    TEMPORARY failure on purpose: that page keeps its queue and retries instead
+    of discarding the scans, and a reload brings the current page, which moves
+    them into its quarantine for a person to decide (competition/offline.py)."""
+
+    code = "CLIENT_UPDATE_REQUIRED"
+    status_code = 503
+    expected = True
+    retry_after = 60

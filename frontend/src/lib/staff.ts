@@ -6,13 +6,17 @@
 
 import { type ApiError, apiGet, apiPost } from "./api";
 
-export type StaffRole = "BOOTH_STAFF" | "ADMIN";
+// VOLUNTEER: no booth, no powers of its own - only scopes an administrator grants.
+export type StaffRole = "BOOTH_STAFF" | "ADMIN" | "VOLUNTEER";
 
 export type StaffMe = {
   full_name: string;
   role: StaffRole;
   // `null` for ADMIN — an admin has no booth (§7.7's CHECK constraint).
   booth_name: string | null;
+  // What this phone files offline scans under (lib/offlineQueue.ts).
+  queue_owner: string;
+  dataset_generation: number;
 };
 
 export type Preset = { points: number; label: string | null };

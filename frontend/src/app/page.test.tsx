@@ -1,8 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { realtimeStore } from "@/lib/realtime";
 import { installMockEventSource } from "@/test-utils/mockEventSource";
+import { teardownRealtime } from "@/test-utils/realtimeTeardown";
 
 import Home from "./page";
 
@@ -33,8 +33,7 @@ describe("Home", () => {
   });
 
   afterEach(() => {
-    realtimeStore.resetForTests();
-    vi.unstubAllGlobals();
+    teardownRealtime();
   });
 
   it("renders the AI Summit heading", () => {

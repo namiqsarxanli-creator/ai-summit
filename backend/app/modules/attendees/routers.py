@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import anyio
 from fastapi import APIRouter, Request, Response
+from starlette.concurrency import run_in_threadpool
 
 from app.core.config import get_settings
 from app.core.deps import ClientIp, CurrentAttendee, SessionToken
@@ -22,7 +23,12 @@ from app.core.ratelimit import (
     REGISTER_PER_IP,
     limiter,
 )
-from app.core.sessions import generate_registration_intent, set_registration_intent_cookie
+from app.core.reads import attendee_read
+from app.core.sessions import (
+    SESSION_COOKIE_NAME,
+    generate_registration_intent,
+    set_registration_intent_cookie,
+)
 from app.db.session import DbSession, mutating_transaction
 from app.modules.attendees.photo import PhotoOutcome, remove_photo, replace_photo
 from app.modules.attendees.profile import set_sponsor_consent, update_profile
@@ -92,11 +98,13 @@ def me(attendee: CurrentAttendee) -> AttendeeMe:
 
 
 @router.get("/me/profile", response_model=AttendeeProfile)
-def my_profile(attendee: CurrentAttendee, db: DbSession) -> AttendeeProfile:
+async def my_profile(request: Request, db: DbSession) -> AttendeeProfile:
     """M08's Profile surface: "registration data, selected interests,
     consent state (private view only)". Same session-only identity rule
     as `/me` — read-only, no reset fence (§19.4)."""
-    return attendee_profile(db, attendee)
+    return await run_in_threadpool(
+        attendee_read, db, request.cookies.get(SESSION_COOKIE_NAME), attendee_profile
+    )
 
 
 @router.put("/me/profile", response_model=AttendeeProfile)
@@ -111,7 +119,9 @@ def update_my_profile(
     with mutating_transaction(db) as tx:
         outcome = update_profile(tx, raw_session_token=token, payload=payload)
     if outcome.changed:
-        publish_profile_signals(outcome.user_id, leaderboard=outcome.details_changed)
+        publish_profile_signals(
+            outcome.user_id, leaderboard=outcome.details_changed or outcome.points_awarded
+        )
     return outcome.profile
 
 

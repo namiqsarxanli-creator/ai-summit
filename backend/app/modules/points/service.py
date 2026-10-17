@@ -42,6 +42,7 @@ from app.core.errors import (
 )
 from app.core.security import canonical_json, hash_card_token, sign_hmac_sha256
 from app.core.sessions import resolve_staff_session, resolve_staff_session_id
+from app.db.session import gate_on_maintenance
 from app.modules.admin.models import EventConfig
 from app.modules.booths.models import Booth, Task
 from app.modules.contact_cards.service import resolve_active_attendee
@@ -114,11 +115,23 @@ def maintenance_fast_path_check(db: Session) -> None:
     gate." Reads and immediately ends its own transaction, so the
     fence stays the true first statement of the mutation's own
     transaction — this check is not allowed to leave a transaction
-    open on `db` for `mutating_transaction` to inherit."""
-    maintenance = db.execute(
-        select(EventConfig.maintenance_mode).where(EventConfig.id == 1)
-    ).scalar_one_or_none()
-    db.rollback()
+    open on `db` for `mutating_transaction` to inherit.
+
+    With read caching on, the flag comes from the once-a-second read the
+    X-Dataset-Generation header already makes (`cached_maintenance_mode`): no
+    statement, no extra pooled-connection checkout and ping, no rollback here.
+    That cached value is only the quick answer. The authoritative one is read
+    fresh inside every fenced transaction of this request (`gate_on_maintenance`),
+    so a stale cache can never let a write through while maintenance is on."""
+    from app.modules.realtime.service import cached_maintenance_mode
+
+    gate_on_maintenance(db)
+    maintenance = cached_maintenance_mode()
+    if maintenance is None:  # read caching off: read it fresh
+        maintenance = db.execute(
+            select(EventConfig.maintenance_mode).where(EventConfig.id == 1)
+        ).scalar_one_or_none()
+        db.rollback()
     if maintenance:
         raise MaintenanceError("The service is briefly unavailable. Please try again in a moment.")
 

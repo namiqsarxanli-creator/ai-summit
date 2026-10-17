@@ -17,7 +17,7 @@ from collections.abc import Iterator
 import psycopg
 import pytest
 
-from tests import suite_db
+from tests import ledger_snapshot, suite_db
 from tests.reset_support import BACKEND_ROOT
 
 
@@ -87,8 +87,8 @@ def test_upgrading_keeps_every_existing_row_and_invents_nothing(
     url, dsn = legacy_db
     ids = _plant_legacy(dsn)
     with psycopg.connect(dsn) as conn, conn.cursor() as cur:
-        cur.execute("SELECT * FROM points_log WHERE id = %s", (ids["award"],))
-        before_award = cur.fetchone()
+        old_columns = ledger_snapshot.columns(conn, "points_log")
+        before_ledger = ledger_snapshot.rows(conn, "points_log", old_columns)
         cur.execute("SELECT id, booth_id, title, description, is_active, sort_order FROM tasks")
         before_tasks = cur.fetchall()
 
@@ -96,8 +96,12 @@ def test_upgrading_keeps_every_existing_row_and_invents_nothing(
     assert "0009_task_points" in out
 
     with psycopg.connect(dsn) as conn, conn.cursor() as cur:
-        cur.execute("SELECT * FROM points_log WHERE id = %s", (ids["award"],))
-        assert cur.fetchone() == before_award  # byte-identical: still task_id NULL
+        # Every value of every pre-upgrade column, by name, is unchanged.
+        assert ledger_snapshot.rows(conn, "points_log", old_columns) == before_ledger
+        # Columns added to the ledger since (occurred_at in 0027) invent nothing.
+        added = ledger_snapshot.added_values(conn, "points_log", old_columns, [ids["award"]])
+        assert "occurred_at" in added, added
+        assert all(v is None for values in added.values() for v in values), added
         cur.execute("SELECT id, booth_id, title, description, is_active, sort_order FROM tasks")
         assert cur.fetchall() == before_tasks
         cur.execute("SELECT points, allow_repeat_points FROM tasks WHERE id = %s", (ids["task"],))

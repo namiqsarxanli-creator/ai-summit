@@ -99,13 +99,22 @@ export function StaffPanel() {
         <p className="fm-eyebrow">{t("Signed in")}</p>
         <p className="fm-h2">{me.full_name}</p>
         <p className="fm-small">
-          {me.role === "ADMIN" ? t("Admin") : (me.booth_name ? t(me.booth_name) : t("No booth assigned"))}
+          {me.role === "ADMIN" ? t("Admin") : me.role === "VOLUNTEER" ? t("Volunteer") : (me.booth_name ? t(me.booth_name) : t("No booth assigned"))}
         </p>
       </section>
 
-      <Link href="/staff/scan" className="fm-btn fm-btn-primary fm-btn-block">
-        {t("Scan attendee")}
-      </Link>
+      <Link href="/staff/attendance" className="fm-btn fm-btn-primary fm-btn-block">{t("Attendance scanning")}</Link>
+      {/* The server decides who may review: a Game Master scope or an administrator. */}
+      {me.role !== "BOOTH_STAFF" && <Link href="/staff/final" className="fm-btn fm-btn-secondary fm-btn-block">{t("Final result")}</Link>}
+      {me.role === "BOOTH_STAFF" && <Link href="/staff/booth-report" className="fm-btn fm-btn-secondary fm-btn-block">{t("Booth report")}</Link>}
+      {me.role !== "VOLUNTEER" && (
+        <>
+          <Link href="/staff/playground" className="fm-btn fm-btn-secondary fm-btn-block">{t("Playground arrivals and queue")}</Link>
+          <Link href="/staff/scan" className="fm-btn fm-btn-primary fm-btn-block">
+            {t("Scan attendee")}
+          </Link>
+        </>
+      )}
 
       <Link href="/staff/password" className="fm-btn fm-btn-secondary fm-btn-block">
         {t("Change password")}

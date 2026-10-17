@@ -64,6 +64,10 @@ x-backend-environment: &backend-environment
   # filesystem is read-only, so this is the only place the backend writes
   # files that must outlive the container.
   MEDIA_ROOT: /data/media
+  # Beyond Now Founder (BEYOND_NOW.md, "Runtime safeguards"): the qualification
+  # rule is NOT confirmed by the organiser. Stays "false" until it is; turning it
+  # on needs the explicit recomputation step documented there.
+  FOUNDER_RULE_CONFIRMED: ${FOUNDER_RULE_CONFIRMED:-false}
 
 services:
   db:

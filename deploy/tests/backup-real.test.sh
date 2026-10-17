@@ -98,3 +98,41 @@ grep -qx 'media_lock=lost' "${lost%/DEGRADED}/manifest.env"
 rc=0; bash "$ROOT/deploy/backup/restore-drill.sh" --accept-degraded --backup "${lost%/DEGRADED}" || rc=$?
 [ "$rc" -eq 3 ]
 echo 'PASS: lost lock is degraded even with no missing files; restore still warns'
+
+# --- pair photos (migration 0025): their files are referenced too ---------------------
+unset BACKUP_AFTER_DUMP_HOOK
+export MEDIA_LOCK_MAX_HOLD=60
+docker exec -i "$DB" psql -U test -d scratch -v ON_ERROR_STOP=1 <<'SQL' >/dev/null
+CREATE TABLE pair_photos(id int, status text, photo_key text, uploader_screen_at timestamptz,
+  partner_screen_at timestamptz, moderation text);
+-- accepted, both consented, approved | withdrawn (no key) | pending, uploader consent only
+INSERT INTO pair_photos VALUES
+  (1, 'ACCEPTED', repeat('d', 32), now(), now(), 'APPROVED'),
+  (2, 'WITHDRAWN', NULL, NULL, NULL, 'PENDING'),
+  (3, 'PENDING', repeat('e', 32), now(), NULL, 'PENDING');
+SQL
+docker run --rm --network none -v "$MEDIA":/m postgres:16-alpine sh -c '
+  for key in dddddddddddddddddddddddddddddddd eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee ffffffffffffffffffffffffffffffff; do
+    for size in 128 384; do echo pair > "/m/avatars/$key-$size.jpg"; done
+  done'
+sleep 1
+bash "$ROOT/deploy/backup/backup.sh"
+pairs="$(find "$BACKUP_DIR" -name COMPLETE -print | sort | tail -n1)"
+[ -n "$pairs" ]
+m="${pairs%/COMPLETE}/manifest.env"
+grep -qx 'pair_photo_rows=3' "$m"
+grep -qx 'pair_photos_with_file=2' "$m"
+grep -qx 'photos_missing_files=0' "$m"
+grep -q '^pair_photos_state_sha256=[0-9a-f]\{64\}$' "$m"
+# The unreferenced key (f...) is only COUNTED as an orphan; nothing deletes it.
+docker run --rm --network none -v "$MEDIA":/m:ro postgres:16-alpine test -f /m/avatars/ffffffffffffffffffffffffffffffff-384.jpg
+bash "$ROOT/deploy/backup/restore-drill.sh" --backup "${pairs%/COMPLETE}"
+echo 'PASS: pair photos, their consents, withdrawal and files back up and restore verified'
+# A referenced pair-photo file that is missing makes the backup DEGRADED.
+docker run --rm --network none -v "$MEDIA":/m postgres:16-alpine rm /m/avatars/dddddddddddddddddddddddddddddddd-384.jpg
+sleep 1
+rc=0; bash "$ROOT/deploy/backup/backup.sh" || rc=$?
+[ "$rc" -eq 4 ]
+missing_pair="$(find "$BACKUP_DIR" -name DEGRADED -print | sort | tail -n1)"
+grep -qx 'dddddddddddddddddddddddddddddddd' "${missing_pair%/DEGRADED}/missing-photos.txt"
+echo 'PASS: a missing pair-photo file is detected (DEGRADED), not ignored'

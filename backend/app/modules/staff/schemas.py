@@ -105,6 +105,12 @@ class StaffMe(BaseModel):
     full_name: str
     role: StaffRole
     booth_name: str | None
+    # Offline scan queue (competition/offline.py): an opaque, stable label of THIS
+    # account (a keyed hash; it reveals no id and authenticates nothing) and the
+    # dataset the scans belong to. A phone files queued scans under both and never
+    # replays them under another account or into another dataset.
+    queue_owner: str
+    dataset_generation: int
 
 
 class PresetOut(BaseModel):

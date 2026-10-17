@@ -110,6 +110,10 @@ def test_profile_returns_registration_data_interests_and_consent(
         "sponsor_consent_version": "registration-v1",
         "version": 1,
         "photo": None,
+        # Added with the interest card: both optional, empty for a person who
+        # registered without them (never invented).
+        "company": None,
+        "interest_card": {"sector": None, "topics": [], "seeking": [], "offering": []},
     }
     assert body["sponsor_consent_at"] is not None
 
@@ -144,6 +148,8 @@ def test_profile_never_includes_internal_ids_or_session_data(
         "interests",
         "version",
         "photo",
+        "company",
+        "interest_card",
     }
 
 

@@ -14,9 +14,11 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from app.core.deps import ClientIp, CurrentAttendee
+from app.core.deps import ClientIp, CurrentAttendee, SessionToken
+from app.core.errors import DomainError
 from app.core.ratelimit import CARD_READ_PER_IP, CARD_READ_PER_TOKEN, limiter
 from app.core.security import hash_card_token
+from app.core.sessions import resolve_attendee_session
 from app.db.session import DbSession
 from app.modules.contact_cards.schemas import OwnCard, PublicCard
 from app.modules.contact_cards.service import own_card, resolve_public_card
@@ -28,12 +30,18 @@ router = APIRouter(tags=["contact-cards"])
 # still reaches the one INVALID_QR branch (§9.4 "malformed") instead of
 # the framework's differently-shaped 404.
 @router.get("/cards/{token:path}", response_model=PublicCard)
-def get_public_card(token: str, db: DbSession, ip: ClientIp) -> PublicCard:
+def get_public_card(token: str, db: DbSession, ip: ClientIp, session: SessionToken) -> PublicCard:
     """Unauthenticated. §21.7: 30/min per token, 1200/min per IP. The
     token bucket is keyed on the token's hash, so the limiter never holds
     a copy of a live capability."""
     limiter.check([(CARD_READ_PER_IP, ip), (CARD_READ_PER_TOKEN, hash_card_token(token))])
-    return resolve_public_card(db, token)
+    viewer_id: int | None = None
+    if session:
+        try:  # an optional viewer: only to learn whether they are connected
+            viewer_id = resolve_attendee_session(db, session).id
+        except DomainError:
+            viewer_id = None
+    return resolve_public_card(db, token, viewer_id)
 
 
 @router.get("/attendees/me/card", response_model=OwnCard)

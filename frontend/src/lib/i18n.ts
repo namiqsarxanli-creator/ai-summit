@@ -5,6 +5,13 @@ import { staffTranslations } from "./i18n-staff";
 import { adminTranslations } from "./i18n-admin";
 import { contentTranslations } from "./i18n-content";
 import { profileTranslations } from "./i18n-profile";
+import { cardTranslations } from "./i18n-card";
+import { competitionTranslations } from "./i18n-competition";
+import { finalTranslations } from "./i18n-final";
+import { mentorTranslations } from "./i18n-mentors";
+import { peopleTranslations } from "./i18n-people";
+import { playgroundTranslations } from "./i18n-playground";
+import { masterclassTranslations } from "./i18n-masterclass";
 
 export type Language = "az" | "en" | "ru";
 
@@ -97,6 +104,13 @@ const translations: Record<string, { az: string; ru: string }> = {
   ...adminTranslations,
   ...contentTranslations,
   ...profileTranslations,
+  ...cardTranslations,
+  ...competitionTranslations,
+  ...finalTranslations,
+  ...mentorTranslations,
+  ...peopleTranslations,
+  ...masterclassTranslations,
+  ...playgroundTranslations,
 };
 
 // Whether a UI text has an entry (Azerbaijani and Russian) - for tests that guard

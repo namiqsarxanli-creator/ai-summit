@@ -33,7 +33,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import ColumnElement, and_, func, or_, select
+from sqlalchemy import ColumnElement, and_, func, or_, select, true
 from sqlalchemy.engine import Row
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import Subquery
@@ -44,6 +44,7 @@ from app.core.media import avatar_url
 from app.modules.admin.models import EventConfig
 from app.modules.attendees.models import User, UserStatus
 from app.modules.booths.models import Booth, Task
+from app.modules.competition.rules import COMPETITION_SOURCES
 from app.modules.leaderboard.schemas import (
     LeaderboardEntry,
     LeaderboardResponse,
@@ -65,7 +66,14 @@ RECENT_AWARDS_LIMIT = 10
 DEFAULT_PAGE_SIZE = 20
 
 
-def _scored() -> Subquery:
+def competition_mode(db: Session) -> bool:
+    """Migration 0020: is the Beyond Now competition ranking active?"""
+    return bool(
+        db.execute(select(EventConfig.competition_mode).where(EventConfig.id == 1)).scalar_one()
+    )
+
+
+def _scored(competition: bool = False) -> Subquery:
     """§16.1's aggregation, verbatim: `LEFT JOIN` (never `INNER JOIN` —
     that would silently drop a zero-point ACTIVE attendee) and the
     `status = 'ACTIVE'` filter (never cosmetic: without it, an
@@ -84,15 +92,32 @@ def _scored() -> Subquery:
             func.max(PointsLog.created_at).label("last_award_at"),
         )
         .select_from(User)
-        .outerjoin(PointsLog, PointsLog.user_id == User.id)
+        .outerjoin(
+            PointsLog,
+            and_(PointsLog.user_id == User.id, PointsLog.source.in_(COMPETITION_SOURCES))
+            if competition
+            else PointsLog.user_id == User.id,
+        )
         .where(User.status == UserStatus.ACTIVE)
+        # Competition mode: the organiser team, volunteers, sponsors and
+        # speakers are left out by a server-owned field no attendee can edit.
+        .where(User.competition_excluded_reason.is_(None) if competition else true())
         .group_by(User.id)
         .subquery("scored")
     )
 
 
-def _ranked() -> Subquery:
-    scored = _scored()
+def _ranked(competition: bool = False) -> Subquery:
+    """Competition mode: legacy TASK / FEEDBACK rows are not counted (decision of
+    16 Oct 2026, competition/rules.py) and every person has their OWN place -
+    on equal points whoever reached the total earlier is ahead, an identical
+    moment is decided by the stable user id - instead of shared ranks."""
+    scored = _scored(competition)
+    order = (
+        scored.c.total_points.desc(),
+        scored.c.last_award_at.asc().nulls_last(),
+        scored.c.user_id.asc(),
+    )
     return (
         select(
             scored.c.user_id,
@@ -102,16 +127,12 @@ def _ranked() -> Subquery:
             scored.c.photo_key,
             scored.c.total_points,
             scored.c.last_award_at,
-            func.rank().over(order_by=scored.c.total_points.desc()).label("rank"),
-            func.row_number()
-            .over(
-                order_by=(
-                    scored.c.total_points.desc(),
-                    scored.c.last_award_at.asc().nulls_last(),
-                    scored.c.user_id.asc(),
-                )
-            )
-            .label("rn"),
+            (
+                func.row_number().over(order_by=order)
+                if competition
+                else func.rank().over(order_by=scored.c.total_points.desc())
+            ).label("rank"),
+            func.row_number().over(order_by=order).label("rn"),
         )
         .select_from(scored)
         .subquery("ranked")
@@ -156,6 +177,7 @@ class RankingSnapshot:
     another process makes, such as an attendee activating)."""
 
     version: int
+    competition: bool
     built_at: float
     top_n: int
     dataset_generation: int
@@ -167,10 +189,11 @@ _snapshot: RankingSnapshot | None = None
 _snapshot_lock = threading.Lock()
 
 
-def _fresh(snapshot: RankingSnapshot | None, max_age: float) -> bool:
+def _fresh(snapshot: RankingSnapshot | None, max_age: float, competition: bool) -> bool:
     return (
         snapshot is not None
         and snapshot.version == event_bus.leaderboard_version
+        and snapshot.competition == competition
         and time.monotonic() - snapshot.built_at < max_age
     )
 
@@ -181,12 +204,13 @@ def ranking_snapshot(db: Session) -> RankingSnapshot | None:
     max_age = get_settings().leaderboard_cache_seconds
     if max_age <= 0:
         return None
+    competition = competition_mode(db)
     current = _snapshot
-    if _fresh(current, max_age):
+    if _fresh(current, max_age, competition):
         return current
     with _snapshot_lock:  # one request ranks; the others wait and reuse it
         current = _snapshot
-        if _fresh(current, max_age):
+        if _fresh(current, max_age, competition):
             return current
         built = _build_snapshot(db)
         _snapshot = built
@@ -195,7 +219,8 @@ def ranking_snapshot(db: Session) -> RankingSnapshot | None:
 
 def _build_snapshot(db: Session) -> RankingSnapshot:
     version = event_bus.leaderboard_version  # read BEFORE the query
-    ranked = _ranked()
+    competition = competition_mode(db)
+    ranked = _ranked(competition)
     rows = db.execute(
         select(ranked).order_by(
             ranked.c.total_points.desc(),
@@ -206,6 +231,7 @@ def _build_snapshot(db: Session) -> RankingSnapshot:
     entries = tuple(_entry(r) for r in rows)
     return RankingSnapshot(
         version=version,
+        competition=competition,
         built_at=time.monotonic(),
         top_n=top_n_for(db),
         dataset_generation=_dataset_generation(db),
@@ -254,7 +280,7 @@ def leaderboard_top(
         )
     if top_n is None:
         top_n = top_n_for(db)
-    ranked = _ranked()
+    ranked = _ranked(competition_mode(db))
     rows = db.execute(
         select(ranked)
         .where(or_(ranked.c.rn <= top_n, ranked.c.user_id == attendee.id))
@@ -348,7 +374,7 @@ def leaderboard_page(
     page's starting point is entirely determined by the last row of
     this one. Fetches `limit + 1` to learn whether a further page
     exists without a second query."""
-    ranked = _ranked()
+    ranked = _ranked(competition_mode(db))
     stmt = select(ranked)
     if cursor is not None:
         stmt = stmt.where(_after_cursor(ranked, cursor))
@@ -395,7 +421,7 @@ def my_score(db: Session, *, attendee: User, as_of: datetime) -> ScoreSnapshotRe
         total_points, rank = mine.total_points, mine.rank
         generation = snapshot.dataset_generation
     else:
-        ranked = _ranked()
+        ranked = _ranked(competition_mode(db))
         row = db.execute(select(ranked).where(ranked.c.user_id == attendee.id)).one()
         total_points, rank = int(row.total_points), int(row.rank)
 

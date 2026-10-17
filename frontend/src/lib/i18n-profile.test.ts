@@ -44,7 +44,7 @@ describe("profile screen texts", () => {
 
   it("covers the texts the helpers hand to the screen", () => {
     const texts = [
-      ...Object.values(validateProfile({ ...draftOf({ first_name: "", last_name: "", phone: "", profession: "", linkedin_url: "x", sponsor_consent: false, sponsor_consent_at: null, sponsor_consent_version: null, email: "", interests: [], version: 1, photo: null }) })),
+      ...Object.values(validateProfile({ ...draftOf({ first_name: "", last_name: "", phone: "", profession: "", linkedin_url: "x", sponsor_consent: false, sponsor_consent_at: null, sponsor_consent_version: null, email: "", interests: [], company: "x".repeat(201), interest_card: { sector: "nope", topics: [], seeking: [], offering: [] }, version: 1, photo: null }) })),
       photoProblem({ type: "image/gif", size: 1 }),
       photoProblem({ type: "image/png", size: 0 }),
       photoProblem({ type: "image/png", size: 99 * 1024 * 1024 }),

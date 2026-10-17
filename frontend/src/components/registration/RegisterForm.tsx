@@ -3,10 +3,12 @@
 import { useRouter } from "next/navigation";
 import { type ChangeEvent, type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 
+import { InterestCardFields } from "@/components/profile/InterestCardFields";
 import { TextField } from "@/components/ui/TextField";
 import { useLanguage } from "@/components/ui/LanguageProvider";
 import { apiGet, apiPost } from "@/lib/api";
 import { fieldErrorsFrom, messageFor } from "@/lib/errors";
+import { EMPTY_CARD, type InterestCard } from "@/lib/interestCard";
 import { savePendingEmail } from "@/lib/pendingEmail";
 
 import {
@@ -29,6 +31,7 @@ const EMPTY: RegistrationValues = {
   phone: "",
   profession: "",
   linkedin_url: "",
+  company: "",
 };
 
 export function RegisterForm() {
@@ -37,6 +40,7 @@ export function RegisterForm() {
   const [values, setValues] = useState<RegistrationValues>(EMPTY);
   const [selected, setSelected] = useState<string[]>([]);
   const [consent, setConsent] = useState<ConsentChoice>(null);
+  const [card, setCard] = useState<InterestCard>(EMPTY_CARD);
   const [catalogue, setCatalogue] = useState<Catalogue>({ kind: "loading" });
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
@@ -72,12 +76,13 @@ export function RegisterForm() {
     if (inFlight.current) return;
     setFormError(null);
 
-    const clientErrors = validateRegistration(values, consent);
+    const clientErrors = validateRegistration(values, consent, card);
     setFieldErrors(clientErrors);
     if (Object.keys(clientErrors).length > 0) return;
 
     const email = values.email.trim();
     const linkedin = values.linkedin_url.trim();
+    const company = values.company.trim();
     inFlight.current = true;
     setSubmitting(true);
     const result = await apiPost<{ message: string }>("/api/attendees/register", {
@@ -87,6 +92,8 @@ export function RegisterForm() {
       phone: values.phone.trim(),
       profession: values.profession.trim(),
       ...(linkedin ? { linkedin_url: linkedin } : {}),
+      company: company || null,
+      interest_card: card,
       interest_slugs: selected,
       sponsor_consent: consent === "yes",
       language,
@@ -158,6 +165,15 @@ export function RegisterForm() {
           required
         />
         <TextField
+          id="company"
+          label="Company (optional)"
+          autoComplete="organization"
+          maxLength={200}
+          value={values.company}
+          onChange={update("company")}
+          error={fieldErrors.company}
+        />
+        <TextField
           id="linkedin_url"
           label="LinkedIn (optional)"
           type="url"
@@ -169,10 +185,20 @@ export function RegisterForm() {
         />
       </section>
 
+      <InterestCardFields
+        idPrefix="register"
+        card={card}
+        onChange={(next) => {
+          setCard(next);
+          setFieldErrors((current) => ({ ...current, interest_card: "" }));
+        }}
+        error={fieldErrors.interest_card || undefined}
+      />
+
       <fieldset className="fm-fieldset">
         <legend className="fm-legend">{t("Your interests")}</legend>
         <p className="fm-hint">
-          {t("Pick the topics you care about — they shape your booth recommendations.")}
+          {t("These shape your booth recommendations and appear on your contact card. They are separate from the interest card.")}
         </p>
         {catalogue.kind === "loading" && <p className="fm-note">{t("Loading interests…")}</p>}
         {catalogue.kind === "error" && (

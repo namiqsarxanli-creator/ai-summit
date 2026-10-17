@@ -2,28 +2,36 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import Engine, select, text
-from sqlalchemy.orm import Session
+from sqlalchemy import Engine, event, select, text
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.auth_session import AuthSession
 from app.core.config import get_settings
 from app.core.locks import FACEMARK_RESET_FENCE
 from app.core.ratelimit import RateLimit
 from app.core.sessions import create_attendee_session, create_staff_session
+from app.db.session import engine as app_engine
 from app.db.session import get_db
 from app.main import app
+from app.modules.admin import reset as reset_module
 from app.modules.admin import service as admin_service
 from app.modules.admin.models import AdminAudit, EventConfig
+from app.modules.admin.reset import ResetVerificationError, run_demo_reset
 from app.modules.attendees.models import User
 from app.modules.booths.models import Booth
 from app.modules.points.models import PointsLog
+from app.modules.points.service import maintenance_fast_path_check
+from app.modules.realtime import service as realtime_service
+from app.modules.realtime.broker import event_bus
 from app.modules.staff.models import StaffAccount, StaffRole
+from tests.reset_support import SEED_ADMIN_PASSWORD, SEED_STAFF_PASSWORD
 
 pytestmark = pytest.mark.usefixtures("clean_reset_db")
 
@@ -342,6 +350,299 @@ def test_admin_mutation_waits_on_reset_fence(
             owner.commit()
     with Session(engine) as db:
         assert db.execute(select(Booth).where(Booth.slug == "fence-blocked")).first() is None
+
+
+# --- the advisory maintenance fast path, with read caching ON (production) ----------
+
+
+@pytest.fixture
+def cached_reads(
+    admin_test_client: tuple[TestClient, Engine], monkeypatch: pytest.MonkeyPatch
+) -> Iterator[None]:
+    # The once-a-second read must see the database these requests use (one
+    # database in production; the admin client's own one here).
+    monkeypatch.setattr(realtime_service, "SessionLocal", sessionmaker(bind=admin_test_client[1]))
+    monkeypatch.setattr(get_settings(), "leaderboard_cache_seconds", 5.0)
+    monkeypatch.setattr(realtime_service, "_maintenance_cache", None)
+    monkeypatch.setattr(realtime_service, "_generation_cache", None)
+    yield
+
+
+def _set_maintenance(engine: Engine, on: bool) -> None:
+    with Session(engine) as db:
+        config = db.get(EventConfig, 1)
+        assert config is not None
+        config.maintenance_mode = on
+        db.commit()
+
+
+def test_cached_maintenance_flag_refuses_and_is_reread_after_a_second_or_a_reset(
+    admin_test_client: tuple[TestClient, Engine],
+    cached_reads: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, engine = admin_test_client
+    _as_role(client, engine, StaffRole.ADMIN)
+    _set_maintenance(engine, True)
+    refused = client.post("/api/admin/booths", json={"slug": "cached-a", "name": "A"})
+    assert (refused.status_code, refused.json()["error"]["code"]) == (503, "MAINTENANCE")
+
+    _set_maintenance(engine, False)
+    # Within the second the cached flag may still say maintenance (advisory only).
+    assert realtime_service.cached_maintenance_mode() is True
+    # Expired: read again, together with the generation.
+    version, flag, read_at = realtime_service._maintenance_cache or (0, True, 0.0)
+    monkeypatch.setattr(realtime_service, "_maintenance_cache", (version, flag, read_at - 2.0))
+    assert realtime_service.cached_maintenance_mode() is False
+    created = client.post("/api/admin/booths", json={"slug": "cached-b", "name": "B"})
+    assert created.status_code != 503
+    with Session(engine) as db:
+        assert db.execute(select(Booth).where(Booth.slug == "cached-b")).first() is not None
+
+    # A reset signal (bus version) invalidates the cached flag at once.
+    _set_maintenance(engine, True)
+    event_bus.invalidate_leaderboard()
+    assert realtime_service.cached_maintenance_mode() is True
+    _set_maintenance(engine, False)
+
+
+def test_a_stale_cached_flag_is_still_stopped_by_the_reset_fence(
+    admin_test_client: tuple[TestClient, Engine],
+    cached_reads: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The cache can say "no maintenance" for up to a second after a reset began;
+    the fence the reset holds is what stops the mutation, and nothing is written."""
+    client, engine = admin_test_client
+    _as_role(client, engine, StaffRole.ADMIN)
+    _set_maintenance(engine, True)
+    monkeypatch.setattr(
+        realtime_service,
+        "_maintenance_cache",
+        (event_bus.leaderboard_version, False, time.monotonic()),
+    )
+    try:
+        with engine.connect() as owner:
+            owner.execute(text("SELECT pg_advisory_lock(:key)"), {"key": FACEMARK_RESET_FENCE})
+            owner.commit()
+            try:
+                response = client.post("/api/admin/booths", json={"slug": "stale", "name": "S"})
+            finally:
+                owner.execute(
+                    text("SELECT pg_advisory_unlock(:key)"), {"key": FACEMARK_RESET_FENCE}
+                )
+                owner.commit()
+    finally:
+        _set_maintenance(engine, False)
+    assert (response.status_code, response.json()["error"]["code"]) == (503, "MAINTENANCE")
+    with Session(engine) as db:
+        assert db.execute(select(Booth).where(Booth.slug == "stale")).first() is None
+
+
+def test_a_cached_fast_path_runs_no_statement_and_leaves_no_transaction(
+    admin_test_client: tuple[TestClient, Engine], cached_reads: None
+) -> None:
+    _, engine = admin_test_client
+    assert realtime_service.cached_maintenance_mode() is False  # fills the cache
+    statements: list[str] = []
+
+    def record(*args: Any) -> None:
+        statements.append(str(args[2]))
+
+    event.listen(app_engine, "before_cursor_execute", record)
+    try:
+        with Session(app_engine) as db:
+            maintenance_fast_path_check(db)
+            assert not db.in_transaction()
+    finally:
+        event.remove(app_engine, "before_cursor_execute", record)
+    assert statements == []
+
+
+def _warm_caches_with_maintenance_off(engine: Engine) -> None:
+    """As in production: both once-a-second caches (generation and maintenance)
+    already filled while maintenance was off, so the generation middleware does
+    not refresh them on the next request."""
+    _set_maintenance(engine, False)
+    realtime_service.cached_dataset_generation()
+    assert realtime_service.cached_maintenance_mode() is False
+    assert realtime_service.peek_cached_dataset_generation() is not None
+
+
+def _booth_exists(engine: Engine, slug: str) -> bool:
+    with Session(engine) as db:
+        return db.execute(select(Booth.id).where(Booth.slug == slug)).first() is not None
+
+
+def test_maintenance_on_with_no_fence_held_refuses_despite_a_warm_false_cache(
+    admin_test_client: tuple[TestClient, Engine], cached_reads: None
+) -> None:
+    """Independent audit 2026-10-17 (repro: CACHED_STATUS=201, write persisted).
+    Maintenance ON, nobody holds the fence (a failed reset released it), the
+    advisory cache still says off: the write must not be saved."""
+    client, engine = admin_test_client
+    _as_role(client, engine, StaffRole.ADMIN)
+    _warm_caches_with_maintenance_off(engine)
+    _set_maintenance(engine, True)
+    try:
+        assert realtime_service.cached_maintenance_mode() is False  # still stale
+        cached = client.post("/api/admin/booths", json={"slug": "warm-stale", "name": "W"})
+    finally:
+        _set_maintenance(engine, False)
+    assert (cached.status_code, cached.json()["error"]["code"]) == (503, "MAINTENANCE")
+    assert not _booth_exists(engine, "warm-stale")
+
+
+def test_a_held_fence_with_a_warm_false_cache_blocks_until_timeout_and_writes_nothing(
+    admin_test_client: tuple[TestClient, Engine], cached_reads: None
+) -> None:
+    client, engine = admin_test_client
+    _as_role(client, engine, StaffRole.ADMIN)
+    _warm_caches_with_maintenance_off(engine)
+    _set_maintenance(engine, True)  # a reset in progress: flag first, then the fence
+    try:
+        with engine.connect() as owner:
+            owner.execute(text("SELECT pg_advisory_lock(:key)"), {"key": FACEMARK_RESET_FENCE})
+            owner.commit()
+            try:
+                started = time.monotonic()
+                response = client.post("/api/admin/booths", json={"slug": "held", "name": "H"})
+                waited = time.monotonic() - started
+            finally:
+                owner.execute(
+                    text("SELECT pg_advisory_unlock(:key)"), {"key": FACEMARK_RESET_FENCE}
+                )
+                owner.commit()
+    finally:
+        _set_maintenance(engine, False)
+    assert (response.status_code, response.json()["error"]["code"]) == (503, "MAINTENANCE")
+    assert waited >= 1.5  # it waited on the fence (2 s lock timeout), not on the cache
+    assert not _booth_exists(engine, "held")
+
+
+def test_maintenance_off_with_warm_caches_writes_normally(
+    admin_test_client: tuple[TestClient, Engine], cached_reads: None
+) -> None:
+    client, engine = admin_test_client
+    _as_role(client, engine, StaffRole.ADMIN)
+    _warm_caches_with_maintenance_off(engine)
+    created = client.post("/api/admin/booths", json={"slug": "warm-ok", "name": "OK"})
+    assert created.status_code != 503
+    assert _booth_exists(engine, "warm-ok")
+
+
+@pytest.mark.usefixtures("clean_reset_db")
+def test_after_a_failed_reset_no_mutation_is_saved_until_a_successful_reset(
+    admin_test_client: tuple[TestClient, Engine],
+    cached_reads: None,
+    reset_db_url: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Section 19.7: a failed reset leaves maintenance ON and releases the fence.
+    The reset may run in another process and fail before telling this one, so
+    the cache here can still say "off"; writes must stay out, and a successful
+    reset brings the service back."""
+    client, engine = admin_test_client
+    _warm_caches_with_maintenance_off(engine)
+
+    def fail(*args: object, **kwargs: object) -> None:
+        raise ResetVerificationError("forced for the test")
+
+    with monkeypatch.context() as patched:
+        patched.setattr(reset_module, "_verify_restore", fail)
+        with pytest.raises(ResetVerificationError):
+            run_demo_reset(
+                admin_password=SEED_ADMIN_PASSWORD,
+                staff_password=SEED_STAFF_PASSWORD,
+                database_url=reset_db_url,
+            )
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT maintenance_mode FROM event_config")).scalar_one()
+        held = conn.execute(
+            text(
+                "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' "
+                "AND mode = 'ExclusiveLock' AND granted"
+            )
+        ).scalar_one()
+    assert held == 0  # the fence was released; only the flag keeps writes out
+    # Another process's reset never reached this process: a warm "off" cache.
+    monkeypatch.setattr(
+        realtime_service,
+        "_maintenance_cache",
+        (event_bus.leaderboard_version, False, time.monotonic()),
+    )
+    _as_role(client, engine, StaffRole.ADMIN)  # the restore may have ended every session
+    refused = client.post("/api/admin/booths", json={"slug": "after-fail", "name": "F"})
+    assert (refused.status_code, refused.json()["error"]["code"]) == (503, "MAINTENANCE")
+    assert not _booth_exists(engine, "after-fail")
+
+    # A successful reset clears the flag; the service is back to normal.
+    run_demo_reset(
+        admin_password=SEED_ADMIN_PASSWORD,
+        staff_password=SEED_STAFF_PASSWORD,
+        database_url=reset_db_url,
+    )
+    _warm_caches_with_maintenance_off(engine)
+    _as_role(client, engine, StaffRole.ADMIN)  # every session ended with the reset
+    created = client.post("/api/admin/booths", json={"slug": "after-success", "name": "S"})
+    assert created.status_code != 503
+    assert _booth_exists(engine, "after-success")
+
+
+def test_the_maintenance_read_follows_the_fence_and_precedes_authentication(
+    admin_test_client: tuple[TestClient, Engine], cached_reads: None
+) -> None:
+    client, engine = admin_test_client
+    _as_role(client, engine, StaffRole.ADMIN)
+    _warm_caches_with_maintenance_off(engine)
+    statements: list[str] = []
+
+    def record(*args: Any) -> None:
+        statements.append(" ".join(str(args[2]).split()).lower())
+
+    def request(slug: str) -> int:
+        statements.clear()
+        event.listen(engine, "before_cursor_execute", record)
+        try:
+            return int(
+                client.post("/api/admin/booths", json={"slug": slug, "name": "O"}).status_code
+            )
+        finally:
+            event.remove(engine, "before_cursor_execute", record)
+
+    def first(fragment: str) -> int:
+        return next(i for i, st in enumerate(statements) if fragment in st)
+
+    assert request("order-ok") != 503
+    fence = first("pg_advisory_xact_lock_shared")
+    flag = first("select maintenance_mode from event_config")
+    auth = first("sessions.token_hash")
+    assert first("set local lock_timeout") < fence < flag < auth
+    assert first("insert into booths") > auth
+
+    _set_maintenance(engine, True)
+    try:
+        assert request("order-refused") == 503
+    finally:
+        _set_maintenance(engine, False)
+    # Refused after the fence and the flag, before anything else was read.
+    assert any("pg_advisory_xact_lock_shared" in st for st in statements)
+    assert not any("sessions." in st or "booths" in st for st in statements)
+
+
+def test_with_caching_off_the_fast_path_reads_the_flag_fresh(
+    admin_test_client: tuple[TestClient, Engine],
+) -> None:
+    assert get_settings().leaderboard_cache_seconds == 0  # the suite's default
+    assert realtime_service.cached_maintenance_mode() is None
+    client, engine = admin_test_client
+    _as_role(client, engine, StaffRole.ADMIN)
+    _set_maintenance(engine, True)
+    try:
+        refused = client.post("/api/admin/booths", json={"slug": "fresh", "name": "F"})
+    finally:
+        _set_maintenance(engine, False)
+    assert (refused.status_code, refused.json()["error"]["code"]) == (503, "MAINTENANCE")
 
 
 def test_demo_otp_view_fails_closed_outside_demo(

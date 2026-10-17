@@ -115,6 +115,10 @@ class ConfigEdit(Mutation):
     feedback_points: int | None = Field(default=None, ge=1, le=100)
     leaderboard_top_n: int | None = Field(default=None, ge=1, le=100)
     allow_repeat_task_points_default: bool | None = None
+    # Migration 0020: count only the Beyond Now competition in the ranking.
+    competition_mode: bool | None = None
+    # Migration 0024: programme reminder emails (attendees still opt in).
+    reminders_enabled: bool | None = None
 
 
 # --- OTP delivery status (read-only) -------------------------------------------

@@ -40,6 +40,8 @@ const BUTTON = "fm-btn fm-btn-primary fm-btn-block";
 function ContactButton({ card }: { card: PublicCard }) {
   const { t } = useLanguage();
   const { contact } = card;
+  // The contact opens only after the mutual QR scan in the app.
+  if (!contact) return <p className="fm-small fm-center">{t("Scan each other's QR in AI Summit to exchange contacts.")}</p>;
   if (contact.type === "LINKEDIN") {
     const href = safeExternalUrl(contact.value);
     if (!href) return null;

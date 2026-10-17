@@ -196,6 +196,15 @@ done
 
 assert "the set of attendee ids matches the backup"   test "$(fm_sql_ids_digest "$TARGET_DB")" = "${M[users_ids_sha256]}"
 assert "the set of referenced photo keys matches the backup"   test "$(fm_sql_photo_digest "$TARGET_DB")" = "${M[photo_keys_sha256]}"
+# Pair photos (manifests from before migration 0025 carry no such fields).
+if [ -n "${M[pair_photos_state_sha256]:-}" ]; then
+  pair_keys_restored="$(fm_sql_pair_keys "$TARGET_DB" | tr -d '\r' | paste -sd, -)"
+  pair_state_restored="$(fm_sql_pair_state "$TARGET_DB" | tr -d '\r')"
+  assert "pair photo keys match the backup" \
+    test "$(fm_sha256_of_text "$pair_keys_restored")" = "${M[pair_photo_keys_sha256]}"
+  assert "pair photo consents, withdrawals and moderation match the backup" \
+    test "$(fm_sha256_of_text "$pair_state_restored")" = "${M[pair_photos_state_sha256]}"
+fi
 
 # Every file of the archive, byte for byte.
 media_files_match() {
@@ -211,7 +220,10 @@ expected_files="$(wc -l < "$BACKUP/media.sha256" | tr -d ' ')"
 assert "the media store holds exactly the $expected_files archived files (found $files)"   test "$files" = "$expected_files"
 
 # Do the restored rows and the restored files belong together?
-refs="$(psql_q "$TARGET_DB" "SELECT photo_key FROM users WHERE photo_key IS NOT NULL ORDER BY photo_key COLLATE \"C\"" | tr -d '\r')"
+refs="$(
+  { psql_q "$TARGET_DB" "SELECT photo_key FROM users WHERE photo_key IS NOT NULL"; fm_sql_pair_keys "$TARGET_DB"; } \
+    | tr -d '\r' | sed '/^$/d' | LC_ALL=C sort -u
+)"
 have="$(docker run --rm --network none --entrypoint sh -v "$MOUNT":/m:ro "$TOOL_IMAGE" -c 'ls /m/avatars 2>/dev/null || true' | tr -d '\r')"
 total=0 dangling=0
 for key in $refs; do

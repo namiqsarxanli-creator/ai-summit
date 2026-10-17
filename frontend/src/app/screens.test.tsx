@@ -2,8 +2,8 @@ import { render, screen } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { realtimeStore } from "@/lib/realtime";
 import { installMockEventSource } from "@/test-utils/mockEventSource";
+import { teardownRealtime } from "@/test-utils/realtimeTeardown";
 
 import BoothDetailPage from "./(attendee)/booths/[slug]/page";
 import BoothsPage from "./(attendee)/booths/page";
@@ -61,8 +61,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  realtimeStore.resetForTests();
-  vi.unstubAllGlobals();
+  teardownRealtime();
 });
 
 describe("every attendee and staff screen", () => {

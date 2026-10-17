@@ -2,6 +2,7 @@
 
 import { type ChangeEvent, type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 
+import { InterestCardFields } from "@/components/profile/InterestCardFields";
 import { TextField } from "@/components/ui/TextField";
 import { useLanguage } from "@/components/ui/LanguageProvider";
 import { apiGet } from "@/lib/api";
@@ -31,6 +32,8 @@ const FIELD_LABELS: Record<keyof ProfileDraft, string> = {
   profession: "Profession / role",
   linkedin_url: "LinkedIn (optional)",
   interest_slugs: "Interests",
+  company: "Company",
+  interest_card: "Interest card",
 };
 
 // Edits the attendee's own details and interests.
@@ -103,7 +106,7 @@ export function ProfileEditor({
   ];
   const nameOf = (slug: string) => names.get(slug) ?? slug;
 
-  function update(field: Exclude<keyof ProfileDraft, "interest_slugs">) {
+  function update(field: "first_name" | "last_name" | "phone" | "profession" | "linkedin_url" | "company") {
     return (event: ChangeEvent<HTMLInputElement>) => {
       const value = event.target.value;
       setDraft((current) => ({ ...current, [field]: value }));
@@ -124,7 +127,7 @@ export function ProfileEditor({
   async function save() {
     if (inFlight.current) return;
     setFormError(null);
-    const clientErrors = validateProfile(draft);
+    const clientErrors = validateProfile(draft, baseline.interest_card);
     setFieldErrors(clientErrors);
     if (Object.keys(clientErrors).length > 0) return;
 
@@ -172,7 +175,7 @@ export function ProfileEditor({
   }
 
   const diffs = conflict
-    ? diffDrafts(draft, draftOf(conflict), nameOf)
+    ? diffDrafts(draft, draftOf(conflict), nameOf, t)
     : [];
 
   return (
@@ -279,6 +282,15 @@ export function ProfileEditor({
           required
         />
         <TextField
+          id="edit_company"
+          label="Company (optional)"
+          autoComplete="organization"
+          maxLength={200}
+          value={draft.company}
+          onChange={update("company")}
+          error={fieldErrors.company || undefined}
+        />
+        <TextField
           id="edit_linkedin_url"
           label="LinkedIn (optional)"
           type="url"
@@ -290,10 +302,20 @@ export function ProfileEditor({
         />
       </section>
 
+      <InterestCardFields
+        idPrefix="edit"
+        card={draft.interest_card}
+        onChange={(next) => {
+          setDraft((current) => ({ ...current, interest_card: next }));
+          setFieldErrors((current) => ({ ...current, interest_card: "" }));
+        }}
+        error={fieldErrors.interest_card || undefined}
+      />
+
       <fieldset className="fm-fieldset">
         <legend className="fm-legend">{t("Your interests")}</legend>
         <p className="fm-hint">
-          {t("Pick the topics you care about — they shape your booth recommendations.")}
+          {t("These shape your booth recommendations and appear on your contact card. They are separate from the interest card.")}
         </p>
         {catalogue.kind === "loading" && <p className="fm-note">{t("Loading interests…")}</p>}
         {catalogue.kind === "error" && (

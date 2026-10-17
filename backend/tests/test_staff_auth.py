@@ -277,6 +277,33 @@ def test_staff_registration_endpoint_does_not_exist() -> None:
         "/api/staff/auth/password",
         "/api/staff/auth/password-reset/request",
         "/api/staff/auth/password-reset/confirm",
+        # AI Playground arrivals: booth-scoped reads and the arrival confirmation.
+        # They act on existing bookings only; none creates an account.
+        "/api/staff/playground",
+        "/api/staff/playground/slots/{slot_id}",
+        "/api/staff/playground/bookings/{booking_id}/admit",
+        # Verified participation (migration 0020): scopes are granted by an
+        # administrator; none of these creates or changes an account.
+        "/api/staff/me/scopes",
+        "/api/staff/masterclasses/{masterclass_id}/door",
+        "/api/staff/playground/slots/{slot_id}/complete",
+        "/api/staff/qmeter/identify",
+        "/api/staff/qmeter/award",
+        # Meet the Mentor hosts (MENTOR_HOST scope per session, migration 0022).
+        "/api/staff/mentor-sessions",
+        "/api/staff/mentor-sessions/{session_id}",
+        "/api/staff/mentor-sessions/{session_id}/complete",
+        # The final result: snapshots of the ranking, never an account.
+        "/api/staff/final",
+        "/api/staff/final/{result_id}",
+        "/api/staff/final/{result_id}/publish",
+        "/api/staff/final/{result_id}/discard",
+        "/api/staff/final/{result_id}/founders.csv",
+        # Offline scans and the booth's own report (migrations 0026, phase F).
+        "/api/staff/offline-scans",
+        "/api/staff/offline-scans/{scan_id}/approve",
+        "/api/staff/offline-scans/{scan_id}/reject",
+        "/api/staff/booth/report",
     }
 
 
@@ -843,7 +870,10 @@ def test_the_seeded_demo_booth_staff_account_logs_in_and_resolves_a_card(
         login_response = _login(c, SEEDED_BOOTH_STAFF_EMAIL, staff_password)
         assert login_response.status_code == 204
         me = c.get(ME).json()
+        owner, generation = me.pop("queue_owner"), me.pop("dataset_generation")
         assert me == {"full_name": "Noah Bergström", "role": "BOOTH_STAFF", "booth_name": "AIWorks"}
+        # The offline-queue label is an opaque keyed hash, never the account id.
+        assert len(owner) == 64 and int(owner, 16) >= 0 and isinstance(generation, int)
 
         resolved = c.post(RESOLVE, json={"card_token": fx.ATTENDEES[0].public_token})
         assert resolved.status_code == 200

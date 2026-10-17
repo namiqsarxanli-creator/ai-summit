@@ -36,6 +36,7 @@ from app.core.ratelimit import (
     limiter,
 )
 from app.core.sessions import resolve_attendee_session
+from app.modules.attendees.interest_card import card_of, ensure_known
 from app.modules.attendees.models import ConsentAudit, User, UserInterest, UserStatus
 from app.modules.attendees.schemas import AttendeeProfile, ConsentState, ProfileUpdate
 from app.modules.attendees.service import CONSENT_VERSION, attendee_profile
@@ -55,10 +56,14 @@ class ProfileOutcome:
     details_changed: bool
     interests_changed: bool
     user_id: int
+    # The company or the interest card: private, so not leaderboard-relevant.
+    card_changed: bool = False
+    # The save completed the card and earned the one-time PROFILE points.
+    points_awarded: bool = False
 
     @property
     def changed(self) -> bool:
-        return self.details_changed or self.interests_changed
+        return self.details_changed or self.interests_changed or self.card_changed
 
 
 @dataclass(frozen=True)
@@ -131,7 +136,26 @@ def update_profile(
         or user.linkedin_url != payload.linkedin_url
     )
     interests_changed = wanted_ids != current_ids
-    if not details_changed and not interests_changed:
+
+    # Left out by a client that predates them (a cached page): kept as stored.
+    sent = payload.model_fields_set
+    company = payload.company if "company" in sent else user.company
+    card = payload.interest_card if "interest_card" in sent else None
+    if card is not None:
+        # A choice retired from the catalogue may stay (or go) if it is already
+        # stored in that group; nothing unknown can be newly added.
+        stored = card_of(user.card_sector, user.card_topics, user.card_seeking, user.card_offering)
+        ensure_known(card, stored)
+    card_changed = company != user.company or (
+        card is not None
+        and (
+            card.sector != user.card_sector
+            or list(card.topics) != list(user.card_topics)
+            or list(card.seeking) != list(user.card_seeking)
+            or list(card.offering) != list(user.card_offering)
+        )
+    )
+    if not details_changed and not interests_changed and not card_changed:
         return ProfileOutcome(attendee_profile(db, user), False, False, user.id)
 
     user.first_name = payload.first_name
@@ -139,6 +163,12 @@ def update_profile(
     user.phone = payload.phone
     user.profession = payload.profession
     user.linkedin_url = payload.linkedin_url
+    user.company = company
+    if card is not None:
+        user.card_sector = card.sector
+        user.card_topics = list(card.topics)
+        user.card_seeking = list(card.seeking)
+        user.card_offering = list(card.offering)
     if interests_changed:
         removed = current_ids - wanted_ids
         if removed:
@@ -152,7 +182,17 @@ def update_profile(
         )
     user.profile_version = user.profile_version + 1
     db.flush()
-    return ProfileOutcome(attendee_profile(db, user), details_changed, interests_changed, user.id)
+    from app.modules.competition.profile import maybe_award_profile
+
+    profile_award = maybe_award_profile(db, user, datetime.now(UTC))
+    return ProfileOutcome(
+        attendee_profile(db, user),
+        details_changed,
+        interests_changed,
+        user.id,
+        card_changed,
+        points_awarded=profile_award is not None and profile_award.paid,
+    )
 
 
 def set_sponsor_consent(

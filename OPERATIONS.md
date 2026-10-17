@@ -1,5 +1,9 @@
 # FACEMARK — operations runbook
 
+> Beyond Now additions (mentor groups, Founder, final results, reminders, pair photos,
+> offline scans; their activation steps and safeguards): see BEYOND_NOW.md. The proxy's
+> per-route upload limits are exercised by `bash deploy/tests/caddy-upload.test.sh` (Docker).
+
 What keeps the production stack healthy after it is deployed: CI, OTP e-mail
 pacing, backup and restore, monitoring and alerts. Deployment itself (first
 install, updates, rollback) is in [DEPLOYMENT.md](DEPLOYMENT.md).
@@ -525,6 +529,17 @@ Machine-readable examples (probe URLs, thresholds, log patterns) are in
 * **`accepted` is not "delivered".** Bounces and spam placement are invisible
   here (provider webhooks would be the next step).
 * **Backups share the server's fate until copied off.** See above.
+* **The quick maintenance answer may be up to a second old; the gate is not.**
+  Before its transaction a mutation looks at `maintenance_mode` from the
+  once-a-second `event_config` read that also feeds `X-Dataset-Generation`
+  (`app/modules/realtime/service.py`), for a quick 503 without a query. That
+  value is never trusted for a write: every HTTP mutation reads the flag again,
+  fresh, inside its fenced transaction right after the fence
+  (`gate_on_maintenance` in `app/db/session.py`), and refuses with
+  `MAINTENANCE` while it is on. So a failed reset (maintenance left ON, fence
+  released, possibly in another process that never notified this one) and
+  `maintenance` switched on by hand both keep every write out at once. CLI
+  commands and background jobs are not gated, as before.
 * **No metrics endpoint / dashboards.** Status comes from `ops-check`,
   `monitor.sh`, container health and logs.
 
