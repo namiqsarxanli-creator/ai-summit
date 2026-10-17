@@ -464,6 +464,10 @@ def _warm_caches_with_maintenance_off(engine: Engine) -> None:
     already filled while maintenance was off, so the generation middleware does
     not refresh them on the next request."""
     _set_maintenance(engine, False)
+    # Explicitly refresh both values: a valid generation cache does not imply
+    # that the maintenance cache already reflects this test's database change.
+    realtime_service._generation_cache = None
+    realtime_service._maintenance_cache = None
     realtime_service.cached_dataset_generation()
     assert realtime_service.cached_maintenance_mode() is False
     assert realtime_service.peek_cached_dataset_generation() is not None
@@ -472,6 +476,17 @@ def _warm_caches_with_maintenance_off(engine: Engine) -> None:
 def _booth_exists(engine: Engine, slug: str) -> bool:
     with Session(engine) as db:
         return db.execute(select(Booth.id).where(Booth.slug == slug)).first() is not None
+
+
+def test_warming_caches_refreshes_a_still_valid_maintenance_value(
+    admin_test_client: tuple[TestClient, Engine], cached_reads: None
+) -> None:
+    _, engine = admin_test_client
+    _set_maintenance(engine, True)
+    realtime_service.cached_dataset_generation()
+    assert realtime_service.cached_maintenance_mode() is True
+    _warm_caches_with_maintenance_off(engine)
+    assert realtime_service.cached_maintenance_mode() is False
 
 
 def test_maintenance_on_with_no_fence_held_refuses_despite_a_warm_false_cache(
@@ -558,11 +573,16 @@ def test_after_a_failed_reset_no_mutation_is_saved_until_a_successful_reset(
             )
     with engine.connect() as conn:
         assert conn.execute(text("SELECT maintenance_mode FROM event_config")).scalar_one()
+        # An unrelated advisory lock must not be mistaken for this reset fence.
+        conn.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": 91818181018})
         held = conn.execute(
             text(
                 "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' "
-                "AND mode = 'ExclusiveLock' AND granted"
-            )
+                "AND mode = 'ExclusiveLock' AND granted "
+                "AND database = (SELECT oid FROM pg_database WHERE datname = current_database()) "
+                "AND classid = :high AND objid = :low AND objsubid = 1"
+            ),
+            {"high": FACEMARK_RESET_FENCE >> 32, "low": FACEMARK_RESET_FENCE & 0xFFFFFFFF},
         ).scalar_one()
     assert held == 0  # the fence was released; only the flag keeps writes out
     # Another process's reset never reached this process: a warm "off" cache.
