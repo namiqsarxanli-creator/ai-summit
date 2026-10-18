@@ -315,7 +315,7 @@ export function ProfileEditor({
       <fieldset className="fm-fieldset">
         <legend className="fm-legend">{t("Your interests")}</legend>
         <p className="fm-hint">
-          {t("These shape your booth recommendations and appear on your contact card. They are separate from the interest card.")}
+          {t("Together with the topics on your interest card, these shape your booth recommendations. They also appear on your contact card.")}
         </p>
         {catalogue.kind === "loading" && <p className="fm-note">{t("Loading interests…")}</p>}
         {catalogue.kind === "error" && (

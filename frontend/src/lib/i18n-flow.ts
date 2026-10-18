@@ -17,7 +17,7 @@ export const flowTranslations: Record<string, { az: string; ru: string }> = {
   "We'll send a 6-digit verification code here.": { az: "Bu ünvana 6 rəqəmli təsdiq kodu göndərəcəyik.", ru: "На этот адрес мы отправим шестизначный код подтверждения." },
   "Never shown on your public networking card.": { az: "İctimai əlaqə kartınızda göstərilmir.", ru: "Не показывается в публичной карточке." },
   "Your interests": { az: "Maraqlarınız", ru: "Ваши интересы" },
-  "These shape your booth recommendations and appear on your contact card. They are separate from the interest card.": { az: "Bu seçimlər stend tövsiyələrinizi müəyyən edir və əlaqə kartınızda görünür. Maraq kartından ayrıdır.", ru: "Эти темы определяют рекомендации стендов и видны на вашей контактной карточке. Они не связаны с карточкой интересов." },
+  "Together with the topics on your interest card, these shape your booth recommendations. They also appear on your contact card.": { az: "Maraq kartınızdakı mövzularla birlikdə bu seçimlər stend tövsiyələrinizi müəyyən edir. Onlar əlaqə kartınızda da görünür.", ru: "Вместе с темами вашей карточки интересов этот выбор определяет рекомендации стендов. Он также виден на вашей контактной карточке." },
   "Loading interests…": { az: "Maraqlar yüklənir…", ru: "Загрузка интересов…" },
   "Retry": { az: "Yenidən cəhd edin", ru: "Повторить" },
   "Sponsor data sharing": { az: "Sponsorlarla məlumat paylaşımı", ru: "Передача данных спонсорам" },

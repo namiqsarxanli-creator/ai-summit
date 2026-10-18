@@ -236,9 +236,6 @@ body:has(.fm-home) .fm-language-switcher { position: absolute; top: 0; left: 50%
 .fm-hero-content { padding: 78px 22px 0; }
 .fm-hero-brand h1 { font-family: "Arial Black", Arial, sans-serif; font-stretch: condensed; font-weight: 900; letter-spacing: -.06em; color: #ac1822; line-height: .98; font-size: clamp(41px, 12vw, 54px); }
 .fm-hero-tagline { margin-top: 8px; color: #a61922; font-size: 15px; line-height: 1.2; }
-.fm-hero-note { width: 112px; margin-top: 32px; color: #ac1822; font-size: 13px; line-height: 1.18; hyphens: auto; overflow-wrap: break-word; }
-.fm-hero-note span { display: block; width: 28px; height: 1px; margin: 13px 0 10px; background: #c54c51; }
-.fm-hero-note small { display: block; max-width: 84px; font-size: 11px; letter-spacing: .08em; line-height: 1.35; }
 .fm-home-content { position: relative; z-index: 2; display: flex; flex-direction: column; gap: 16px; margin-top: -35px; padding: 0 16px; }
 
 .fm-score-card { position: relative; min-height: 108px; padding: 18px 18px 16px 102px; border: 1px solid #f3eded; border-radius: 19px; background: var(--fm-surface); box-shadow: 0 8px 21px #42151a10; }
@@ -335,8 +332,6 @@ body:has(.fm-home) .fm-language-switcher { position: absolute; top: 0; left: 50%
 @media (max-width: 360px) {
   :root { --fm-gutter: 16px; }
   .fm-hero-content { padding: 72px 18px 0; }
-  .fm-hero-note { width: 96px; font-size: 12px; margin-top: 24px; }
-  .fm-hero-note small { max-width: 90px; font-size: 10.5px; letter-spacing: .04em; }
   .fm-action { padding: 13px 12px 43px; min-height: 160px; }
   .fm-rank-row { padding-inline: 12px; gap: 8px; }
   .fm-rank-avatar { width: 42px; height: 42px; }

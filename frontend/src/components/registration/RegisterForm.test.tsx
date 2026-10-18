@@ -61,16 +61,17 @@ function registerCalls() {
 }
 
 describe("RegisterForm", () => {
-  it("offers the interest catalogue fetched from the API", async () => {
+  it("does not ask for booth interests: they are chosen later on the profile", async () => {
     render(<RegisterForm />);
-    expect(await screen.findByLabelText("Generative AI")).toBeInTheDocument();
-    expect(screen.getByLabelText("Robotics")).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledWith("/api/interests", expect.anything());
+    expect(await screen.findByTestId("interest-card")).toBeInTheDocument();
+    expect(screen.queryByText("Your interests")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Robotics")).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalledWith("/api/interests", expect.anything());
   });
 
   it("has no pre-selected sponsor consent and requires an explicit choice", async () => {
     render(<RegisterForm />);
-    await screen.findByLabelText("Robotics");
+    await screen.findByTestId("interest-card");
     expect(screen.getByLabelText("Yes, share my details with sponsors")).not.toBeChecked();
     expect(screen.getByLabelText("No, don't share my details")).not.toBeChecked();
 
@@ -85,7 +86,7 @@ describe("RegisterForm", () => {
 
   it("validates required fields and LinkedIn shape before calling the server", async () => {
     render(<RegisterForm />);
-    await screen.findByLabelText("Robotics");
+    await screen.findByTestId("interest-card");
     fireEvent.change(screen.getByLabelText("LinkedIn (optional)"), {
       target: { value: "linkedin.com/in/no-scheme" },
     });
@@ -100,7 +101,7 @@ describe("RegisterForm", () => {
     let resolveRegister!: (response: Response) => void;
     registerResponse = () => new Promise<Response>((resolve) => { resolveRegister = resolve; });
     render(<RegisterForm />);
-    await screen.findByLabelText("Robotics");
+    await screen.findByTestId("interest-card");
     fillValidForm();
     fireEvent.click(screen.getByLabelText("No, don't share my details"));
     const form = screen.getByRole("button", { name: "Register and get my code" }).closest("form")!;
@@ -112,7 +113,7 @@ describe("RegisterForm", () => {
   });
   it("submits the exact registration contract and moves to verification", async () => {
     render(<RegisterForm />);
-    fireEvent.click(await screen.findByLabelText("Robotics"));
+    await screen.findByTestId("interest-card");
     fillValidForm();
     fireEvent.click(screen.getByLabelText("No, don't share my details"));
     fireEvent.click(screen.getByRole("button", { name: "Register and get my code" }));
@@ -127,7 +128,7 @@ describe("RegisterForm", () => {
       profession: "Systems Engineer",
       company: null, // left empty: no company is invented
       interest_card: { sector: null, topics: [], seeking: [], offering: [] }, // every card group is optional
-      interest_slugs: ["robotics"],
+      interest_slugs: [], // booth interests are chosen later, on the profile
       sponsor_consent: false,
       language: "en", // the OTP email is written in the language in use
     });
@@ -139,7 +140,7 @@ describe("RegisterForm", () => {
 
   it("sends sponsor_consent=true only when the attendee opts in", async () => {
     render(<RegisterForm />);
-    await screen.findByLabelText("Robotics");
+    await screen.findByTestId("interest-card");
     fillValidForm();
     fireEvent.click(screen.getByLabelText("Yes, share my details with sponsors"));
     fireEvent.click(screen.getByRole("button", { name: "Register and get my code" }));
@@ -156,7 +157,7 @@ describe("RegisterForm", () => {
   ])("shows attendee copy, never server internals, for %s", async (code, status) => {
     registerResponse = () => errorResponse(status, code);
     render(<RegisterForm />);
-    await screen.findByLabelText("Robotics");
+    await screen.findByTestId("interest-card");
     fillValidForm();
     fireEvent.click(screen.getByLabelText("No, don't share my details"));
     fireEvent.click(screen.getByRole("button", { name: "Register and get my code" }));
@@ -172,7 +173,7 @@ describe("RegisterForm", () => {
         errors: [{ loc: ["body", "phone"], msg: "raw", type: "string_too_long" }],
       });
     render(<RegisterForm />);
-    await screen.findByLabelText("Robotics");
+    await screen.findByTestId("interest-card");
     fillValidForm();
     fireEvent.click(screen.getByLabelText("No, don't share my details"));
     fireEvent.click(screen.getByRole("button", { name: "Register and get my code" }));
@@ -186,7 +187,7 @@ describe("RegisterForm", () => {
       throw new TypeError("Failed to fetch");
     };
     render(<RegisterForm />);
-    await screen.findByLabelText("Robotics");
+    await screen.findByTestId("interest-card");
     fillValidForm();
     fireEvent.click(screen.getByLabelText("No, don't share my details"));
     fireEvent.click(screen.getByRole("button", { name: "Register and get my code" }));
@@ -194,18 +195,9 @@ describe("RegisterForm", () => {
     expect(await screen.findByText(messageFor("NETWORK_ERROR"))).toBeInTheDocument();
   });
 
-  it("offers a retry when the interest catalogue fails to load", async () => {
-    fetchMock.mockImplementationOnce(async () => {
-      throw new TypeError("Failed to fetch");
-    });
-    render(<RegisterForm />);
-    fireEvent.click(await screen.findByRole("button", { name: "Retry" }));
-    expect(await screen.findByLabelText("Generative AI")).toBeInTheDocument();
-  });
-
   it("sends the company and the interest card with the same contract profile editing uses", async () => {
     render(<RegisterForm />);
-    await screen.findByLabelText("Robotics");
+    await screen.findByTestId("interest-card");
     fillValidForm();
     fireEvent.change(screen.getByLabelText("Company (optional)"), { target: { value: "  Kapital Bank " } });
     const card = within(screen.getByTestId("interest-card"));
@@ -236,7 +228,7 @@ describe("RegisterForm", () => {
         errors: [{ loc: ["body", "interest_card", "topics"], msg: "x", type: "value_error" }],
       });
     render(<RegisterForm />);
-    await screen.findByLabelText("Robotics");
+    await screen.findByTestId("interest-card");
     fillValidForm();
     fireEvent.click(screen.getByLabelText("No, don't share my details"));
     fireEvent.click(screen.getByRole("button", { name: "Register and get my code" }));

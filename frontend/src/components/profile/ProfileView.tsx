@@ -185,7 +185,7 @@ export function ProfileView() {
       {!editing && (
         <section className="fm-section">
           <h2 className="fm-eyebrow">{t("Your interests")}</h2>
-          <p className="fm-hint">{t("These shape your booth recommendations and appear on your contact card. They are separate from the interest card.")}</p>
+          <p className="fm-hint">{t("Together with the topics on your interest card, these shape your booth recommendations. They also appear on your contact card.")}</p>
           {profile.interests.length === 0 ? (
             <p className="fm-empty">{t("You haven't selected any interests yet.")}</p>
           ) : (

@@ -362,16 +362,23 @@ def test_an_older_profile_with_many_interests_can_still_be_edited(
     assert sorted(i["slug"] for i in response.json()["interests"]) == sorted(slugs)
 
 
-def test_the_older_interests_and_their_booth_matching_are_untouched(
+def test_card_topics_add_to_booth_matching_but_never_change_the_profile_interests(
     attendee: Attendee, emails: Emails
 ) -> None:
     email, client = attendee(emails(), interest_slugs=["generative-ai", "data-analytics"])
     before = _profile(client)
-    recommendations_before = client.get("/api/attendees/me/recommendations").json()
+
+    def aiworks_matched() -> set[str]:
+        recs = client.get("/api/attendees/me/recommendations").json()
+        match = next(r["match"] for r in recs if r["booth"]["slug"] == "aiworks")
+        return {i["slug"] for i in match["matched_interests"]}
+
+    assert aiworks_matched() == {"generative-ai", "data-analytics"}
+    # FULL_CARD topics: data, ai_strategy (-> artificial-intelligence, data-analytics), fintech.
     client.put(PROFILE, json=profile_body(before, interest_card=FULL_CARD))
     after = _profile(client)
     assert [i["slug"] for i in after["interests"]] == [i["slug"] for i in before["interests"]]
-    assert client.get("/api/attendees/me/recommendations").json() == recommendations_before
+    assert aiworks_matched() == {"generative-ai", "data-analytics", "artificial-intelligence"}
 
 
 # --- nothing new leaks -----------------------------------------------------------------------
@@ -504,3 +511,15 @@ def test_the_database_refuses_a_card_over_the_limits(attendee: Attendee, emails:
     email, _ = attendee(emails())
     with pytest.raises(Exception, match="card_topics_max"):
         execute("UPDATE users SET card_topics = ARRAY['a','b','c','d'] WHERE email = :e", e=email)
+
+
+def test_every_topic_names_booth_interests_of_the_catalogue() -> None:
+    """Each card topic feeds booth recommendations through catalogue slugs."""
+    from app.modules.attendees.interest_card import TOPIC_BOOTH_INTERESTS
+    from app.seed import demo_fixtures as fx
+
+    assert set(TOPIC_BOOTH_INTERESTS) == set(TOPICS)
+    catalogue = {i.slug for i in fx.INTERESTS}
+    for topic, slugs in TOPIC_BOOTH_INTERESTS.items():
+        assert slugs, topic
+        assert set(slugs) <= catalogue, topic

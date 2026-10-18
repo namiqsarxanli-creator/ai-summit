@@ -1,12 +1,12 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { type ChangeEvent, type FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { type ChangeEvent, type FormEvent, useRef, useState } from "react";
 
 import { InterestCardFields } from "@/components/profile/InterestCardFields";
 import { TextField } from "@/components/ui/TextField";
 import { useLanguage } from "@/components/ui/LanguageProvider";
-import { apiGet, apiPost } from "@/lib/api";
+import { apiPost } from "@/lib/api";
 import { fieldErrorsFrom, messageFor } from "@/lib/errors";
 import { EMPTY_CARD, type InterestCard } from "@/lib/interestCard";
 import { savePendingEmail } from "@/lib/pendingEmail";
@@ -16,13 +16,6 @@ import {
   type RegistrationValues,
   validateRegistration,
 } from "./validation";
-
-type Interest = { slug: string; name: string };
-
-type Catalogue =
-  | { kind: "loading" }
-  | { kind: "ready"; interests: Interest[] }
-  | { kind: "error" };
 
 const EMPTY: RegistrationValues = {
   first_name: "",
@@ -38,37 +31,16 @@ export function RegisterForm() {
   const { t, language } = useLanguage();
   const router = useRouter();
   const [values, setValues] = useState<RegistrationValues>(EMPTY);
-  const [selected, setSelected] = useState<string[]>([]);
   const [consent, setConsent] = useState<ConsentChoice>(null);
   const [card, setCard] = useState<InterestCard>(EMPTY_CARD);
-  const [catalogue, setCatalogue] = useState<Catalogue>({ kind: "loading" });
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const inFlight = useRef(false);
 
-  const loadInterests = useCallback(() => {
-    let cancelled = false;
-    apiGet<Interest[]>("/api/interests").then((result) => {
-      if (cancelled) return;
-      setCatalogue(result.ok ? { kind: "ready", interests: result.data } : { kind: "error" });
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => loadInterests(), [loadInterests]);
-
   function update(field: keyof RegistrationValues) {
     return (event: ChangeEvent<HTMLInputElement>) =>
       setValues((current) => ({ ...current, [field]: event.target.value }));
-  }
-
-  function toggleInterest(slug: string) {
-    setSelected((current) =>
-      current.includes(slug) ? current.filter((s) => s !== slug) : [...current, slug],
-    );
   }
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -94,7 +66,8 @@ export function RegisterForm() {
       ...(linkedin ? { linkedin_url: linkedin } : {}),
       company: company || null,
       interest_card: card,
-      interest_slugs: selected,
+      // Booth-recommendation interests are chosen later, on the profile page.
+      interest_slugs: [],
       sponsor_consent: consent === "yes",
       language,
     });
@@ -194,51 +167,6 @@ export function RegisterForm() {
         }}
         error={fieldErrors.interest_card || undefined}
       />
-
-      <fieldset className="fm-fieldset">
-        <legend className="fm-legend">{t("Your interests")}</legend>
-        <p className="fm-hint">
-          {t("These shape your booth recommendations and appear on your contact card. They are separate from the interest card.")}
-        </p>
-        {catalogue.kind === "loading" && <p className="fm-note">{t("Loading interests…")}</p>}
-        {catalogue.kind === "error" && (
-          <div role="alert" className="fm-alert fm-alert-warn fm-stack">
-            <span>{t(messageFor("NETWORK_ERROR"))}</span>
-            <button
-              type="button"
-              onClick={() => {
-                setCatalogue({ kind: "loading" });
-                loadInterests();
-              }}
-              className="fm-btn fm-btn-secondary"
-            >
-              {t("Retry")}
-            </button>
-          </div>
-        )}
-        {catalogue.kind === "ready" && (
-          <div className="fm-choices">
-            {catalogue.interests.map((interest) => {
-              const checked = selected.includes(interest.slug);
-              return (
-                <label key={interest.slug} className="fm-choice">
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={() => toggleInterest(interest.slug)}
-                  />
-                  {t(interest.name)}
-                </label>
-              );
-            })}
-          </div>
-        )}
-        {fieldErrors.interest_slugs && (
-          <p role="alert" className="fm-error">
-            {t(fieldErrors.interest_slugs)}
-          </p>
-        )}
-      </fieldset>
 
       <fieldset
         className="fm-fieldset fm-card fm-card-tint"

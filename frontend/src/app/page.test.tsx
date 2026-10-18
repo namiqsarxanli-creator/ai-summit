@@ -43,7 +43,8 @@ describe("Home", () => {
 
   it("presents event actions without developer health data", async () => {
     render(<Home />);
-    expect(screen.getByText("People. Ideas. Real impact.")).toBeInTheDocument();
+    expect(screen.getByText("Beyond Now")).toBeInTheDocument();
+    expect(screen.queryByText("Artificial intelligence opens bigger possibilities.")).not.toBeInTheDocument();
     expect(await screen.findByRole("link", { name: /Register as an attendee/ })).toBeInTheDocument();
     expect(screen.queryByText(/Backend connectivity/)).not.toBeInTheDocument();
   });

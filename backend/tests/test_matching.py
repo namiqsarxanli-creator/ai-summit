@@ -699,3 +699,72 @@ def test_my_card_and_public_card_still_work_after_m07(
     token = my_card.json()["card_url"].rsplit("/", 1)[-1]
     with make_client() as anon:
         assert anon.get(f"/api/cards/{token}").status_code == 200
+
+
+# --- interest-card topics feed booth recommendations -------------------------
+
+
+def _set_topics(email: str, topics: list[str]) -> None:
+    execute(
+        "UPDATE users SET card_topics = CAST(:t AS text[]) WHERE email = :e",
+        t="{" + ",".join(topics) + "}",
+        e=email.lower(),
+    )
+
+
+def test_card_topics_alone_produce_booth_recommendations(
+    emails: Callable[[], str], attendee: Callable[..., Any]
+) -> None:
+    email, client = attendee(emails(), interest_slugs=[])
+    assert all(r["match"] is None for r in client.get(RECOMMENDATIONS).json())
+    # ai_solutions -> artificial-intelligence + generative-ai; data -> data-analytics.
+    _set_topics(email, ["ai_solutions", "data"])
+    recs = {r["booth"]["slug"]: r["match"] for r in client.get(RECOMMENDATIONS).json()}
+    # AIWorks: A = {AI, GenAI, DA}, raw 2.8, coverage 2.8/3, focus 2.8/3.5 -> 89.
+    assert recs["aiworks"] is not None and recs["aiworks"]["score"] == 89
+
+
+def test_topics_and_profile_interests_are_combined_without_counting_twice(
+    emails: Callable[[], str], attendee: Callable[..., Any]
+) -> None:
+    email, client = attendee(emails(), interest_slugs=["generative-ai"])
+    _set_topics(email, ["ai_solutions"])  # generative-ai again, plus artificial-intelligence
+    recs = {r["booth"]["slug"]: r["match"] for r in client.get(RECOMMENDATIONS).json()}
+    # A = {AI, GenAI}: raw 2, coverage 1, focus 2/3.5 -> 87.
+    assert recs["aiworks"]["score"] == 87
+    # Nothing was written into the profile interests.
+    assert (
+        fetch_one(
+            "SELECT count(*) FROM user_interests ui JOIN users u ON u.id = ui.user_id "
+            "WHERE u.email = :e",
+            e=email.lower(),
+        )[0]
+        == 1
+    )
+
+
+def test_a_topic_never_brings_in_a_retired_catalogue_interest(db: Any) -> None:
+    from sqlalchemy import text as sa_text
+
+    from app.modules.attendees.models import User
+    from app.modules.matching.service import _attendee_interest_ids
+
+    user_id = db.execute(
+        sa_text(
+            "INSERT INTO users (first_name, last_name, email, phone, profession, "
+            "sponsor_consent, status, activated_at, card_topics) VALUES "
+            "('Topic', 'Only', 'topic-only@example.com', '+1', 'Eng', false, 'ACTIVE', now(), "
+            "ARRAY['cybersecurity', 'fintech'])"
+            " RETURNING id"
+        )
+    ).scalar_one()
+    db.execute(sa_text("UPDATE interests SET is_active = false WHERE slug = 'fintech'"))
+    user = db.get(User, user_id)
+    assert user is not None
+    slugs = set(
+        db.execute(
+            sa_text("SELECT slug FROM interests WHERE id = ANY(:ids)"),
+            {"ids": list(_attendee_interest_ids(db, user))},
+        ).scalars()
+    )
+    assert slugs == {"cybersecurity"}

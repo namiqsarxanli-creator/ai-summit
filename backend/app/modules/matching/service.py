@@ -14,6 +14,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.modules.attendees.interest_card import TOPIC_BOOTH_INTERESTS
 from app.modules.attendees.models import User, UserInterest
 from app.modules.booths.models import Booth, BoothInterest
 from app.modules.booths.schemas import BoothOut
@@ -24,10 +25,24 @@ from app.modules.matching.schemas import Match, MatchedInterest, Recommendation
 
 
 def _attendee_interest_ids(db: Session, user: User) -> frozenset[int]:
-    rows = db.execute(
+    """The interests picked on the profile, plus the ACTIVE catalogue interests
+    the attendee's interest-card topics stand for (`TOPIC_BOOTH_INTERESTS`)."""
+    picked = db.execute(
         select(UserInterest.interest_id).where(UserInterest.user_id == user.id)
     ).scalars()
-    return frozenset(rows)
+    slugs = {
+        slug for topic in user.card_topics or () for slug in TOPIC_BOOTH_INTERESTS.get(topic, ())
+    }
+    from_topics = (
+        db.execute(
+            select(Interest.id).where(
+                Interest.slug.in_(sorted(slugs)), Interest.is_active.is_(True)
+            )
+        ).scalars()
+        if slugs
+        else ()
+    )
+    return frozenset(picked) | frozenset(from_topics)
 
 
 @dataclass(frozen=True)

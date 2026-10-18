@@ -11,10 +11,12 @@ can be reworded without touching data. The catalogue below is the single list
 the server accepts; the frontend mirrors it (frontend/src/lib/interestCard.ts)
 and a test keeps the two identical.
 
-The card is deliberately separate from the older `interests` / `user_interests`
-catalogue, which drives booth recommendations and booth weights: neither is
-converted into the other. The documents fix only maximums, so no group is
-required - an empty card is valid.
+The card is stored separately from the older `interests` / `user_interests`
+catalogue, which carries the booth weights. Booth recommendations use both: the
+interests an attendee picked on the profile, and the catalogue interests their
+card TOPICS stand for (`TOPIC_BOOTH_INTERESTS`, by catalogue slug). Nothing is
+written back into `user_interests`. The documents fix only maximums, so no
+group is required - an empty card is valid.
 
 Validation happens in two layers:
 
@@ -68,6 +70,28 @@ TOPICS: Final = (
     "public_services",
     "ai_ethics",
 )
+# Card topic -> booth-catalogue interest slugs it stands for in booth
+# recommendations. Slugs the catalogue does not have (or has retired) are simply
+# ignored, so an admin-edited catalogue never breaks recommendations. A test
+# keeps the keys equal to TOPICS.
+TOPIC_BOOTH_INTERESTS: Final[dict[str, tuple[str, ...]]] = {
+    "ai_solutions": ("artificial-intelligence", "generative-ai"),
+    "business_solutions": ("automation", "cloud-infrastructure"),
+    "erp": ("automation", "cloud-infrastructure"),
+    "data": ("data-analytics",),
+    "ai_education": ("artificial-intelligence",),
+    "hr": ("automation",),
+    "design": ("generative-ai",),
+    "personal_effectiveness": ("generative-ai", "automation"),
+    "ai_strategy": ("artificial-intelligence", "data-analytics"),
+    "fintech": ("fintech",),
+    "marketing": ("generative-ai", "data-analytics"),
+    "cybersecurity": ("cybersecurity",),
+    "startups_investment": ("fintech",),
+    "public_services": ("automation", "cloud-infrastructure"),
+    "ai_ethics": ("artificial-intelligence",),
+}
+
 SEEKING: Final = (
     "solution_supplier",
     "partner",
