@@ -68,6 +68,8 @@ x-backend-environment: &backend-environment
   # rule is NOT confirmed by the organiser. Stays "false" until it is; turning it
   # on needs the explicit recomputation step documented there.
   FOUNDER_RULE_CONFIRMED: ${FOUNDER_RULE_CONFIRMED:-false}
+  # Older profile interests in booth recommendations (BEYOND_NOW.md): off.
+  BOOTH_MATCH_PROFILE_INTERESTS: ${BOOTH_MATCH_PROFILE_INTERESTS:-false}
 
 services:
   db:

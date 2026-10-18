@@ -240,14 +240,17 @@ def test_a_mutual_scan_connects_once_and_opens_the_contact_to_the_pair_only(peop
     assert [c["user_id"] for c in contacts] == [b] and contacts[0]["contact"]["type"] == "EMAIL"
 
 
-def test_an_accepted_app_meeting_makes_a_match_and_same_company_earns_nothing(people: Comp) -> None:
-    _tables(people, 1)
+def test_recommendation_without_meeting_makes_a_match_and_same_company_earns_nothing(
+    people: Comp,
+) -> None:
     a, b, c_, d = people.users(4)
+    card(people, a, card_seeking=["mentor"])
+    card(people, b, card_offering=["mentoring"])
     card(people, c_, company="Same Co")
     card(people, d, company="same co")
     people.clock.now = baku("10:00")
-    rid = ask(people.client(a), b).json()["id"]
-    people.client(b).post(f"{REQUESTS}/{rid}/respond", json={"accept": True})
+    assert people.rig.scalar("SELECT count(*) FROM meetings") == 0
+    assert b in [p["user_id"] for p in people.client(a).get(PEOPLE).json()["people"]]
     scan(people.client(a), people.card(b))
     assert scan(people.client(b), people.card(a)).json()["kind"] == "match"
     assert people.points(a, "CONNECTION") == 3
@@ -256,6 +259,31 @@ def test_an_accepted_app_meeting_makes_a_match_and_same_company_earns_nothing(pe
     assert colleagues["same_company"] is True and colleagues["points"] == 0
     assert people.points(c_, "CONNECTION") == 0
     assert people.rig.scalar("SELECT count(*) FROM connections") == 2  # history kept
+
+
+def test_meeting_alone_does_not_replace_a_recommendation(people: Comp) -> None:
+    _tables(people, 1)
+    a, b = people.users(2)
+    people.clock.now = baku("10:00")
+    rid = ask(people.client(a), b).json()["id"]
+    assert (
+        people.client(b).post(f"{REQUESTS}/{rid}/respond", json={"accept": True}).status_code == 200
+    )
+    scan(people.client(a), people.card(b))
+    result = scan(people.client(b), people.card(a)).json()
+    assert result["kind"] == "other" and result["points"] == 1
+    assert people.points(a, "CONNECTION") == 1
+
+
+def test_recommendation_changes_do_not_reclassify_an_existing_connection(people: Comp) -> None:
+    a, b = people.users(2)
+    people.clock.now = baku("12:00")
+    _connect(people, a, b)
+    card(people, a, card_seeking=["mentor"])
+    card(people, b, card_offering=["mentoring"])
+    result = scan(people.client(a), people.card(b)).json()
+    assert result["kind"] == "other" and result["outcome"] == "already"
+    assert people.points(a, "CONNECTION") == 1
 
 
 def _connect(p: Comp, a: int, b: int) -> None:
@@ -272,9 +300,8 @@ def test_only_the_best_four_count_and_a_better_fifth_replaces_the_weakest(people
     _connect(people, me, others[4])  # a fifth ordinary one is kept, not counted
     assert people.points(me, "CONNECTION") == 4
     # a fifth that is a match (3) replaces one counted 1 - by a reversal entry
-    _tables(people, 1)
-    rid = ask(people.client(me), others[5]).json()["id"]
-    people.client(others[5]).post(f"{REQUESTS}/{rid}/respond", json={"accept": True})
+    card(people, me, card_seeking=["mentor"])
+    card(people, others[5], card_offering=["mentoring"])
     _connect(people, me, others[5])
     assert people.points(me, "CONNECTION") == 6
     rows = people.rig.sql(

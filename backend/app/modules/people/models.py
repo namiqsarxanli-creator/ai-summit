@@ -13,7 +13,7 @@
   confirmed meetings at once.
 * `connection_scans` - one direction of the mutual QR scan.
 * `connections` - both directions done: the pair is connected, the contact
-  action opens to these two only, and the kind (an accepted app meeting = MATCH,
+  action opens to these two only, and the kind (a top-five recommendation in either direction = MATCH,
   otherwise OTHER) and same-company flag are FROZEN at that moment, so a later
   profile edit never rewrites an earned score.
 """

@@ -155,9 +155,11 @@ the module's docstring and covered by tests):
   scored activity happened, as verified; Founder uses it, so a pre-close activity
   recorded after the close still counts. Historical rows (NULL) are read by
   `created_at`, exactly what they were judged by before. Nothing is rewritten.
-  The ranking's tie-break still uses the time the total was reached in the ledger
-  (`created_at`); whether a late-verified award should date the tie-break by its
-  occurrence is an open business decision, deliberately not guessed.
+  The ranking tie-break uses `reached_at`: the latest `COALESCE(occurred_at,
+  created_at)` of awards that still stand. Fully reversed awards and reversals
+  do not date the total. A verified offline activity therefore keeps its verified
+  time even if it is recorded after the close. The same rule is used by ranking,
+  pagination, the shared snapshot and final publication.
 * **Caddy**: `POST /api/attendees/me/pair-photos` has its own exact 9MB matcher;
   every other route keeps 1MB. `deploy/tests/caddy-upload.test.sh` exercises the
   real proxy in an isolated network.
@@ -192,3 +194,46 @@ Real-device tests (iOS Safari, Android Chrome: camera, keyboard, safe areas,
 photo upload), a representative load test on the production-sized server, a
 restore rehearsal with these tables, and the data-transition of the live
 database. None of them can be certified from desktop emulation or unit tests.
+
+
+## PDF conformance follow-up (18 October 2026)
+
+* **Names:** leaderboard entries now carry `name` (first name + surname initial),
+  not `first_name`/`last_name`. Own profiles and authorised staff identity reads
+  keep their existing contracts. Deploy backend and frontend together and reload
+  old attendee tabs; this is a response-contract change, not a schema migration.
+* **Venue display:** `/screen/live` reads the public, `Cache-Control: no-store`
+  `/api/screen/live` every 15 seconds while visible. It shares the ranking
+  snapshot, shows top ten scoring attendees, recent standing awards, a countdown
+  based on server time, and approved, mutually consented pair photos (one at a
+  time, rotating every eight seconds; removed feed entries disappear on refresh). Failures
+  retain the last display and retry at 5/10/20/30 seconds. Refreshes never overlap.
+  After close it shows review, and after publication delegates to the published
+  final. No public anonymous SSE stream was added. This is bounded polling, not
+  instantaneous push. `/screen/final` and `/screen/photos` remain separate views.
+* **Not configured:** missing event, close or competition mode is shown explicitly
+  rather than presented as a running competition.
+* **Report:** `attended` contains completed sessions; `not_completed` separately
+  contains entry-only masterclasses and checked-in Playground sessions. These
+  labels do not alter points. UI handles an older server without the new field.
+* **Booth matching:** `BOOTH_MATCH_PROFILE_INTERESTS=false` by default ignores old
+  hidden `user_interests`; the data is retained. Setting it true restores the
+  legacy union. Card topics continue through the existing weighted booth engine;
+  this does not invent a sector/goal formula for booths.
+* **Readiness:** `python -m app.cli competition-report` retains its activation
+  report and adds a read-only checklist. It exits 1 while required configuration
+  is missing. Checks include event date/timezone, timetable/deadlines, five
+  published masterclasses per block, panels/close, 8-15 Playground booths and
+  their quarter-hour slots, mentor group schedule, 4-6 Match Corner tables, and
+  active scanner assignments. It prints counts/times/row ids, no contact data.
+  Informational Founder/reminder/exclusion lines still require organiser review;
+  a passing configuration checklist is not a release or real-device certificate.
+
+Still decisions, not silently implemented: Founder zone qualification; LOGO's
+separate opt-in lead flow; strict post-panel-only Qmeter entry; name/phone team
+invitation; next-event marketing consent and delivery system.
+
+Confirmed networking rule: a server top-five recommendation in either direction
+at mutual QR connection earns 3 points without a meeting reservation. Ordinary
+connections earn 1; same-company and best-four limits remain unchanged. Existing
+connections retain their recorded classification. Founder qualification remains unconfirmed.

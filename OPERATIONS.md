@@ -615,3 +615,29 @@ never the live database, volumes or stack):
   `docker-compose.prod.yml` containers (its logic was tested against stand-in
   `docker`/`curl`, its pieces against the development containers).
 * Alert delivery to a person (no monitoring account exists).
+
+
+## Beyond Now PDF follow-up: release and configuration
+
+Run `python -m app.cli competition-report` in the intended deployment environment
+for a read-only activation/readiness report (exit 1 means missing configuration).
+It neither seeds the programme nor changes flags. Read every `info` line as well:
+Founder qualification, exclusions and reminders still need an operator decision.
+Configure the confirmed 13 November 2026 programme in Asia/Baku; 17:30 local
+close is 13:30 UTC. Do not substitute demo speakers or guessed sponsor details.
+
+The day display URL is `/screen/live`; `/api/screen/live` exposes short names,
+points and approved photo URLs only. It polls at 15 seconds, pauses when hidden
+and backs off on failure. Competition awards are reconciled on those reads;
+there is no new anonymous SSE channel. Close transitions to review; publication
+transitions to the frozen final. No configured close means no competition award.
+
+Leaderboard responses now expose `name` rather than `first_name`/`last_name`.
+Ship the matching backend/frontend together and reload open attendee and staff
+tabs. No new migration is needed for this follow-up. Preserve existing backup,
+release and rollback procedures; do not deploy unrelated unfinished backup work.
+
+`BOOTH_MATCH_PROFILE_INTERESTS` defaults false. Legacy saved interests are retained
+but ignored in booth scoring; an explicit true restores their union with card
+topics. This is not a new booth matching formula. Real-device, live email and
+production-sized load checks remain separate release gates.

@@ -8,8 +8,9 @@ import { apiGet, type ApiResult } from "@/lib/api";
 
 export type LeaderboardEntry = {
   user_id: number;
-  first_name: string;
-  last_name: string;
+  // First name and surname initial ("Anar N."), made by the server: the event's
+  // rules never show a competitor's full surname on the ranking.
+  name: string;
   profession: string;
   total_points: number;
   rank: number;

@@ -26,10 +26,20 @@ type Report = {
   final_status: "open" | "pending_review" | "published";
   timezone: string;
   attended: ProgrammeItem[];
+  // Begun but never completed (an exit / end never scanned); absent from an
+  // older server.
+  not_completed?: ProgrammeItem[];
   panels: { title: string; starts_at: string; ends_at: string }[];
   connections: ConnectionRow[];
   photos: PairPhoto[];
 };
+// What a begun-only item still lacks. Neither is a completion and neither
+// earned points (the point rules need the exit / end scan).
+const NOT_COMPLETED_NOTE: Record<string, string> = {
+  entered: "Entry scanned, exit not scanned: not completed, no points.",
+  checked_in: "Admitted, but the end of the session was not scanned: not completed, no points.",
+};
+
 type State = { kind: "loading" } | { kind: "signed-out" } | { kind: "error"; text: string } | { kind: "ok"; report: Report };
 
 // After the event: one's own score, place, Founder status, what one verifiably
@@ -61,6 +71,8 @@ export function MyReport() {
   if (state.kind === "error") return <p role="alert" className="fm-alert fm-alert-warn">{t(state.text)}</p>;
   const r = state.report;
   const zone = r.timezone;
+  const notCompleted = r.not_completed ?? [];
+  const title = (i: ProgrammeItem) => (i.kind === "playground" ? t(i.title) : i.title);
   return (
     <div className="fm-stack-lg">
       <section className="fm-card fm-section" aria-labelledby="rep-score">
@@ -80,13 +92,28 @@ export function MyReport() {
       </section>
 
       <section className="fm-section" aria-labelledby="rep-history">
-        <h2 id="rep-history" className="fm-eyebrow">{t("What I attended")}</h2>
+        <h2 id="rep-history" className="fm-eyebrow">{t("What I completed")}</h2>
         {r.attended.length === 0 && r.panels.length === 0 && <p className="fm-empty">{t("Nothing verified yet.")}</p>}
-        <ul className="fm-list">
-          {r.panels.map((p) => <li key={p.starts_at} className="fm-small">{eventTime(p.starts_at, zone, language)} · {p.title}</li>)}
-          {r.attended.map((i) => <li key={`${i.kind}-${i.id}`} className="fm-small">{eventTime(i.starts_at, zone, language)} · {i.kind === "playground" ? t(i.title) : i.title}</li>)}
+        <ul className="fm-list" aria-label={t("What I completed")}>
+          {r.panels.map((p) => <li key={p.starts_at} className="fm-small">{eventTime(p.starts_at, zone, language)} · {p.title} · <span className="fm-strong">{t("Completed")}</span></li>)}
+          {r.attended.map((i) => <li key={`${i.kind}-${i.id}`} className="fm-small">{eventTime(i.starts_at, zone, language)} · {title(i)} · <span className="fm-strong">{t("Completed")}</span></li>)}
         </ul>
       </section>
+
+      {notCompleted.length > 0 && (
+        <section className="fm-section" aria-labelledby="rep-started">
+          <h2 id="rep-started" className="fm-eyebrow">{t("Started, not completed")}</h2>
+          <ul className="fm-list" aria-label={t("Started, not completed")}>
+            {notCompleted.map((i) => (
+              <li key={`${i.kind}-${i.id}`} className="fm-small">
+                {eventTime(i.starts_at, zone, language)} · {title(i)}
+                <br />
+                <span className="fm-hint">{t(NOT_COMPLETED_NOTE[i.status] ?? "Not completed, no points.")}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section className="fm-section" aria-labelledby="rep-people">
         <h2 id="rep-people" className="fm-eyebrow">{t("People I met")}</h2>

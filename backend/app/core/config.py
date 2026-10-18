@@ -194,6 +194,13 @@ class Settings(BaseSettings):
     # decision, no Founder bonus is awarded and no final result names Founders or
     # Lucky Draw entrants.
     founder_rule_confirmed: bool = False
+    # Booth recommendations: the attendee's interest-card TOPICS decide them. The
+    # older profile interests (`user_interests`) can no longer be seen or edited
+    # by attendees, so by default they no longer count - kept in the database,
+    # never deleted, only ignored (PDF conformance audit, 18 Oct 2026). True
+    # brings back the earlier behaviour (topics AND the older picks); an operator
+    # sets it only if the organiser decides those hidden picks should count.
+    booth_match_profile_interests: bool = False
 
     @field_validator("environment")
     @classmethod

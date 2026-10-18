@@ -3,8 +3,8 @@ skanı: match 3 bal, digər tanışlıq 1 bal; ən yüksək 4 tanışlıq sayıl
 
 * Each person scans the other's live card QR; a scan of oneself, of a revoked or
   inactive card, or of a blocked person is refused. When both directions exist
-  the pair is CONNECTED - once. Its kind is MATCH if the two had an accepted app
-  meeting at that moment, OTHER otherwise; whether they share a (non-empty)
+  the pair is CONNECTED - once. Its kind is MATCH if either appears in the other's top-five
+  recommendations at that moment, OTHER otherwise; whether they share a (non-empty)
   company is recorded at the same moment. Both are frozen there.
 * Points: MATCH 3, OTHER 1, same company 0. Only the four best connections count
   (at most 12). A better fifth replaces the weakest counted one: the new one is
@@ -26,8 +26,8 @@ from app.core.errors import DomainError
 from app.modules.attendees.models import User
 from app.modules.competition.ledger import award, closes_at, eligible, lock_attendee_points
 from app.modules.contact_cards.service import contact_action_for, resolve_active_attendee
-from app.modules.people.compatibility import blocked_ids, normalise_company
-from app.modules.people.models import Connection, ConnectionScan, Meeting, MeetingRequest
+from app.modules.people.compatibility import blocked_ids, normalise_company, suggestions
+from app.modules.people.models import Connection, ConnectionScan
 from app.modules.points.models import PointsEntryType, PointsLog, PointsSource
 
 MATCH_POINTS = 3
@@ -60,20 +60,10 @@ def connected(db: Session, a: int, b: int) -> bool:
     )
 
 
-def _had_meeting(db: Session, a: int, b: int) -> bool:
-    low, high = _pair(a, b)
-    return (
-        db.execute(
-            select(Meeting.id)
-            .join(MeetingRequest, MeetingRequest.id == Meeting.request_id)
-            .where(
-                MeetingRequest.pair_low_id == low,
-                MeetingRequest.pair_high_id == high,
-                MeetingRequest.status == "ACCEPTED",
-                Meeting.cancelled_at.is_(None),
-            )
-        ).first()
-        is not None
+def _recommended(db: Session, a: User, b: User) -> bool:
+    """Use server recommendations in either direction when the pair connects."""
+    return any(user.id == b.id for user, _ in suggestions(db, a)) or any(
+        user.id == a.id for user, _ in suggestions(db, b)
     )
 
 
@@ -174,7 +164,7 @@ def scan(db: Session, me: User, card_token: str, now: datetime) -> dict[str, Any
         row = Connection(
             user_low_id=low,
             user_high_id=high,
-            kind="MATCH" if _had_meeting(db, me.id, other.id) else "OTHER",
+            kind="MATCH" if _recommended(db, me, other) else "OTHER",
             same_company=bool(company) and company == normalise_company(other.company),
             established_at=now,
         )

@@ -1,4 +1,3 @@
-import { T } from "@/components/ui/LanguageProvider";
 import { AttendeeTabBar } from "@/components/nav/AttendeeTabBar";
 import { BrandCredit } from "@/components/ui/BrandCredit";
 import Link from "next/link";

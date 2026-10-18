@@ -225,6 +225,17 @@ def test_no_random_source_and_no_llm_anywhere_in_the_matching_module() -> None:
 # --------------------------------------------------------------------------
 
 
+@pytest.fixture(autouse=True)
+def profile_interests_count(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The §11 engine tests below exercise the older profile interests (the
+    seeded demo personas hold only those), so this module turns them on - the
+    operator setting that brings back the earlier behaviour. A test of the
+    production default turns it off again itself."""
+    from app.core.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "booth_match_profile_interests", True)
+
+
 @pytest.fixture
 def emails() -> Iterator[Callable[[], str]]:
     issued: list[str] = []
@@ -768,3 +779,44 @@ def test_a_topic_never_brings_in_a_retired_catalogue_interest(db: Any) -> None:
         ).scalars()
     )
     assert slugs == {"cybersecurity"}
+
+
+# --- hidden older picks (PDF conformance audit 2026-10-18, P2) -----------------------------
+
+
+def test_by_default_older_profile_interests_nobody_can_see_change_nothing(
+    attendee: Callable[..., tuple[str, TestClient]],
+    emails: Callable[[], str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An attendee who once picked profile interests (no longer shown or editable)
+    gets exactly what an attendee without them gets: their card topics decide."""
+    from app.core.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "booth_match_profile_interests", False)  # the default
+    assert type(get_settings())().booth_match_profile_interests is False
+    hidden_email, hidden = attendee(emails(), interest_slugs=["robotics", "fintech"])
+    plain_email, plain = attendee(emails(), interest_slugs=[])
+    # The older picks are still stored - nothing is deleted.
+    assert (
+        fetch_one(
+            "SELECT count(*) FROM user_interests ui JOIN users u ON u.id = ui.user_id "
+            "WHERE u.email = :e",
+            e=hidden_email.lower(),
+        )[0]
+        == 2
+    )
+    # No topics: both get the general listing (match null), not a hidden score.
+    for c in (hidden, plain):
+        body = c.get(RECOMMENDATIONS).json()
+        assert body and all(r["match"] is None for r in body)
+    # The same topics: the same recommendations, the older picks add nothing.
+    for email in (hidden_email, plain_email):
+        _set_topics(email, ["ai_solutions"])
+    assert hidden.get(RECOMMENDATIONS).json() == plain.get(RECOMMENDATIONS).json()
+    named = {
+        i["slug"]
+        for r in hidden.get(RECOMMENDATIONS).json()
+        for i in (r["match"] or {}).get("matched_interests", [])
+    }
+    assert named and named <= {"artificial-intelligence", "generative-ai"}

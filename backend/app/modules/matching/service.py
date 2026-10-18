@@ -14,6 +14,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.modules.attendees.interest_card import TOPIC_BOOTH_INTERESTS
 from app.modules.attendees.models import User, UserInterest
 from app.modules.booths.models import Booth, BoothInterest
@@ -25,11 +26,21 @@ from app.modules.matching.schemas import Match, MatchedInterest, Recommendation
 
 
 def _attendee_interest_ids(db: Session, user: User) -> frozenset[int]:
-    """The interests picked on the profile, plus the ACTIVE catalogue interests
-    the attendee's interest-card topics stand for (`TOPIC_BOOTH_INTERESTS`)."""
-    picked = db.execute(
-        select(UserInterest.interest_id).where(UserInterest.user_id == user.id)
-    ).scalars()
+    """The ACTIVE catalogue interests the attendee's interest-card topics stand
+    for (`TOPIC_BOOTH_INTERESTS`) - what the attendee sees and edits on their
+    profile.
+
+    The older profile interests (`user_interests`) are no longer shown to or
+    editable by attendees, so they count only when an operator turned
+    `booth_match_profile_interests` on; otherwise they are kept, untouched, and
+    ignored here - a choice nobody can see never shapes a recommendation."""
+    picked = (
+        db.execute(
+            select(UserInterest.interest_id).where(UserInterest.user_id == user.id)
+        ).scalars()
+        if get_settings().booth_match_profile_interests
+        else ()
+    )
     slugs = {
         slug for topic in user.card_topics or () for slug in TOPIC_BOOTH_INTERESTS.get(topic, ())
     }

@@ -1489,3 +1489,18 @@ Genuine implementation ambiguities found while planning. **None is an architectu
 **C6 — the six open product questions (§23.3)** — repeat-task default, feedback reward amount, preset scope, OTP delivery channel, leaderboard name privacy, zero-point visibility — all have working defaults and are **configuration or seed data**, not structure. They are consumed by M03 (`event_config` and preset fixtures) and can change without code. None blocks any milestone.
 
 **C7 — `scan_ref` clock source.** §13.3 specifies a server-issued `iat` and a 5 s skew allowance, but does not address clock drift between the issuing and verifying process. **Resolution: not an issue in the demo** — single worker, one host, one clock. Recorded because a multi-host production deployment would need NTP discipline or a wider skew allowance.
+
+
+## Beyond Now PDF conformance follow-up — implementation scope
+
+The current follow-up implements verified occurrence-time tie-breaking shared
+with final/keyset/snapshot reads, short-name leaderboard responses, separate
+started/completed report sections, opt-in legacy-interest scoring, a venue
+`/screen/live` display (15-second bounded polling), and a read-only readiness
+checklist in `competition-report`. No migration or automatic production data
+configuration is part of it. See BEYOND_NOW.md for current contracts and open
+business decisions; OPERATIONS.md for release/configuration notes.
+
+Validation results must be reported from the actual run, not inferred from this
+implementation list. Real-phone camera/offline testing, production-sized load,
+confirmed programme data, Founder policy and deployment remain separate gates.

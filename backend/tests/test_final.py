@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from datetime import UTC, datetime
+from typing import Any
 from uuid import uuid4
 
 import pytest
@@ -305,13 +306,11 @@ def test_a_draft_can_be_discarded_and_not_published_afterwards(fin: Final) -> No
 
 
 def test_on_equal_points_whoever_reached_the_total_first_ranks_ahead(fin: Final) -> None:
-    early, late = fin.users(2)
-    fin.pay(late, PointsSource.PANEL, "panel:9", 8)
-    fin.rig.sql("UPDATE points_log SET created_at = :t WHERE user_id = :u", t=baku("14:10"), u=late)
-    fin.pay(early, PointsSource.PANEL, "panel:9", 8)
-    fin.rig.sql(
-        "UPDATE points_log SET created_at = :t WHERE user_id = :u", t=baku("11:00"), u=early
-    )
+    late, early = fin.users(2)  # the user id would favour `late`
+    # `late` is paid first but its activity happened later: the moment of the
+    # activity decides (`occurred_at`), not the order the ledger recorded them in.
+    fin.pay(late, PointsSource.PANEL, "panel:9", 8, at="14:10")
+    fin.pay(early, PointsSource.PANEL, "panel:9", 8, at="11:00")
     fin.clock.now = baku("17:35")
     gm = fin.game_master()
     row = gm.post("/api/staff/final").json()
@@ -584,3 +583,104 @@ def test_the_recomputation_command_refuses_while_the_rule_is_unconfirmed(
     rule(monkeypatch, confirmed=False)
     with pytest.raises(SystemExit, match="FOUNDER_RULE_CONFIRMED is false"):
         main(["founder-recompute", "--confirm"])
+
+
+# --- the venue screen during the day (PDF conformance audit 2026-10-18, P1) -----------------
+
+
+def _screen() -> dict[str, Any]:
+    r = TestClient(app).get("/api/screen/live")  # no session at all
+    assert r.status_code == 200 and r.headers["cache-control"] == "no-store"
+    body: dict[str, Any] = r.json()
+    return body
+
+
+def test_the_screen_says_plainly_when_the_programme_is_not_set_up(fin: Final) -> None:
+    (a,) = fin.users(1)
+    fin.pay(a, PointsSource.PANEL, "panel:1", 8)
+    fin.rig.sql("UPDATE masterclass_events SET competition_closes_at = NULL")
+    fin.rig.sql("UPDATE event_config SET competition_mode = false")
+    body = _screen()
+    assert body["state"] == "not_configured"
+    assert body["missing"] == ["close", "competition_mode"]
+    assert body["closes_at"] is None and body["top"] == [] and body["recent"] == []
+    fin.rig.sql("UPDATE event_config SET competition_mode = true")
+    assert _screen()["missing"] == ["close"]  # still not "open" without the close
+
+
+def test_the_screen_shows_the_live_top_ten_and_recent_awards_without_private_data(
+    fin: Final,
+) -> None:
+    a, b, c, excluded, _zero = fin.users(5)  # _zero: no points, not on the screen
+    fin.rig.sql(
+        "UPDATE users SET first_name = 'Anar', last_name = 'Nəsirov', "
+        "email = 'anar.private@mail.test', phone = '+994501234567' WHERE id = :u",
+        u=a,
+    )
+    fin.pay(a, PointsSource.PANEL, "panel:1", 8, at="11:00")
+    fin.pay(b, PointsSource.PANEL, "panel:1", 8, at="11:05")
+    fin.pay(b, PointsSource.QMETER, "panel:1", 2, at="11:10")
+    wrong = fin.pay(c, PointsSource.MENTOR, "once", 5, at="13:55")
+    assert wrong == "awarded"
+    fin.rig.sql(
+        "UPDATE users SET competition_excluded_reason = 'Speaker' WHERE id = :u", u=excluded
+    )
+    fin.pay(excluded, PointsSource.PANEL, "panel:1", 8)  # not paid: excluded
+    assert reverse(fin.rig, fin.entry(c, "MENTOR")) == 200  # a correction
+    from app.modules.leaderboard.service import invalidate_ranking_snapshot
+
+    invalidate_ranking_snapshot()
+    fin.clock.now = baku("16:00")
+    response = TestClient(app).get("/api/screen/live")
+    body = response.json()
+    assert body["state"] == "open"
+    assert body["server_time"] == baku("16:00").isoformat()
+    assert body["closes_at"] == baku("17:30").isoformat()
+    assert body["timezone"] == "Asia/Baku"
+    # People with points only, short names, the shared tie-break.
+    assert body["top"] == [
+        {"place": 1, "name": "Guest N.", "points": 10, "photo_url": None},
+        {"place": 2, "name": "Anar N.", "points": 8, "photo_url": None},
+    ]
+    assert [(e["name"], e["points"], e["category"]) for e in body["recent"]] == [
+        ("Guest N.", 2, "QMETER"),
+        ("Guest N.", 8, "PANEL"),
+        ("Anar N.", 8, "PANEL"),
+    ]  # the reversed mentor award and the excluded person never appear
+    for private in ("Nəsirov", "anar.private", "+994", "user_id", "email", "phone", "token"):
+        assert private not in response.text, private
+
+
+def test_the_screen_shows_only_photos_both_people_allowed_and_a_moderator_approved(
+    fin: Final,
+) -> None:
+    a, b = fin.users(2)
+    approved, rejected = uuid4().hex, uuid4().hex
+    for key, moderation in ((approved, "APPROVED"), (rejected, "REJECTED")):
+        fin.rig.sql(
+            "INSERT INTO pair_photos (uploader_id, partner_id, photo_key, status, accepted_at, "
+            "uploader_screen_at, partner_screen_at, moderation, moderated_at) "
+            "VALUES (:a, :b, :k, 'ACCEPTED', now(), now(), now(), :m, now())",
+            a=a,
+            b=b,
+            k=key,
+            m=moderation,
+        )
+    photos = _screen()["photos"]
+    assert len(photos) == 1 and approved in photos[0]["photo_url"]
+    assert rejected not in str(photos)
+
+
+def test_after_the_close_the_screen_reviews_and_after_publication_it_shows_the_final(
+    fin: Final,
+) -> None:
+    (a,) = fin.users(1)
+    fin.pay(a, PointsSource.PANEL, "panel:1", 8)
+    fin.clock.now = baku("17:30")
+    body = _screen()
+    assert body["state"] == "review" and body["top"] == [] and body["recent"] == []
+    gm = fin.game_master()
+    draft = gm.post("/api/staff/final").json()
+    assert _screen()["state"] == "review"  # a draft is not a result
+    gm.post(f"/api/staff/final/{draft['id']}/publish")
+    assert _screen()["state"] == "published"

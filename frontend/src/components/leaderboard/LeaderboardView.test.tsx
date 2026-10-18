@@ -30,8 +30,7 @@ function errorResponse(status: number, code: string): Response {
 function entry(overrides: Partial<Record<string, unknown>> = {}) {
   return {
     user_id: 1,
-    first_name: "Ada",
-    last_name: "Lovelace",
+    name: "Ada L.",
     profession: "Engineer",
     total_points: 45,
     rank: 3,
@@ -100,8 +99,8 @@ describe("LeaderboardView — top view", () => {
       vi.fn(async () =>
         jsonResponse(200, {
           entries: [
-            entry({ user_id: 1, first_name: "Ada", last_name: "Lovelace", rank: 1, total_points: 90 }),
-            entry({ user_id: 2, first_name: "Grace", last_name: "Hopper", rank: 2, total_points: 80 }),
+            entry({ user_id: 1, name: "Ada L.", rank: 1, total_points: 90 }),
+            entry({ user_id: 2, name: "Grace H.", rank: 2, total_points: 80 }),
           ],
           current_user: null,
           as_of: "2026-09-22T17:04:11Z",
@@ -112,8 +111,10 @@ describe("LeaderboardView — top view", () => {
     );
     render(<LeaderboardView />);
     openReady();
-    expect(await screen.findByText("Ada Lovelace")).toBeInTheDocument();
-    expect(screen.getByText("Grace Hopper")).toBeInTheDocument();
+    expect(await screen.findByText("Ada L.")).toBeInTheDocument();
+    expect(screen.getByText("Grace H.")).toBeInTheDocument();
+    // The public form only: the full surname is never on the ranking.
+    expect(screen.queryByText(/Lovelace|Hopper/)).not.toBeInTheDocument();
     expect(screen.getByText("90 pts")).toBeInTheDocument();
     expect(screen.getByText("#1")).toBeInTheDocument();
   });
@@ -123,8 +124,8 @@ describe("LeaderboardView — top view", () => {
       "fetch",
       vi.fn(async () =>
         jsonResponse(200, {
-          entries: [entry({ user_id: 1, first_name: "Ada", last_name: "Lovelace", rank: 1 })],
-          current_user: entry({ user_id: 99, first_name: "Outside", last_name: "Attendee", rank: 42, total_points: 2 }),
+          entries: [entry({ user_id: 1, name: "Ada L.", rank: 1 })],
+          current_user: entry({ user_id: 99, name: "Outside A.", rank: 42, total_points: 2 }),
           as_of: "2026-09-22T17:04:11Z",
           dataset_generation: 1,
           next_cursor: null,
@@ -134,7 +135,7 @@ describe("LeaderboardView — top view", () => {
     render(<LeaderboardView />);
     openReady();
     expect(await screen.findByText("Your position")).toBeInTheDocument();
-    expect(screen.getByText("Outside Attendee")).toBeInTheDocument();
+    expect(screen.getByText("Outside A.")).toBeInTheDocument();
     expect(screen.getByText("#42")).toBeInTheDocument();
   });
 
@@ -143,8 +144,8 @@ describe("LeaderboardView — top view", () => {
       "fetch",
       vi.fn(async () =>
         jsonResponse(200, {
-          entries: [entry({ user_id: 1, first_name: "Ada", last_name: "Lovelace", rank: 1 })],
-          current_user: entry({ user_id: 1, first_name: "Ada", last_name: "Lovelace", rank: 1 }),
+          entries: [entry({ user_id: 1, name: "Ada L.", rank: 1 })],
+          current_user: entry({ user_id: 1, name: "Ada L.", rank: 1 }),
           as_of: "2026-09-22T17:04:11Z",
           dataset_generation: 1,
           next_cursor: null,
@@ -153,9 +154,9 @@ describe("LeaderboardView — top view", () => {
     );
     render(<LeaderboardView />);
     openReady();
-    await screen.findByText("Ada Lovelace");
+    await screen.findByText("Ada L.");
     expect(screen.queryByText("Your position")).not.toBeInTheDocument();
-    expect(screen.getAllByText("Ada Lovelace")).toHaveLength(1);
+    expect(screen.getAllByText("Ada L.")).toHaveLength(1);
   });
 
   it("shows the pushed leaderboard when another attendee's score changes it (broadcast)", async () => {
@@ -168,8 +169,7 @@ describe("LeaderboardView — top view", () => {
           entries: [
             entry({
               user_id: 1,
-              first_name: call === 1 ? "Ada" : "Ada-Updated",
-              last_name: "Lovelace",
+              name: call === 1 ? "Ada L." : "Ada-Updated L.",
               rank: call === 1 ? 2 : 1,
               total_points: call === 1 ? 50 : 90,
             }),
@@ -188,7 +188,7 @@ describe("LeaderboardView — top view", () => {
     MockEventSource.latest().emit("leaderboard_changed", {
       leaderboard: {
         entries: [
-          entry({ user_id: 1, first_name: "Ada-Updated", last_name: "Lovelace", rank: 1, total_points: 90 }),
+          entry({ user_id: 1, name: "Ada-Updated L.", rank: 1, total_points: 90 }),
         ],
         dataset_generation: 1,
         version: 1,
@@ -216,7 +216,7 @@ describe("LeaderboardView — show all", () => {
     const fetchMock = vi.fn(async (url: string) => {
       if (url === "/api/leaderboard") return topResponse();
       return jsonResponse(200, {
-        entries: [entry({ user_id: 2, first_name: "Grace", last_name: "Hopper", rank: 2 })],
+        entries: [entry({ user_id: 2, name: "Grace H.", rank: 2 })],
         current_user: null,
         as_of: "2026-09-22T18:00:00Z",
         dataset_generation: 5,
@@ -232,7 +232,7 @@ describe("LeaderboardView — show all", () => {
       screen.getByRole("button", { name: "Show all" }).click();
     });
 
-    expect(await screen.findByText("Grace Hopper")).toBeInTheDocument();
+    expect(await screen.findByText("Grace H.")).toBeInTheDocument();
     expect(screen.getByText(/As of/)).toBeInTheDocument();
   });
 
@@ -243,7 +243,7 @@ describe("LeaderboardView — show all", () => {
       call += 1;
       if (call === 1) {
         return jsonResponse(200, {
-          entries: [entry({ user_id: 2, first_name: "Page", last_name: "One", rank: 2 })],
+          entries: [entry({ user_id: 2, name: "Page O.", rank: 2 })],
           current_user: null,
           as_of: "2026-09-22T18:00:00Z",
           dataset_generation: 5,
@@ -251,7 +251,7 @@ describe("LeaderboardView — show all", () => {
         });
       }
       return jsonResponse(200, {
-        entries: [entry({ user_id: 3, first_name: "Page", last_name: "Two", rank: 3 })],
+        entries: [entry({ user_id: 3, name: "Page T.", rank: 3 })],
         current_user: null,
         as_of: "2026-09-22T18:01:00Z",
         dataset_generation: 5,
@@ -265,15 +265,15 @@ describe("LeaderboardView — show all", () => {
     await act(async () => {
       screen.getByRole("button", { name: "Show all" }).click();
     });
-    await screen.findByText("Page One");
+    await screen.findByText("Page O.");
     expect(screen.getByRole("button", { name: "Load more" })).toBeInTheDocument();
 
     await act(async () => {
       screen.getByRole("button", { name: "Load more" }).click();
     });
-    await screen.findByText("Page Two");
+    await screen.findByText("Page T.");
     // Both pages' rows remain — accumulated, not replaced.
-    expect(screen.getByText("Page One")).toBeInTheDocument();
+    expect(screen.getByText("Page O.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Load more" })).not.toBeInTheDocument();
 
     // The cursor from page 1 was passed through verbatim to fetch page 2.
@@ -289,7 +289,7 @@ describe("LeaderboardView — show all", () => {
       call += 1;
       if (call === 1) {
         return jsonResponse(200, {
-          entries: [entry({ user_id: 2, first_name: "Stale", last_name: "Page", rank: 2 })],
+          entries: [entry({ user_id: 2, name: "Stale P.", rank: 2 })],
           current_user: null,
           as_of: "2026-09-22T18:00:00Z",
           dataset_generation: 5,
@@ -299,7 +299,7 @@ describe("LeaderboardView — show all", () => {
       if (call === 2) {
         // A reset happened: generation jumped from 5 to 6.
         return jsonResponse(200, {
-          entries: [entry({ user_id: 9, first_name: "Post", last_name: "Reset", rank: 1 })],
+          entries: [entry({ user_id: 9, name: "Post R.", rank: 1 })],
           current_user: null,
           as_of: "2026-09-22T19:00:00Z",
           dataset_generation: 6,
@@ -307,7 +307,7 @@ describe("LeaderboardView — show all", () => {
         });
       }
       return jsonResponse(200, {
-        entries: [entry({ user_id: 9, first_name: "Post", last_name: "Reset", rank: 1 })],
+        entries: [entry({ user_id: 9, name: "Post R.", rank: 1 })],
         current_user: null,
         as_of: "2026-09-22T19:00:00Z",
         dataset_generation: 6,
@@ -321,7 +321,7 @@ describe("LeaderboardView — show all", () => {
     await act(async () => {
       screen.getByRole("button", { name: "Show all" }).click();
     });
-    await screen.findByText("Stale Page");
+    await screen.findByText("Stale P.");
 
     await act(async () => {
       screen.getByRole("button", { name: "Load more" }).click();
@@ -329,8 +329,8 @@ describe("LeaderboardView — show all", () => {
 
     // The stale-generation page's rows are discarded, not appended —
     // the listing restarts from a fresh first page instead.
-    expect(await screen.findByText("Post Reset")).toBeInTheDocument();
-    expect(screen.queryByText("Stale Page")).not.toBeInTheDocument();
+    expect(await screen.findByText("Post R.")).toBeInTheDocument();
+    expect(screen.queryByText("Stale P.")).not.toBeInTheDocument();
   });
 });
 
@@ -355,13 +355,13 @@ describe("LeaderboardView — avatars", () => {
 
   it("shows an attendee's photo, and the robot for everyone without one", async () => {
     board([
-      entry({ user_id: 1, first_name: "Ada", last_name: "Lovelace", rank: 1, photo_url: SMALL }),
-      entry({ user_id: 2, first_name: "Grace", last_name: "Hopper", rank: 2, photo_url: null }),
-      entry({ user_id: 3, first_name: "Alan", last_name: "Turing", rank: 3 }), // an older server: no field
+      entry({ user_id: 1, name: "Ada L.", rank: 1, photo_url: SMALL }),
+      entry({ user_id: 2, name: "Grace H.", rank: 2, photo_url: null }),
+      entry({ user_id: 3, name: "Alan T.", rank: 3 }), // an older server: no field
     ]);
     const { container } = render(<LeaderboardView />);
     openReady();
-    await screen.findByText("Ada Lovelace");
+    await screen.findByText("Ada L.");
     const rows = Array.from(container.querySelectorAll("li.fm-rank-row"));
     expect(rows).toHaveLength(3);
     const photos = rows.map((row) => row.querySelector(".fm-rank-avatar img")?.getAttribute("src") ?? null);
@@ -376,7 +376,7 @@ describe("LeaderboardView — avatars", () => {
     board([entry({ rank: 1, photo_url: SMALL })]);
     const { container } = render(<LeaderboardView />);
     openReady();
-    await screen.findByText("Ada Lovelace");
+    await screen.findByText("Ada L.");
     const image = container.querySelector(".fm-rank-avatar img") as HTMLImageElement;
     fireEvent.error(image);
     expect(container.querySelector(".fm-rank-avatar img")).toBeNull();
@@ -386,11 +386,11 @@ describe("LeaderboardView — avatars", () => {
   it("never loads a photo URL that is not one the server makes", async () => {
     board([
       entry({ user_id: 1, rank: 1, photo_url: "https://tracker.example/pixel.gif" }),
-      entry({ user_id: 2, first_name: "B", rank: 2, photo_url: "javascript:alert(1)" }),
+      entry({ user_id: 2, name: "B", rank: 2, photo_url: "javascript:alert(1)" }),
     ]);
     const { container } = render(<LeaderboardView />);
     openReady();
-    await screen.findByText("Ada Lovelace");
+    await screen.findByText("Ada L.");
     expect(container.querySelector("img")).toBeNull();
   });
 
@@ -398,7 +398,7 @@ describe("LeaderboardView — avatars", () => {
     board([entry({ rank: 1, photo_url: SMALL })]);
     const { container } = render(<LeaderboardView />);
     openReady();
-    await screen.findByText("Ada Lovelace");
+    await screen.findByText("Ada L.");
     expect(container.textContent).not.toMatch(/@|\+\d|consent/i);
   });
 });

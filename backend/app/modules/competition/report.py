@@ -2,9 +2,13 @@
 
 Attendee (own session only): points per category and total, the published final
 place (or that the result is still under review), Founder / Lucky Draw, what they
-verifiably attended (masterclasses, Playground sessions, mentor groups, panels
-with both scans), their confirmed connections with the contact the pair opened,
-and their accepted pair photos.
+verifiably completed (`attended`: a masterclass with entry AND exit scanned, a
+completed Playground session, a mentor group the host confirmed, a panel with
+both scans), apart from what they only started (`not_completed`: a masterclass
+whose exit was never scanned, a Playground session they were admitted to but
+whose end was never scanned - neither is a completion, neither earns points),
+their confirmed connections with the contact the pair opened, and their accepted
+pair photos.
 
 Sponsor booth (BOOTH_STAFF of THAT booth only - never another booth, never an
 unrestricted export): aggregate statistics of the booth, and the contact details
@@ -33,7 +37,11 @@ from app.modules.points.models import PointsLog
 from app.modules.staff.models import StaffAccount, StaffRole
 
 AUDIT_LEADS = "booth.leads"
-_DONE = {"attended", "completed", "entered"}
+# Programme statuses (competition/programme.py) of what was done in full, and of
+# what was only begun. The point rules are separate (an award needs the exit /
+# end scan); these sets only decide where the report lists an item.
+_COMPLETED = {"attended", "completed"}
+_NOT_COMPLETED = {"entered", "checked_in"}
 
 
 def attendee_report(db: Session, user: User) -> dict[str, Any]:
@@ -73,7 +81,8 @@ def attendee_report(db: Session, user: User) -> dict[str, Any]:
         "final": final.my_final(db, user.id),
         "final_status": final.public(db, datetime.now(UTC))["status"],
         "timezone": day["timezone"],
-        "attended": [i for i in day["items"] if i["status"] in _DONE],
+        "attended": [i for i in day["items"] if i["status"] in _COMPLETED],
+        "not_completed": [i for i in day["items"] if i["status"] in _NOT_COMPLETED],
         "panels": full_panels,
         "connections": my_connections(db, user),
         "photos": [p for p in pair_photos.mine(db, user) if p["status"] == "accepted"],

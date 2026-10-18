@@ -2181,3 +2181,30 @@ Non-negotiable. A change that violates one of these is an architecture change re
 31. **An attendee edits only their own profile, and a stale form never overwrites a newer one.** The edited row is the session's, locked before anything is compared; `expected_version` decides, and a no-op changes nothing (§8.4.1).
 32. **A consent change and its audit row are one transaction, and a repeated value writes neither** (§8.4.2).
 33. **A stored photo is never the upload.** It is re-encoded from decoded pixels under a server-made random name; its size and pixel count are bounded before decoding; the database refers only to files that exist; and a cleanup can only name the files of the key it was given (§8.4.3).
+
+
+## 25. Beyond Now PDF conformance addendum (18 October 2026)
+
+This addendum supersedes the legacy leaderboard name/tie-break and booth-interest
+default descriptions above for the current implementation.
+
+Ranking is derived from the ledger; `reached_at` is the maximum verified activity
+time (`occurred_at`, falling back to `created_at` for historical rows) across
+standing positive awards. A full reversal removes its award from this date;
+reversal timestamps themselves do not date a total. Category totals retain signed
+ledger sums. The same query orders live lists, keyset pages, shared snapshots and
+final results. Equal timestamps use user id. Zero standing awards have NULL time.
+Entries expose `name` (first name + last initial); full surnames are not part of
+the leaderboard response. This resolves the old open name-privacy question.
+
+A read-only public `/api/screen/live` supplies venue display states, server time,
+close, top ten scoring attendees, standing recent awards and the existing
+consented/moderated photo feed. It uses the shared ranking snapshot and carries
+no user id or contact/QR/audit data. `/screen/live` polls every 15 seconds while
+visible and backs off on failure, with one request in flight. Not-configured,
+open, review and published are explicit states; the final remains server-owned.
+
+Own reports distinguish completed `attended` from started `not_completed` items.
+Booth matching uses card topics by default; retained hidden legacy interests are
+used only under explicit `BOOTH_MATCH_PROFILE_INTERESTS=true`. Read-only event
+readiness is part of the existing `competition-report` CLI, not an auto-seeder.

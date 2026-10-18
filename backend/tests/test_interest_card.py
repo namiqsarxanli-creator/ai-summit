@@ -362,23 +362,28 @@ def test_an_older_profile_with_many_interests_can_still_be_edited(
     assert sorted(i["slug"] for i in response.json()["interests"]) == sorted(slugs)
 
 
+@pytest.mark.parametrize("legacy", [False, True])
 def test_card_topics_add_to_booth_matching_but_never_change_the_profile_interests(
-    attendee: Attendee, emails: Emails
+    attendee: Attendee, emails: Emails, monkeypatch: pytest.MonkeyPatch, legacy: bool
 ) -> None:
+    from app.core.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "booth_match_profile_interests", legacy)
     email, client = attendee(emails(), interest_slugs=["generative-ai", "data-analytics"])
     before = _profile(client)
 
     def aiworks_matched() -> set[str]:
         recs = client.get("/api/attendees/me/recommendations").json()
         match = next(r["match"] for r in recs if r["booth"]["slug"] == "aiworks")
-        return {i["slug"] for i in match["matched_interests"]}
+        return {i["slug"] for i in (match or {}).get("matched_interests", [])}
 
-    assert aiworks_matched() == {"generative-ai", "data-analytics"}
+    assert aiworks_matched() == ({"generative-ai", "data-analytics"} if legacy else set())
     # FULL_CARD topics: data, ai_strategy (-> artificial-intelligence, data-analytics), fintech.
     client.put(PROFILE, json=profile_body(before, interest_card=FULL_CARD))
     after = _profile(client)
     assert [i["slug"] for i in after["interests"]] == [i["slug"] for i in before["interests"]]
-    assert aiworks_matched() == {"generative-ai", "data-analytics", "artificial-intelligence"}
+    expected = {"data-analytics", "artificial-intelligence"}
+    assert aiworks_matched() == (expected | {"generative-ai"} if legacy else expected)
 
 
 # --- nothing new leaks -----------------------------------------------------------------------

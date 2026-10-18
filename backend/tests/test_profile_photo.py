@@ -535,23 +535,23 @@ def test_my_own_card_shows_my_photo(emails: Emails, attendee: Attendee, media_ro
 def test_the_leaderboard_shows_the_small_photo_or_none_and_nothing_private(
     emails: Emails, attendee: Attendee, media_root: Path
 ) -> None:
-    _, with_photo = attendee(emails(), first_name="Photo")
-    _, without = attendee(emails(), first_name="Plain")
+    _, with_photo = attendee(emails(), first_name="Photo", last_name="Nasir")
+    _, without = attendee(emails(), first_name="Plain", last_name="Mammadov")
     photo = _upload(with_photo, png_bytes()).json()["photo"]
 
     board = without.get("/api/leaderboard?view=all&limit=100")
     assert board.status_code == 200, board.text
-    entries = {e["first_name"]: e for e in board.json()["entries"]}
-    assert entries["Photo"]["photo_url"] == photo["small"]
-    assert entries["Plain"]["photo_url"] is None
+    entries = {e["name"]: e for e in board.json()["entries"]}
+    assert entries["Photo N."]["photo_url"] == photo["small"]
+    assert entries["Plain M."]["photo_url"] is None
     for entry in board.json()["entries"]:
-        assert not (PRIVATE_KEYS & set(entry)), entry
+        assert not ((PRIVATE_KEYS | {"first_name", "last_name"}) & set(entry)), entry
 
     top = without.get("/api/leaderboard").json()  # the default view carries `current_user`
-    assert top["current_user"]["first_name"] == "Plain"
+    assert top["current_user"]["name"] == "Plain M."
     assert top["current_user"]["photo_url"] is None
     assert not (PRIVATE_KEYS & set(top["current_user"]))
-    assert {e["first_name"]: e["photo_url"] for e in top["entries"]}.get("Photo") in (
+    assert {e["name"]: e["photo_url"] for e in top["entries"]}.get("Photo N.") in (
         photo["small"],
         None,  # (outside the top N, if the test database holds many attendees)
     )

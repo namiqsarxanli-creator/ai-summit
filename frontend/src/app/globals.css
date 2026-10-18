@@ -87,6 +87,30 @@ html { scroll-padding-bottom: calc(var(--fm-tabbar-h) + env(safe-area-inset-bott
 .fm-page:has(.fm-tabbar), .fm-home:has(.fm-tabbar) { padding-bottom: calc(var(--fm-tabbar-h) + env(safe-area-inset-bottom) + 20px); }
 .fm-home { position: relative; display: flex; flex-direction: column; min-height: 100svh; padding-inline: 0; padding-bottom: 28px; box-shadow: 0 0 60px #3f101009; }
 @media (min-width: 431px) { .fm-home, .fm-page { border-inline: 1px solid #f4eded; } }
+/* The venue's big screen (/screen/live): phone width on a phone, a wide two-column
+   board on a screen. The countdown is the largest thing on it. */
+.fm-page.fm-screen-wide { max-width: 1600px; }
+.fm-live { display: grid; gap: var(--fm-gap); grid-template-columns: minmax(0, 1fr); }
+.fm-live-clock { display: flex; flex-direction: column; gap: 4px; padding: 18px; border-radius: var(--fm-radius); background: var(--fm-red); color: #fff; }
+.fm-live-clock .fm-eyebrow, .fm-live-clock .fm-strong { color: #fff; }
+.fm-live-countdown { margin: 0; font-size: clamp(44px, 12vw, 120px); font-weight: 900; line-height: 1; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+@media (min-width: 1024px) {
+  .fm-live { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); align-items: start; }
+  .fm-live > .fm-alert, .fm-live-clock, .fm-live-photos { grid-column: 1 / -1; }
+  .fm-live-clock { flex-direction: row; align-items: center; justify-content: space-between; padding: 12px 24px; }
+  .fm-live-countdown { font-size: clamp(56px, 6vw, 96px); }
+  /* Ten rows fit a 1080p screen: one height for every place, the first one red. */
+  .fm-live-top .fm-list { gap: 4px; }
+  .fm-live-top .fm-rank-row, .fm-live-top .fm-rank-row[data-rank="1"] { min-height: 46px; margin: 0; padding: 4px 16px; }
+  .fm-live-top .fm-rank-name, .fm-live-top .fm-rank-points { font-size: 22px; }
+  .fm-live-recent .fm-small { font-size: 18px; }
+  .fm-live:has(.fm-live-top) > .fm-live-top { grid-row: span 2; }
+  .fm-live:has(.fm-live-top) > .fm-live-photos { grid-column: 2; }
+  .fm-screen-wide .fm-page-heading { min-height: 104px; padding-block: 12px; }
+  .fm-screen-wide .fm-page-symbol { display: none; }
+  .fm-live-top .fm-rank-avatar { width: 36px; height: 36px; }
+
+}
 .fm-stack { display: flex; flex-direction: column; gap: 16px; }
 .fm-stack-lg { display: flex; flex-direction: column; gap: var(--fm-gap); }
 .fm-section { display: flex; flex-direction: column; gap: 12px; }

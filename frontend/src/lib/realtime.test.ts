@@ -150,7 +150,7 @@ describe("signal-driven refetch", () => {
     await flush();
     fetchMock.mockClear();
 
-    const pushed = { user_id: 7, first_name: "Ada", last_name: "L", profession: "x", total_points: 90, rank: 1 };
+    const pushed = { user_id: 7, name: "Ada L.", profession: "x", total_points: 90, rank: 1 };
     MockEventSource.latest().emit("leaderboard_changed", {
       leaderboard: { entries: [pushed], dataset_generation: 1, version: 3 },
     });

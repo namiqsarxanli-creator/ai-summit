@@ -2,6 +2,8 @@
 
 Public (privacy-safe; the big screen and every phone):
 * GET  /api/final                                   - open / pending_review / published
+* GET  /api/screen/live                             - the venue screen during the day
+                                                      (competition/screen.py)
 
 Game Master (GAME_MASTER scope) or administrator, re-checked inside the fence:
 * GET  /api/staff/final                             - versions and the close
@@ -26,7 +28,7 @@ from fastapi import APIRouter, Path, Response
 from app.core.deps import CurrentAttendee, CurrentStaff, SessionToken
 from app.core.sessions import resolve_staff_session
 from app.db.session import DbSession, mutating_transaction
-from app.modules.competition import final, report
+from app.modules.competition import final, report, screen
 from app.modules.points.service import maintenance_fast_path_check
 
 router = APIRouter(tags=["competition"])
@@ -41,6 +43,12 @@ def _now() -> datetime:
 def public_final(db: DbSession, response: Response) -> dict[str, Any]:
     response.headers["Cache-Control"] = "no-store"
     return final.public(db, _now())
+
+
+@router.get("/screen/live")
+def screen_live(db: DbSession, response: Response) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "no-store"
+    return screen.live(db, _now())
 
 
 @router.get("/staff/final")

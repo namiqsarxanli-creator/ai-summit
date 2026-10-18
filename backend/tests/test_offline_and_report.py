@@ -196,6 +196,7 @@ def test_the_attendee_report_is_their_own_verified_day(om: Mentors) -> None:
     assert report.status_code == 200 and report.headers["cache-control"] == "no-store"
     body = report.json()
     assert [(i["kind"], i["status"]) for i in body["attended"]] == [("mentor", "attended")]
+    assert body["not_completed"] == []
     assert next(c for c in body["categories"] if c["category"] == "MENTOR")["points"] == 5
     assert body["connections"] == [] and body["photos"] == []
     assert body["final"] is None
@@ -490,3 +491,63 @@ def test_a_page_of_the_first_queue_version_is_told_to_reload_not_refused(om: Men
     assert r.headers["retry-after"] == "60"
     assert om.rig.scalar("SELECT count(*) FROM offline_scans") == 0
     assert om.mentor_points(uid) == 0
+
+
+# --- the tie-break (PDF conformance audit 2026-10-18, P1) --------------------------------
+
+
+def test_equal_points_are_ordered_by_when_the_activity_happened_not_when_it_was_reviewed(
+    om: Mentors,
+) -> None:
+    """PDF: on equal points whoever reached them earlier is ahead. A's activity
+    happened first but its offline scan was approved after the close; B's was
+    recorded at once. The live board, its pages and the final snapshot must all
+    put A first."""
+    from sqlalchemy.orm import Session
+
+    from app.modules.competition.final import build_payload
+    from app.modules.leaderboard.service import invalidate_ranking_snapshot
+
+    early, late = om.session("13:35"), om.session("15:35")
+    a, b = om.users(2)
+    book(om.client(a), early)
+    book(om.client(b), late)
+    _, host_a = om.host(early)
+    _, host_b = om.host(late)
+
+    om.clock.now = baku("15:52")  # B: scanned on time and applied at once
+    assert submit(host_b, late, om.card(b), "15:51").json()["status"] == "applied"
+
+    om.clock.now = baku("17:45")  # A: the phone synchronised only after the close
+    queued = submit(host_a, early, om.card(a), "13:51")
+    assert queued.json()["status"] == "pending_review"
+    approved = approve(game_master(om), queued.json()["id"], "Paper list: 13:51.", "13:51")
+    assert approved.json()["status"] == "applied"
+    assert om.mentor_points(a) == om.mentor_points(b) == 5
+
+    om.rig.sql("UPDATE event_config SET competition_mode = true")
+    invalidate_ranking_snapshot()
+    try:
+        viewer = om.client(a)
+        top = [e["user_id"] for e in viewer.get("/api/leaderboard").json()["entries"]]
+        assert [u for u in top if u in (a, b)] == [a, b]
+        paged: list[int] = []
+        cursor: str | None = None
+        while True:
+            params: dict[str, str | int] = {"view": "all", "limit": 1}
+            if cursor:
+                params["cursor"] = cursor
+            page = viewer.get("/api/leaderboard", params=params).json()
+            paged += [e["user_id"] for e in page["entries"]]
+            cursor = page["next_cursor"]
+            if not cursor:
+                break
+        assert [u for u in paged if u in (a, b)] == [a, b]
+        with Session(om.rig.engine) as db:
+            ranking = build_payload(db)["ranking"]
+        final = [(e["user_id"], e["reached_at"]) for e in ranking if e["user_id"] in (a, b)]
+        # A by the verified scan; B, applied at once, by the server's own clock.
+        assert final == [(a, baku("13:51").isoformat()), (b, baku("15:52").isoformat())]
+    finally:
+        om.rig.sql("UPDATE event_config SET competition_mode = false")
+        invalidate_ranking_snapshot()

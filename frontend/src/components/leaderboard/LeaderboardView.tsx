@@ -30,9 +30,7 @@ function Row({ entry, highlight }: { entry: LeaderboardEntry; highlight: boolean
         <span className="fm-rank-position">#{entry.rank}</span>
         <Avatar size="rank" url={entry.photo_url} />
         <div className="fm-grow">
-          <p className="fm-rank-name">
-            {entry.first_name} {entry.last_name}
-          </p>
+          <p className="fm-rank-name">{entry.name}</p>
           <p className="fm-rank-role">{entry.profession}</p>
         </div>
       </div>

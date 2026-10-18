@@ -436,13 +436,18 @@ def _cmd_masterclass_skeleton() -> None:
     )
 
 
-def _cmd_competition_report() -> None:
-    """Read-only: what activating the competition would change."""
+def _cmd_competition_report() -> int:
+    """Read-only: what activating the competition would change, then whether the
+    event is configured for the day (competition/readiness.py). Exit 1 while a
+    readiness check is missing. Prints counts, times and row ids - no names,
+    contact data or setting values."""
     from app.modules.competition.activation import report
+    from app.modules.competition.readiness import check, ready
 
     db = SessionLocal()
     try:
         r = report(db)
+        checks = check(db)
     finally:
         db.rollback()
         db.close()
@@ -456,6 +461,13 @@ def _cmd_competition_report() -> None:
     )
     print(f"competition points so far: {r.competition_points_total}")
     print(f"complete profiles not yet paid PROFILE: {r.profile_backfill_candidates}")
+    print()
+    print("event readiness (read-only):")
+    for c in checks:
+        print(f"  [{c.status:<7}] {c.key}: {c.detail}")
+    verdict = "READY" if ready(checks) else "NOT READY - fix the [missing] lines"
+    print(f"event readiness: {verdict}")
+    return 0 if ready(checks) else 1
 
 
 def _cmd_founder_recompute(*, confirm: bool) -> None:
@@ -628,7 +640,7 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "masterclass-skeleton":
         _cmd_masterclass_skeleton()
     elif args.command == "competition-report":
-        _cmd_competition_report()
+        raise SystemExit(_cmd_competition_report())
     elif args.command == "competition-backfill-profile":
         _cmd_competition_backfill_profile(confirm=args.confirm)
     elif args.command == "founder-recompute":

@@ -13,13 +13,33 @@ GROUP BY (the §16.1 aggregation, LEFT JOIN so a zero-point ACTIVE
 attendee is never dropped) wrapped in one SELECT that adds two window
 functions — `RANK() OVER (ORDER BY total_points DESC)`, the DISPLAYED
 competition rank (§16.2), and `ROW_NUMBER() OVER (ORDER BY total_points
-DESC, last_award_at ASC NULLS LAST, user_id ASC)`, used only internally
+DESC, reached_at ASC NULLS LAST, user_id ASC)`, used only internally
 to cut the top-N view at exactly N rows by list POSITION — a tie at the
 boundary must not expand `entries` past N, which filtering on `rank`
 alone would do (two attendees tied for rank 10 would both pass a
 `rank <= 10` filter). Both windows are computed over the COMPLETE
 eligible population before any LIMIT/filter is applied, since a
 window function's own `ORDER BY` never restricts which rows survive.
+
+`reached_at` - WHEN the person reached their total - is the tie-break the
+event's rules state ("on equal points whoever reached them earlier is ahead").
+It is read from the ledger as it now stands, one rule for every view, the pushed
+payload and the final snapshot:
+
+* only awards that still stand count: an award a REVERSAL cancelled never
+  happened for the ranking, and the reversal itself dates nothing (a correction
+  at 16:30 does not make an unchanged total "newer"). A connection replaced by a
+  better one under the best-four rule, a Founder bonus withdrawn by a correction,
+  an administrator's reversal are all this case;
+* an award is dated by when its activity happened as verified
+  (`occurred_at`, migration 0027) - an offline scan approved after the close is
+  dated by the scan, not the approval - and a row from before 0027 by its
+  recording time (`created_at`), exactly what it was judged by then;
+* every standing award is positive and a reversal cancels its award whole, so
+  the total is first reached at the LATEST standing award: `reached_at` is that
+  maximum. Nobody holding no standing award (zero points, or every award
+  reversed) has a moment at all: NULL, after everyone with one;
+* the same moment is decided by the stable user id.
 """
 
 from __future__ import annotations
@@ -33,14 +53,15 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import ColumnElement, and_, func, or_, select, true
+from sqlalchemy import ColumnElement, and_, case, func, or_, select, true
 from sqlalchemy.engine import Row
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 from sqlalchemy.sql import Subquery
 
 from app.core.config import get_settings
 from app.core.images import SMALL
 from app.core.media import avatar_url
+from app.core.names import short_name
 from app.modules.admin.models import EventConfig
 from app.modules.attendees.models import User, UserStatus
 from app.modules.booths.models import Booth, Task
@@ -51,7 +72,7 @@ from app.modules.leaderboard.schemas import (
     RecentAward,
     ScoreSnapshotResponse,
 )
-from app.modules.points.models import PointsLog
+from app.modules.points.models import PointsEntryType, PointsLog
 from app.modules.realtime.broker import event_bus
 
 # §17.4: "the most recent N (default 10)". Fixed — no `event_config`
@@ -78,7 +99,9 @@ def _scored(competition: bool = False) -> Subquery:
     that would silently drop a zero-point ACTIVE attendee) and the
     `status = 'ACTIVE'` filter (never cosmetic: without it, an
     unverified registration would appear publicly under a name it does
-    not own, §16.1)."""
+    not own, §16.1). `reached_at`: see the module docstring. The reversal join
+    is on the unique `reverses_points_log_id`, so it never multiplies a row."""
+    reversal = aliased(PointsLog, name="reversal")
     return (
         select(
             User.id.label("user_id"),
@@ -89,7 +112,17 @@ def _scored(competition: bool = False) -> Subquery:
             # lookup): it is a column of the row already being aggregated.
             User.photo_key,
             func.coalesce(func.sum(PointsLog.points), 0).label("total_points"),
-            func.max(PointsLog.created_at).label("last_award_at"),
+            func.max(
+                case(
+                    (
+                        and_(
+                            PointsLog.entry_type == PointsEntryType.AWARD,
+                            reversal.id.is_(None),
+                        ),
+                        func.coalesce(PointsLog.occurred_at, PointsLog.created_at),
+                    ),
+                )
+            ).label("reached_at"),
         )
         .select_from(User)
         .outerjoin(
@@ -98,6 +131,7 @@ def _scored(competition: bool = False) -> Subquery:
             if competition
             else PointsLog.user_id == User.id,
         )
+        .outerjoin(reversal, reversal.reverses_points_log_id == PointsLog.id)
         .where(User.status == UserStatus.ACTIVE)
         # Competition mode: the organiser team, volunteers, sponsors and
         # speakers are left out by a server-owned field no attendee can edit.
@@ -110,12 +144,13 @@ def _scored(competition: bool = False) -> Subquery:
 def _ranked(competition: bool = False) -> Subquery:
     """Competition mode: legacy TASK / FEEDBACK rows are not counted (decision of
     16 Oct 2026, competition/rules.py) and every person has their OWN place -
-    on equal points whoever reached the total earlier is ahead, an identical
-    moment is decided by the stable user id - instead of shared ranks."""
+    on equal points whoever reached the total earlier is ahead (`reached_at`,
+    module docstring), an identical moment is decided by the stable user id -
+    instead of shared ranks."""
     scored = _scored(competition)
     order = (
         scored.c.total_points.desc(),
-        scored.c.last_award_at.asc().nulls_last(),
+        scored.c.reached_at.asc().nulls_last(),
         scored.c.user_id.asc(),
     )
     return (
@@ -126,7 +161,7 @@ def _ranked(competition: bool = False) -> Subquery:
             scored.c.profession,
             scored.c.photo_key,
             scored.c.total_points,
-            scored.c.last_award_at,
+            scored.c.reached_at,
             (
                 func.row_number().over(order_by=order)
                 if competition
@@ -142,8 +177,7 @@ def _ranked(competition: bool = False) -> Subquery:
 def _entry(row: Row[Any]) -> LeaderboardEntry:
     return LeaderboardEntry(
         user_id=row.user_id,
-        first_name=row.first_name,
-        last_name=row.last_name,
+        name=short_name(row.first_name, row.last_name),
         profession=row.profession,
         total_points=int(row.total_points),
         rank=int(row.rank),
@@ -224,7 +258,7 @@ def _build_snapshot(db: Session) -> RankingSnapshot:
     rows = db.execute(
         select(ranked).order_by(
             ranked.c.total_points.desc(),
-            ranked.c.last_award_at.asc().nulls_last(),
+            ranked.c.reached_at.asc().nulls_last(),
             ranked.c.user_id.asc(),
         )
     ).all()
@@ -240,6 +274,11 @@ def _build_snapshot(db: Session) -> RankingSnapshot:
     )
 
 
+def shared_ranking(db: Session) -> RankingSnapshot:
+    """The shared ranking, built now if caching is off or it is stale."""
+    return ranking_snapshot(db) or _build_snapshot(db)
+
+
 def leaderboard_push_payload(db: Session) -> dict[str, object]:
     """The top-N view as the `leaderboard_changed` event carries it.
 
@@ -248,7 +287,7 @@ def leaderboard_push_payload(db: Session) -> dict[str, object]:
     rows `GET /api/leaderboard` returns; the caller's own row outside the
     top N is not in it (the client keeps the one it last fetched until its
     next reconciliation). `version` lets a client drop an out-of-order push."""
-    snapshot = ranking_snapshot(db) or _build_snapshot(db)
+    snapshot = shared_ranking(db)
     return {
         "entries": [e.model_dump(mode="json") for e in snapshot.entries[: snapshot.top_n]],
         "dataset_generation": snapshot.dataset_generation,
@@ -286,7 +325,7 @@ def leaderboard_top(
         .where(or_(ranked.c.rn <= top_n, ranked.c.user_id == attendee.id))
         .order_by(
             ranked.c.total_points.desc(),
-            ranked.c.last_award_at.asc().nulls_last(),
+            ranked.c.reached_at.asc().nulls_last(),
             ranked.c.user_id.asc(),
         )
     ).all()
@@ -304,14 +343,14 @@ def leaderboard_top(
 @dataclass(frozen=True)
 class LeaderboardCursor:
     total_points: int
-    last_award_at: datetime | None
+    reached_at: datetime | None
     user_id: int
 
 
 def encode_cursor(cursor: LeaderboardCursor) -> str:
     payload = {
         "tp": cursor.total_points,
-        "la": cursor.last_award_at.isoformat() if cursor.last_award_at is not None else None,
+        "la": cursor.reached_at.isoformat() if cursor.reached_at is not None else None,
         "uid": cursor.user_id,
     }
     raw = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
@@ -331,12 +370,10 @@ def decode_cursor(raw: str) -> LeaderboardCursor:
         if not isinstance(payload, dict):
             raise ValueError("cursor payload is not an object")
         last_award_raw = payload["la"]
-        last_award_at = (
-            None if last_award_raw is None else datetime.fromisoformat(str(last_award_raw))
-        )
+        reached_at = None if last_award_raw is None else datetime.fromisoformat(str(last_award_raw))
         return LeaderboardCursor(
             total_points=int(payload["tp"]),
-            last_award_at=last_award_at,
+            reached_at=reached_at,
             user_id=int(payload["uid"]),
         )
     except (binascii.Error, ValueError, KeyError, TypeError) as err:
@@ -345,22 +382,22 @@ def decode_cursor(raw: str) -> LeaderboardCursor:
 
 def _after_cursor(ranked: Subquery, cursor: LeaderboardCursor) -> ColumnElement[bool]:
     """Keyset "strictly after" predicate for `(total_points DESC,
-    last_award_at ASC NULLS LAST, user_id ASC)` — the exact ordering
+    reached_at ASC NULLS LAST, user_id ASC)` — the exact ordering
     §16.2/§16.3 lock. Branches on whether the cursor's own
-    `last_award_at` is NULL are resolved in Python (the value is fixed
+    `reached_at` is NULL are resolved in Python (the value is fixed
     per request), not with a runtime CASE, since NULLS LAST reverses
     the usual ">" intuition once NULL enters either side of the
     comparison."""
-    if cursor.last_award_at is not None:
+    if cursor.reached_at is not None:
         same_total_after = or_(
-            ranked.c.last_award_at.is_(None),  # NULL sorts after every non-NULL value
-            ranked.c.last_award_at > cursor.last_award_at,
-            and_(ranked.c.last_award_at == cursor.last_award_at, ranked.c.user_id > cursor.user_id),
+            ranked.c.reached_at.is_(None),  # NULL sorts after every non-NULL value
+            ranked.c.reached_at > cursor.reached_at,
+            and_(ranked.c.reached_at == cursor.reached_at, ranked.c.user_id > cursor.user_id),
         )
     else:
         # Cursor is itself in the NULL tail of its total_points group;
         # only later NULL rows (by user_id) remain in that group.
-        same_total_after = and_(ranked.c.last_award_at.is_(None), ranked.c.user_id > cursor.user_id)
+        same_total_after = and_(ranked.c.reached_at.is_(None), ranked.c.user_id > cursor.user_id)
     return or_(
         ranked.c.total_points < cursor.total_points,
         and_(ranked.c.total_points == cursor.total_points, same_total_after),
@@ -380,7 +417,7 @@ def leaderboard_page(
         stmt = stmt.where(_after_cursor(ranked, cursor))
     stmt = stmt.order_by(
         ranked.c.total_points.desc(),
-        ranked.c.last_award_at.asc().nulls_last(),
+        ranked.c.reached_at.asc().nulls_last(),
         ranked.c.user_id.asc(),
     ).limit(limit + 1)
     rows = db.execute(stmt).all()
@@ -395,7 +432,7 @@ def leaderboard_page(
         next_cursor = encode_cursor(
             LeaderboardCursor(
                 total_points=int(last.total_points),
-                last_award_at=last.last_award_at,
+                reached_at=last.reached_at,
                 user_id=last.user_id,
             )
         )

@@ -37,6 +37,7 @@ from sqlalchemy.orm import Session, aliased
 from app.core.errors import DomainError, StaffNotAuthorizedError
 from app.core.images import SMALL
 from app.core.media import avatar_url
+from app.core.names import short_name
 from app.modules.admin.models import AdminAudit
 from app.modules.attendees.models import User
 from app.modules.competition.final_models import FinalResult
@@ -68,9 +69,8 @@ class FinalMissing(DomainError):
     status_code = 404
 
 
-def display_name(first: str, last: str) -> str:
-    initial = last.strip()[:1]
-    return f"{first.strip()} {initial}." if initial else first.strip()
+# The one public name format (app/core/names.py), under its older name here.
+display_name = short_name
 
 
 def require_reviewer(db: Session, staff: StaffAccount) -> None:
@@ -101,7 +101,7 @@ def build_payload(db: Session) -> dict[str, Any]:
             "name": display_name(r.first_name, r.last_name),
             "photo_key": r.photo_key,
             "points": int(r.total_points),
-            "reached_at": r.last_award_at.isoformat() if r.last_award_at else None,
+            "reached_at": r.reached_at.isoformat() if r.reached_at else None,
         }
         for r in rows
     ]

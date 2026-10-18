@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import cast
 from uuid import uuid4
 
@@ -633,3 +633,355 @@ def test_the_activation_report_is_read_only_and_the_backfill_pays_once(comp: Com
             backfill_profile(db, baku("09:00"))
             db.commit()
     assert comp.points(complete, "PROFILE") == 5 and comp.points(partial) == 0
+
+
+# --- the tie-break: when a total was reached (PDF conformance audit 2026-10-18, P1) ---------
+
+
+def _ledger_row(
+    comp: Comp,
+    uid: int,
+    source: str,
+    points: int,
+    created: str,
+    occurred: str | None = None,
+    reverses: int | None = None,
+) -> int:
+    """One ledger row as the writers leave it: `created` is when it was recorded,
+    `occurred` when the activity happened (NULL on rows from before 0027)."""
+    return int(
+        comp.rig.scalar(
+            "INSERT INTO points_log (user_id, source, entry_type, points, entered_by_system, "
+            "dedupe_key, reverses_points_log_id, created_at, occurred_at) "
+            "VALUES (:u, :s, :e, :p, true, :k, :r, :c, :o) RETURNING id",
+            u=uid,
+            s=source,
+            e="REVERSAL" if reverses is not None else "AWARD",
+            p=points,
+            k=None if reverses is not None else f"COMP:{source}:{uid}:{uuid4().hex}",
+            r=reverses,
+            c=baku(created),
+            o=baku(occurred) if occurred else None,
+        )
+    )
+
+
+def _orders(comp: Comp, uids: list[int]) -> dict[str, list[int]]:
+    """The competition order of `uids` in every place a ranking is read: the live
+    top N, every page of the full list, the pushed (SSE) payload and the final
+    snapshot."""
+    from app.modules.competition.final import build_payload
+    from app.modules.leaderboard.service import (
+        invalidate_ranking_snapshot,
+        leaderboard_push_payload,
+    )
+
+    comp.rig.sql("UPDATE event_config SET competition_mode = true, leaderboard_top_n = 100")
+    invalidate_ranking_snapshot()
+    try:
+        viewer = comp.client(uids[0])
+        top = viewer.get("/api/leaderboard").json()["entries"]
+        paged: list[int] = []
+        cursor: str | None = None
+        while True:
+            params: dict[str, str | int] = {"view": "all", "limit": 2}
+            if cursor:
+                params["cursor"] = cursor
+            page = viewer.get("/api/leaderboard", params=params).json()
+            paged += [e["user_id"] for e in page["entries"]]
+            cursor = page["next_cursor"]
+            if not cursor:
+                break
+        with Session(comp.rig.engine) as db:
+            pushed = leaderboard_push_payload(db)["entries"]
+            final = build_payload(db)["ranking"]
+        assert isinstance(pushed, list)
+        return {
+            "top": [e["user_id"] for e in top if e["user_id"] in uids],
+            "pages": [u for u in paged if u in uids],
+            "pushed": [e["user_id"] for e in pushed if e["user_id"] in uids],
+            "final": [e["user_id"] for e in final if e["user_id"] in uids],
+        }
+    finally:
+        comp.rig.sql("UPDATE event_config SET competition_mode = false, leaderboard_top_n = 10")
+        invalidate_ranking_snapshot()
+
+
+def _everywhere(comp: Comp, uids: list[int], expected: list[int]) -> None:
+    orders = _orders(comp, uids)
+    assert orders == dict.fromkeys(orders, expected), orders
+
+
+def test_a_reversed_award_never_dates_the_total(comp: Comp) -> None:
+    a, b = comp.users(2)
+    _ledger_row(comp, a, "PANEL", 8, "11:25", "11:25")
+    mentor = _ledger_row(comp, a, "MENTOR", 5, "13:56", "13:55")
+    _ledger_row(comp, a, "MENTOR", -5, "16:30", reverses=mentor)  # a correction
+    _ledger_row(comp, b, "PANEL", 8, "11:28", "11:28")
+    # Both hold 8. A has held it since 11:25 by the awards that still stand; the
+    # correction at 16:30 and the award it cancelled date nothing.
+    _everywhere(comp, [a, b], [a, b])
+
+
+def test_a_better_connection_replacing_a_weaker_one_dates_the_total_by_the_replacement(
+    comp: Comp,
+) -> None:
+    a, b, c = comp.users(3)
+    weakest = 0
+    for minute in ("10:00", "10:01", "10:02", "10:03"):
+        weakest = _ledger_row(comp, a, "CONNECTION", 1, minute, minute)
+    _ledger_row(comp, a, "CONNECTION", -1, "12:00", reverses=weakest)  # best four: replaced
+    _ledger_row(comp, a, "CONNECTION", 3, "12:00", "12:00")  # A: 6 since 12:00
+    _ledger_row(comp, b, "CONNECTION", 3, "11:00", "11:00")
+    _ledger_row(comp, b, "CONNECTION", 3, "11:30", "11:30")  # B: 6 since 11:30
+    _ledger_row(comp, c, "CONNECTION", 3, "12:10", "12:10")
+    _ledger_row(comp, c, "CONNECTION", 3, "12:30", "12:30")  # C: 6 since 12:30
+    _everywhere(comp, [a, b, c], [b, a, c])
+
+
+def test_old_rows_founder_corrections_zero_points_and_identical_moments(comp: Comp) -> None:
+    old, late, founder, same1, same2, cancelled, never = comp.users(7)
+    # A row from before 0027 has no occurrence time: it is dated by its recording.
+    _ledger_row(comp, old, "PROFILE", 5, "10:00")
+    # Verified as having happened at 09:30, recorded only after the close.
+    _ledger_row(comp, late, "PROFILE", 5, "17:40", "09:30")
+    # A Founder bonus later reversed by a correction: what is left was reached 10:30.
+    _ledger_row(comp, founder, "PROFILE", 5, "10:30", "10:30")
+    bonus = _ledger_row(comp, founder, "FOUNDER", 10, "12:00", "12:00")
+    _ledger_row(comp, founder, "FOUNDER", -10, "14:00", reverses=bonus)
+    # The very same moment: the stable user id decides.
+    _ledger_row(comp, same1, "PROFILE", 5, "11:00", "11:00")
+    _ledger_row(comp, same2, "PROFILE", 5, "11:00", "11:00")
+    # Zero points: a fully reversed person stands exactly like one who never
+    # scored (no moment of reaching anything), then the user id decides.
+    gone = _ledger_row(comp, cancelled, "PROFILE", 5, "08:30", "08:30")
+    _ledger_row(comp, cancelled, "PROFILE", -5, "09:00", reverses=gone)
+    _everywhere(
+        comp,
+        [old, late, founder, same1, same2, cancelled, never],
+        [late, old, founder, same1, same2, cancelled, never],
+    )
+
+
+# --- the personal report (PDF conformance audit 2026-10-18, P2) ----------------------------
+
+
+def test_the_report_tells_a_completed_masterclass_from_one_only_entered(comp: Comp) -> None:
+    first = comp.masterclass(comp.b1, capacity=5)
+    second = comp.masterclass(comp.b2, capacity=5)
+    (uid,) = comp.users(1)
+    attendee = comp.client(uid)
+    assert choose(attendee, comp.b1, first).status_code == 200
+    assert choose(attendee, comp.b2, second).status_code == 200
+    token = comp.card(uid)
+    vol1 = comp.volunteer("MASTERCLASS_DOOR", first)
+    vol2 = comp.volunteer("MASTERCLASS_DOOR", second)
+    comp.clock.now = baku("11:32")
+    door(vol1, first, token, "ENTRY")
+    comp.clock.now = baku("12:55")
+    assert door(vol1, first, token, "EXIT").json()["award"]["outcome"] == "awarded"
+    comp.clock.now = baku("16:02")
+    door(vol2, second, token, "ENTRY")  # the exit of this one is never scanned
+
+    body = attendee.get("/api/attendees/me/report").json()
+    assert [(i["kind"], i["id"], i["status"]) for i in body["attended"]] == [
+        ("masterclass", first, "attended")
+    ]
+    assert [(i["kind"], i["id"], i["status"]) for i in body["not_completed"]] == [
+        ("masterclass", second, "entered")
+    ]
+    # Unchanged point rule: only the completed one paid.
+    assert comp.points(uid, "MASTERCLASS") == 12
+
+
+# --- event readiness (PDF conformance audit 2026-10-18, item 6) ---------------------------
+
+
+_COUNTED_TABLES = (
+    "masterclass_events",
+    "masterclasses",
+    "panels",
+    "playground_slots",
+    "mentor_sessions",
+    "match_tables",
+    "staff_scopes",
+    "points_log",
+    "admin_audit",
+    "users",
+)
+
+
+def _row_counts(comp: Comp) -> dict[str, int]:
+    return {t: int(comp.rig.scalar(f"SELECT count(*) FROM {t}")) for t in _COUNTED_TABLES}
+
+
+def test_the_readiness_report_names_what_is_missing_and_changes_nothing(
+    comp: Comp, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from app import cli
+    from app.modules.competition.readiness import check, ready
+
+    comp.rig.sql(
+        "UPDATE users SET first_name = 'Anar', last_name = 'Nəsirov', "
+        "email = 'anar.private@mail.test' WHERE id = :u",
+        u=comp.users(1)[0],
+    )
+    before = _row_counts(comp)
+    with Session(comp.rig.engine) as db:
+        checks = {c.key: c for c in check(db)}
+        assert not db.new and not db.dirty and not db.deleted
+    assert _row_counts(comp) == before  # read-only
+    # The fixture: the skeleton (one event, 2 blocks, 5 rooms), 2 panels, the
+    # 17:30 close - but no published masterclass, no Playground, no mentors.
+    status = {k: c.status for k, c in checks.items()}
+    assert status["event"] == "ok" and "Asia/Baku" in checks["event"].detail
+    assert status["masterclass_blocks"] == "ok" and status["masterclass_rooms"] == "ok"
+    assert status["panels"] == "ok" and status["competition_close"] == "ok"
+    assert "17:30" in checks["competition_close"].detail
+    for missing in (
+        "masterclasses_published",
+        "competition_mode",
+        "playground_slots",
+        "mentor_sessions",
+        "match_corner_tables",
+        "game_masters",
+    ):
+        assert status[missing] == "missing", missing
+    assert status["founder_rule"] == status["reminders"] == "info"
+    assert not ready(list(checks.values()))
+
+    # The command prints the same, exits 1 while something is missing, and never
+    # names a person or prints contact data.
+    with pytest.raises(SystemExit) as exit_:
+        cli.main(["competition-report"])
+    assert exit_.value.code == 1
+    out = capsys.readouterr().out
+    assert "event readiness: NOT READY" in out and "[missing] playground_slots" in out
+    for private in ("Anar", "Nəsirov", "anar.private", "@", "password"):
+        assert private not in out, private
+    assert _row_counts(comp) == before
+
+
+def test_the_readiness_report_sees_a_configured_door_host_booth_and_close_time(
+    comp: Comp,
+) -> None:
+    from app.modules.competition.readiness import check
+
+    mc = comp.masterclass(comp.b1, capacity=5)
+    comp.rig.sql("UPDATE masterclasses SET is_published = true WHERE id = :m", m=mc)
+    comp.volunteer("MASTERCLASS_DOOR", mc)
+    comp.volunteer("GAME_MASTER", None)
+    comp.rig.sql("UPDATE masterclass_events SET competition_closes_at = :c", c=baku("17:00"))
+    with Session(comp.rig.engine) as db:
+        checks = {c.key: c for c in check(db)}
+    assert checks["masterclass_door_scopes"].status == "ok"
+    assert checks["game_masters"].status == "ok"
+    # Block 2 still has nothing published.
+    assert checks["masterclasses_published"].status == "missing"
+    # A close at the wrong time is not "set".
+    assert checks["competition_close"].status == "missing"
+    assert "expected 17:30" in checks["competition_close"].detail
+
+
+def test_readiness_rejects_wrong_event_date_and_a_count_correct_but_wrong_timeline(
+    comp: Comp,
+) -> None:
+    from sqlalchemy import text
+
+    from app.modules.competition.readiness import check
+
+    comp.rig.sql("UPDATE masterclass_events SET event_date = '2026-11-14'")
+    comp.rig.sql("UPDATE masterclass_blocks SET change_deadline = starts_at")
+    comp.rig.sql("UPDATE panels SET starts_at = starts_at + interval '1 minute'")
+    with Session(comp.rig.engine) as db:
+        db.execute(text("SET TRANSACTION READ ONLY"))
+        checks = {c.key: c for c in check(db)}
+    assert checks["event"].status == "missing"
+    assert checks["masterclass_blocks"].status == "ok"  # two rows is not enough
+    assert checks["masterclass_schedule"].status == "missing"
+    assert checks["panels"].status == "ok"
+    assert checks["panel_schedule"].status == "missing"
+
+
+def test_readiness_does_not_accept_one_booth_one_table_or_unpublished_mentor_times(
+    comp: Comp,
+) -> None:
+    from app.modules.competition.readiness import check
+
+    booth = int(comp.rig.scalar("SELECT id FROM booths WHERE is_active ORDER BY id LIMIT 1"))
+    with Session(comp.rig.engine) as db:
+        pg_service.prepare(db, comp.event, booth)
+        db.commit()
+    comp.rig.sql(
+        "INSERT INTO match_tables (event_id, label, is_active) VALUES (:e, 'Table 1', true)",
+        e=comp.event,
+    )
+    with Session(comp.rig.engine) as db:
+        checks = {c.key: c for c in check(db)}
+    assert checks["playground_slots"].status == "missing"  # PDF needs 8-15 booths
+    assert checks["playground_schedule"].status == "ok"
+    assert checks["match_corner_tables"].status == "missing"  # PDF suggests 4-6
+    assert checks["mentor_schedule"].status == "missing"
+    comp.rig.sql(
+        "UPDATE playground_slots SET starts_at = starts_at + interval '1 minute', "
+        "ends_at = ends_at + interval '1 minute' WHERE number = 1"
+    )
+    with Session(comp.rig.engine) as db:
+        checks = {c.key: c for c in check(db)}
+    assert checks["playground_schedule"].status == "missing"
+
+
+def test_readiness_accepts_a_complete_programme_without_writing(comp: Comp) -> None:
+    from sqlalchemy import text
+
+    from app.modules.competition.readiness import check, ready
+
+    comp.rig.sql("UPDATE event_config SET competition_mode = true")
+    for block in (comp.b1, comp.b2):
+        for _ in range(5):
+            comp.volunteer("MASTERCLASS_DOOR", comp.masterclass(block))
+    comp.volunteer("GAME_MASTER", None)
+    # All resources below belong only to this test's disposable database.
+    for n in range(8):
+        booth = int(
+            comp.rig.scalar(
+                "INSERT INTO booths (slug, name, is_active) "
+                "VALUES (:s, 'Test booth', true) RETURNING id",
+                s=f"readiness-{n}",
+            )
+        )
+        with Session(comp.rig.engine) as db:
+            pg_service.prepare(db, comp.event, booth)
+            db.commit()
+        comp.rig.sql(
+            "INSERT INTO staff_accounts "
+            "(email, password_hash, full_name, role, booth_id, is_active) "
+            "VALUES (:e, 'x', 'Test staff', 'BOOTH_STAFF', :b, true)",
+            e=f"readiness-{n}@staff.test",
+            b=booth,
+        )
+    for n in range(4):
+        comp.rig.sql(
+            "INSERT INTO match_tables (event_id, label, is_active) VALUES (:e, :l, true)",
+            e=comp.event,
+            l=f"Table {n + 1}",
+        )
+    for n, at in enumerate(("13:10", "13:35", "15:35")):
+        sid = int(
+            comp.rig.scalar(
+                "INSERT INTO mentor_sessions "
+                "(event_id, code, title, starts_at, ends_at, capacity, is_open) "
+                "VALUES (:e, :c, 'Test mentor session', :s, :f, 6, true) RETURNING id",
+                e=comp.event,
+                c=f"mentor-{n}",
+                s=baku(at),
+                f=baku(at) + timedelta(minutes=20),
+            )
+        )
+        comp.volunteer("MENTOR_HOST", sid)
+    before = _row_counts(comp)
+    with Session(comp.rig.engine) as db:
+        db.execute(text("SET TRANSACTION READ ONLY"))
+        checks = check(db)
+    assert ready(checks), [(c.key, c.detail) for c in checks if c.status == "missing"]
+    assert _row_counts(comp) == before

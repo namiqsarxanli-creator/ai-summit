@@ -1038,8 +1038,7 @@ def test_every_event_payload_is_minimal_and_carries_no_attendee_data(
 
 _PUBLIC_ENTRY_KEYS = {
     "user_id",
-    "first_name",
-    "last_name",
+    "name",
     "profession",
     "total_points",
     "rank",
