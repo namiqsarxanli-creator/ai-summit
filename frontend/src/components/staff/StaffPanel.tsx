@@ -103,7 +103,8 @@ export function StaffPanel() {
         </p>
       </section>
 
-      <Link href="/staff/attendance" className="fm-btn fm-btn-primary fm-btn-block">{t("Attendance scanning")}</Link>
+      {me.role === "ADMIN" && <Link href="/admin" className="fm-btn fm-btn-primary fm-btn-block">{t("Organiser panel")}</Link>}
+      <Link href="/staff/attendance" className={`fm-btn ${me.role === "ADMIN" ? "fm-btn-secondary" : "fm-btn-primary"} fm-btn-block`}>{t("Attendance scanning")}</Link>
       {/* The server decides who may review: a Game Master scope or an administrator. */}
       {me.role !== "BOOTH_STAFF" && <Link href="/staff/final" className="fm-btn fm-btn-secondary fm-btn-block">{t("Final result")}</Link>}
       {me.role === "BOOTH_STAFF" && <Link href="/staff/booth-report" className="fm-btn fm-btn-secondary fm-btn-block">{t("Booth report")}</Link>}

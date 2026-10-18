@@ -36,6 +36,7 @@ describe("SessionPanel", () => {
       "/register",
     );
     expect(screen.getByRole("link", { name: "Staff sign in" })).toHaveAttribute("href", "/staff/login");
+    expect(screen.getByRole("link", { name: "Organiser sign in" })).toHaveAttribute("href", "/admin");
     expect(screen.getByRole("link", { name: "Already registered? Sign in" })).toHaveAttribute(
       "href",
       "/login",

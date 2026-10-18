@@ -48,6 +48,7 @@ describe("StaffPanel", () => {
     render(<StaffPanel />);
     expect(await screen.findByText("Jordan Blake")).toBeInTheDocument();
     expect(screen.getByText("Admin")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Organiser panel" })).toHaveAttribute("href", "/admin");
     expect(screen.queryByLabelText("Activities")).not.toBeInTheDocument();
     // Only /me was ever called — never /staff/tasks for an admin.
     const calls = fetchMock.mock.calls as unknown as [string, RequestInit][];

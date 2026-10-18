@@ -91,6 +91,8 @@ const translations: Record<string, { az: string; ru: string }> = {
   "Your booth": { az: "Stendiniz", ru: "Ваш стенд" },
   "AI Summit · Staff": { az: "AI Summit · Heyət", ru: "AI Summit · Персонал" },
   "Staff sign in": { az: "Heyət girişi", ru: "Вход для персонала" },
+  "Organiser sign in": { az: "Təşkilatçı girişi", ru: "Вход для организаторов" },
+  "Organiser panel": { az: "Təşkilatçı paneli", ru: "Панель организатора" },
   "Accounts are created by an admin — there is no staff self-registration.": { az: "Heyət hesablarını administrator yaradır; ayrıca qeydiyyat yoxdur.", ru: "Учётные записи персонала создаёт администратор; самостоятельной регистрации нет." },
   "Scan attendee": { az: "İştirakçını skan edin", ru: "Сканировать участника" },
   "Back": { az: "Geri", ru: "Назад" },
