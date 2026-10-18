@@ -150,7 +150,7 @@ export function LoginForm() {
         hint="The code expires 10 minutes after it was sent."
         className="fm-input-code"
       />
-      <label className="fm-remember"><input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} />{t("Remember me on this device for 30 days")}</label>
+      <label className="fm-remember"><input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} />{t("Remember me")}</label>
       {banners}
       <button
         type="submit"

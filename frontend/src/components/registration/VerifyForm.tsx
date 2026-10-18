@@ -140,7 +140,7 @@ export function VerifyForm() {
         className="fm-input-code"
       />
 
-      <label className="fm-remember"><input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} />{t("Remember me on this device for 30 days")}</label>
+      <label className="fm-remember"><input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} />{t("Remember me")}</label>
       {notice && (
         <p role="status" className="fm-alert fm-alert-info">
           {t(notice)}

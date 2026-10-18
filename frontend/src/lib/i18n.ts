@@ -28,7 +28,7 @@ export function isLanguage(value: string | null | undefined): value is Language 
 }
 
 const translations: Record<string, { az: string; ru: string }> = {
-  "Remember me on this device for 30 days": { az: "Bu cihazda məni 30 gün yadda saxla", ru: "Запомнить меня на этом устройстве на 30 дней" },
+  "Remember me": { az: "Yadda saxla", ru: "Запомнить меня" },
   "Scan a QR code to open the attendee card.": { az: "İştirakçı kartını açmaq üçün QR kodu skan edin.", ru: "Отсканируйте QR-код, чтобы открыть карточку участника." },
   "Back to booths": { az: "Stendlərə qayıt", ru: "Назад к стендам" },
   "Collected points": { az: "Topladığınız xallar", ru: "Набранные баллы" },
