@@ -1,11 +1,10 @@
 "use client";
 
-import { type ChangeEvent, type FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { type ChangeEvent, type FormEvent, useEffect, useRef, useState } from "react";
 
 import { InterestCardFields } from "@/components/profile/InterestCardFields";
 import { TextField } from "@/components/ui/TextField";
 import { useLanguage } from "@/components/ui/LanguageProvider";
-import { apiGet } from "@/lib/api";
 import { fieldErrorsFrom, messageFor } from "@/lib/errors";
 import {
   diffDrafts,
@@ -17,13 +16,6 @@ import {
   type AttendeeProfile,
   type ProfileDraft,
 } from "@/lib/profile";
-
-type Interest = { slug: string; name: string };
-
-type Catalogue =
-  | { kind: "loading" }
-  | { kind: "ready"; interests: Interest[] }
-  | { kind: "error" };
 
 const FIELD_LABELS: Record<keyof ProfileDraft, string> = {
   first_name: "First name",
@@ -60,28 +52,14 @@ export function ProfileEditor({
   const { t } = useLanguage();
   const [baseline, setBaseline] = useState(profile);
   const [draft, setDraft] = useState<ProfileDraft>(() => draftOf(profile));
-  const [catalogue, setCatalogue] = useState<Catalogue>({ kind: "loading" });
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
-  const [unavailable, setUnavailable] = useState<string[]>([]);
   const [conflict, setConflict] = useState<AttendeeProfile | null>(null);
   const [saving, setSaving] = useState(false);
   const [confirmingCancel, setConfirmingCancel] = useState(false);
   const inFlight = useRef(false);
 
   const dirty = !sameDraft(draft, draftOf(baseline));
-
-  const loadInterests = useCallback(() => {
-    let cancelled = false;
-    apiGet<Interest[]>("/api/interests").then((result) => {
-      if (cancelled) return;
-      setCatalogue(result.ok ? { kind: "ready", interests: result.data } : { kind: "error" });
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-  useEffect(() => loadInterests(), [loadInterests]);
 
   // A reload or a closed tab would lose the draft: ask first.
   useEffect(() => {
@@ -93,17 +71,12 @@ export function ProfileEditor({
     return () => window.removeEventListener("beforeunload", warn);
   }, [dirty]);
 
-  // Names for every slug that can appear: the catalogue, what the person already
-  // has (a retired interest is not in the catalogue), and the newer version.
+  // The booth-recommendation interests are not edited here any more (the
+  // interest-card topics drive recommendations); the saved ones are sent back
+  // unchanged. Names are still needed to describe a conflicting newer version.
   const names = new Map<string, string>();
-  if (catalogue.kind === "ready") for (const i of catalogue.interests) names.set(i.slug, i.name);
   for (const i of baseline.interests) names.set(i.slug, i.name);
   for (const i of conflict?.interests ?? []) names.set(i.slug, i.name);
-  const catalogueSlugs = new Set(catalogue.kind === "ready" ? catalogue.interests.map((i) => i.slug) : []);
-  const options: Interest[] = [
-    ...(catalogue.kind === "ready" ? catalogue.interests : []),
-    ...baseline.interests.filter((i) => !catalogueSlugs.has(i.slug)),
-  ];
   const nameOf = (slug: string) => names.get(slug) ?? slug;
 
   function update(field: "first_name" | "last_name" | "phone" | "profession" | "linkedin_url" | "company") {
@@ -112,16 +85,6 @@ export function ProfileEditor({
       setDraft((current) => ({ ...current, [field]: value }));
       setFieldErrors((current) => ({ ...current, [field]: "" }));
     };
-  }
-
-  function toggleInterest(slug: string) {
-    setDraft((current) => ({
-      ...current,
-      interest_slugs: current.interest_slugs.includes(slug)
-        ? current.interest_slugs.filter((s) => s !== slug)
-        : [...current.interest_slugs, slug],
-    }));
-    setUnavailable((current) => current.filter((s) => s !== slug));
   }
 
   async function save() {
@@ -154,10 +117,7 @@ export function ProfileEditor({
       }
     }
     if (code === "UNKNOWN_INTEREST") {
-      const slugs = details["slugs"];
-      setUnavailable(Array.isArray(slugs) ? slugs.filter((s): s is string => typeof s === "string") : []);
       setFormError("Some of your interests are no longer available. Remove them and save again.");
-      loadInterests();
       return;
     }
     if (code === "VALIDATION_ERROR") setFieldErrors(fieldErrorsFrom(details));
@@ -311,50 +271,6 @@ export function ProfileEditor({
         }}
         error={fieldErrors.interest_card || undefined}
       />
-
-      <fieldset className="fm-fieldset">
-        <legend className="fm-legend">{t("Your interests")}</legend>
-        <p className="fm-hint">
-          {t("Together with the topics on your interest card, these shape your booth recommendations. They also appear on your contact card.")}
-        </p>
-        {catalogue.kind === "loading" && <p className="fm-note">{t("Loading interests…")}</p>}
-        {catalogue.kind === "error" && (
-          <div role="alert" className="fm-alert fm-alert-warn fm-stack">
-            <span>{t(messageFor("NETWORK_ERROR"))}</span>
-            <button
-              type="button"
-              onClick={() => {
-                setCatalogue({ kind: "loading" });
-                loadInterests();
-              }}
-              className="fm-btn fm-btn-secondary"
-            >
-              {t("Retry")}
-            </button>
-          </div>
-        )}
-        <div className="fm-choices">
-          {options.map((interest) => {
-            const checked = draft.interest_slugs.includes(interest.slug);
-            const gone = unavailable.includes(interest.slug);
-            return (
-              <label
-                key={interest.slug}
-                data-unavailable={gone ? "true" : undefined}
-                className="fm-choice"
-              >
-                <input
-                  type="checkbox"
-                  checked={checked}
-                  onChange={() => toggleInterest(interest.slug)}
-                />
-                {t(interest.name)}
-                {gone && <span className="fm-micro" style={{ color: "inherit" }}>({t("No longer available")})</span>}
-              </label>
-            );
-          })}
-        </div>
-      </fieldset>
 
       {formError && (
         <p role="alert" className="fm-alert fm-alert-error">

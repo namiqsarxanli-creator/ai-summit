@@ -207,8 +207,8 @@ export default function AdminPage() {
       </label>
       <button className="min-h-11 rounded-xl bg-(--fm-red) text-white p-3 font-semibold" onClick={() => void login()}>{t("Sign in")}</button>
     </section> : <>
-      <nav className="flex flex-wrap gap-2" aria-label={t("Admin sections")}>
-        {sections.filter((item) => item !== "demo-otps" || demoOtpsAvailable).map((item) => <button key={item} aria-current={item === section ? "page" : undefined} className={`min-h-11 rounded-xl px-3 py-2 text-sm font-semibold ${item === section ? "bg-(--fm-red) text-white text-(--fm-ink)" : "border border-(--fm-line-strong) bg-(--fm-tint) text-(--fm-ink)"}`} onClick={() => { setSection(item); setNotice(""); setError(""); }}>{t(titles[item])}</button>)}
+      <nav className="-mx-4 flex snap-x gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0" aria-label={t("Admin sections")}>
+        {sections.filter((item) => item !== "demo-otps" || demoOtpsAvailable).map((item) => <button key={item} aria-current={item === section ? "page" : undefined} className={`min-h-11 shrink-0 snap-start whitespace-nowrap rounded-xl px-3 py-2 text-sm font-semibold ${item === section ? "bg-(--fm-red) text-white text-(--fm-ink)" : "border border-(--fm-line-strong) bg-(--fm-tint) text-(--fm-ink)"}`} onClick={() => { setSection(item); setNotice(""); setError(""); }}>{t(titles[item])}</button>)}
       </nav>
       <div className="flex flex-wrap gap-2">
         <button className="min-h-11 w-fit rounded-xl border border-(--fm-line-strong) bg-(--fm-tint) px-4 py-2" onClick={() => void refresh()}>{t("Refresh")}</button>

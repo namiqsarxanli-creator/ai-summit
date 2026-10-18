@@ -35,7 +35,7 @@ afterEach(() => {
 });
 
 describe("ProfileView", () => {
-  it("renders registration data, interests and consent exactly as received", async () => {
+  it("renders registration data and consent exactly as received", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(200, PROFILE)));
     render(<ProfileView />);
     expect(await screen.findByRole("heading", { name: "Ada Lovelace" })).toBeInTheDocument();
@@ -43,8 +43,10 @@ describe("ProfileView", () => {
     expect(screen.getByText("ada@example.com")).toBeInTheDocument();
     expect(screen.getByText("+1-555-0142")).toBeInTheDocument();
     expect(screen.getByText("https://www.linkedin.com/in/ada-demo")).toBeInTheDocument();
-    expect(screen.getByText("Generative AI")).toBeInTheDocument();
-    expect(screen.getByText("Data Analytics")).toBeInTheDocument();
+    // Booth-recommendation interests are no longer a profile section (the
+    // interest-card topics drive recommendations).
+    expect(screen.queryByText("Your interests")).not.toBeInTheDocument();
+    expect(screen.queryByText("Generative AI")).not.toBeInTheDocument();
     expect(
       screen.getByText("You agreed to share your details with event sponsors."),
     ).toBeInTheDocument();
@@ -66,12 +68,12 @@ describe("ProfileView", () => {
     expect(screen.queryByText("LinkedIn")).not.toBeInTheDocument();
   });
 
-  it("shows a neutral message when no interests are selected", async () => {
+  it("shows no interests section, also when none are held", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(200, { ...PROFILE, interests: [] })));
     render(<ProfileView />);
-    expect(
-      await screen.findByText("You haven't selected any interests yet."),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Ada Lovelace" })).toBeInTheDocument();
+    expect(screen.queryByText("You haven't selected any interests yet.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Your interests")).not.toBeInTheDocument();
   });
 
   it.each([

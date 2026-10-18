@@ -182,24 +182,6 @@ export function ProfileView() {
         </section>
       )}
 
-      {!editing && (
-        <section className="fm-section">
-          <h2 className="fm-eyebrow">{t("Your interests")}</h2>
-          <p className="fm-hint">{t("Together with the topics on your interest card, these shape your booth recommendations. They also appear on your contact card.")}</p>
-          {profile.interests.length === 0 ? (
-            <p className="fm-empty">{t("You haven't selected any interests yet.")}</p>
-          ) : (
-            <ul aria-label={t("Your interests")} className="fm-chips">
-              {profile.interests.map((interest) => (
-                <li key={interest.slug} className="fm-chip">
-                  {t(interest.name)}
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-      )}
-
       <ConsentControl
         consent={profile}
         onChanged={(consent) => patch((p) => ({ ...p, ...consent }))}

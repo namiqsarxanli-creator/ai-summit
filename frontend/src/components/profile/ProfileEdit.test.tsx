@@ -161,15 +161,14 @@ describe("editing the profile", () => {
   it("saves the whole editable set with the loaded version, then shows the saved profile", async () => {
     const api = server({
       put: (call) =>
-        json(200, { ...PROFILE, ...(call.body as object), linkedin_url: null, version: 2, interests: [
-          { slug: "generative-ai", name: "Generative AI" },
-          { slug: "robotics", name: "Robotics" },
-        ] }),
+        json(200, { ...PROFILE, ...(call.body as object), linkedin_url: null, version: 2 }),
     });
     const form = await openEditor();
+    // Booth-recommendation interests are not edited on the profile any more.
+    expect(within(form).queryByText("Your interests")).not.toBeInTheDocument();
+    expect(within(form).queryByLabelText("Robotics")).not.toBeInTheDocument();
     type("First name", "  Augusta ");
     type("LinkedIn (optional)", "");
-    fireEvent.click(await within(form).findByLabelText("Robotics"));
     fireEvent.click(within(form).getByRole("button", { name: "Save changes" }));
 
     expect(await screen.findByText("Profile saved.")).toBeInTheDocument();
@@ -180,14 +179,13 @@ describe("editing the profile", () => {
       phone: "+1-555-0142",
       profession: "Systems Engineer",
       linkedin_url: null,
-      interest_slugs: ["generative-ai", "robotics"],
+      interest_slugs: ["generative-ai"], // the saved ones, unchanged
       company: null,
       interest_card: { sector: null, topics: [], seeking: [], offering: [] },
       expected_version: 1,
     });
     expect(api.puts()[0]?.body).not.toHaveProperty("email");
     expect(screen.getByRole("heading", { name: "Augusta Lovelace" })).toBeInTheDocument();
-    expect(screen.getByText("Robotics")).toBeInTheDocument();
     expect(screen.queryByRole("form", { name: "Edit profile" })).not.toBeInTheDocument();
   });
 
@@ -254,32 +252,15 @@ describe("editing the profile", () => {
     expect(await screen.findByText("Profile saved.")).toBeInTheDocument();
   });
 
-  it("names an interest that is no longer available, keeps the selection, and lets it be removed", async () => {
-    let attempts = 0;
-    const api = server({
-      put: (call) => {
-        attempts += 1;
-        return attempts === 1
-          ? failure(400, "UNKNOWN_INTEREST", { slugs: ["robotics"] })
-          : json(200, { ...PROFILE, ...(call.body as object), linkedin_url: PROFILE.linkedin_url, version: 2 });
-      },
-    });
+  it("explains a refusal over an interest that is no longer available, keeping the draft", async () => {
+    server({ put: () => failure(400, "UNKNOWN_INTEREST", { slugs: ["robotics"] }) });
     const form = await openEditor();
-    fireEvent.click(await within(form).findByLabelText("Robotics"));
+    type("Profession / role", "Analyst");
     fireEvent.click(within(form).getByRole("button", { name: "Save changes" }));
     expect(
       await within(form).findByText("Some of your interests are no longer available. Remove them and save again."),
     ).toBeInTheDocument();
-    const flagged = within(form).getByLabelText(/Robotics/).closest("label") as HTMLElement;
-    expect(flagged).toHaveAttribute("data-unavailable", "true");
-    expect(within(form).getByLabelText(/Robotics/)).toBeChecked(); // nothing was dropped silently
-
-    fireEvent.click(within(form).getByLabelText(/Robotics/)); // remove it
-    expect(within(form).getByLabelText(/Robotics/).closest("label")).not.toHaveAttribute("data-unavailable");
-    type("Profession / role", "Analyst"); // (back to the saved interests, so something else to save)
-    fireEvent.click(within(form).getByRole("button", { name: "Save changes" }));
-    expect(await screen.findByText("Profile saved.")).toBeInTheDocument();
-    expect(api.puts()[1]?.body).toMatchObject({ interest_slugs: ["generative-ai"], profession: "Analyst" });
+    expect(within(form).getByLabelText("Profession / role")).toHaveValue("Analyst");
   });
 
   it("returns to the sign-in prompt if the session ended while editing", async () => {
@@ -290,11 +271,11 @@ describe("editing the profile", () => {
     expect(await screen.findByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/login");
   });
 
-  it("still lists the interests the person holds when the catalogue cannot be loaded, and offers a retry", async () => {
-    server({ interests: () => failure(503, "MAINTENANCE") });
+  it("does not load the interest catalogue", async () => {
+    const api = server({ interests: () => failure(503, "MAINTENANCE") });
     const form = await openEditor();
-    expect(await within(form).findByRole("button", { name: "Retry" })).toBeInTheDocument();
-    expect(within(form).getByLabelText("Generative AI")).toBeChecked();
+    expect(within(form).queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
+    expect(api.calls.some((c) => c.url.startsWith("/api/interests"))).toBe(false);
   });
 });
 
