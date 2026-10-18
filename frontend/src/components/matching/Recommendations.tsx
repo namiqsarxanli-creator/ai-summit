@@ -84,7 +84,7 @@ export function Recommendations() {
     <div className="fm-stack">
       <p className={general ? "fm-alert fm-alert-info" : "fm-note"}>
         {general
-          ? t("Select interests when you register to see your personalised match for each booth. For now, here are all the booths at the summit.")
+          ? t("Choose topics on your interest card in your profile to see your personalised match for each booth. For now, here are all the booths at the summit.")
           : t("Ranked for you, based on the interests you selected.")}
       </p>
       <ul className="fm-list">

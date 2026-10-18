@@ -64,7 +64,7 @@ describe("Recommendations", () => {
     expect(screen.queryByLabelText(/% match/)).not.toBeInTheDocument();
     expect(
       screen.getByText(
-        "Select interests when you register to see your personalised match for each booth. For now, here are all the booths at the summit.",
+        "Choose topics on your interest card in your profile to see your personalised match for each booth. For now, here are all the booths at the summit.",
       ),
     ).toBeInTheDocument();
   });

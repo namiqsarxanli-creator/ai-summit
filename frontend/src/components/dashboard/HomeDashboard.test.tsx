@@ -100,8 +100,12 @@ describe("HomeDashboard", () => {
     expect(screen.getByRole("link", { name: "See all →" })).toHaveAttribute("href", "/booths");
     expect(screen.getAllByRole("link", { name: "Booths" })[0]).toHaveAttribute("href", "/booths");
     expect(screen.getAllByRole("link", { name: "My QR" })[0]).toHaveAttribute("href", "/my-card");
-    // the masterclass programme is reached from Home, not from a sixth tab
-    expect(screen.getByRole("link", { name: "Programme →" })).toHaveAttribute("href", "/masterclasses");
+    // the Beyond Now surfaces (masterclasses included) are reached from Home, not from a sixth tab
+    const hub = within(screen.getByRole("heading", { name: "Beyond Now" }).closest("section")!);
+    expect(hub.getAllByRole("link").map((a) => a.getAttribute("href"))).toEqual([
+      "/programme", "/masterclasses", "/playground", "/people", "/points", "/report",
+    ]);
+    expect(hub.getByRole("link", { name: /^Masterclasses/ })).toHaveTextContent("Reserve a seat or join the waitlist");
     const tabs = within(screen.getByRole("navigation", { name: "Attendee navigation" }));
     expect(tabs.getAllByRole("link")).toHaveLength(5);
     // M13 wires the real, server-computed score/rank in place of M08's
@@ -123,7 +127,7 @@ describe("HomeDashboard", () => {
     await screen.findByRole("heading", { name: "AIWorks" });
     expect(
       screen.getByText(
-        "Select interests when you register to see your personalised match for each booth.",
+        "Choose topics on your interest card in your profile to see your personalised match for each booth.",
       ),
     ).toBeInTheDocument();
   });

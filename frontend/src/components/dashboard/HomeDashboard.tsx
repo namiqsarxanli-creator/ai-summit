@@ -14,6 +14,16 @@ import { fetchRecommendations, isGeneralListing, type Recommendation } from "@/l
 
 const TOP_N = 3;
 
+// The Beyond Now programme surfaces, in the order an attendee uses them.
+const HUB = [
+  { href: "/programme", icon: "calendar", title: "My programme", detail: "Your sessions and reminders" },
+  { href: "/masterclasses", icon: "masterclass", title: "Masterclasses", detail: "Reserve a seat or join the waitlist" },
+  { href: "/playground", icon: "playground", title: "AI Playground", detail: "Book a hands-on slot" },
+  { href: "/people", icon: "people", title: "People to meet", detail: "Matches for a conversation" },
+  { href: "/points", icon: "star", title: "My points", detail: "How you earned every point" },
+  { href: "/report", icon: "report", title: "My report", detail: "Your day in one place" },
+] as const;
+
 type State =
   | { kind: "loading" }
   | { kind: "signed-out" }
@@ -79,11 +89,6 @@ export function HomeDashboard() {
   return (
     <div className="fm-stack">
       <ScoreSummary />
-      <Link href="/programme" className="fm-btn fm-btn-secondary">{t("My programme")} →</Link>
-      <Link href="/report" className="fm-btn fm-btn-secondary">{t("My report")} →</Link>
-      <Link href="/points" className="fm-btn fm-btn-secondary">{t("My points")} →</Link>
-      <Link href="/people" className="fm-btn fm-btn-secondary">{t("People to meet")} →</Link>
-      <Link href="/playground" className="fm-btn fm-btn-secondary">{t("AI Playground")} →</Link>
 
       <div className="fm-actions" aria-label={t("Quick actions")}>
         <Link href="/booths" className="fm-action fm-action-booths">
@@ -98,14 +103,22 @@ export function HomeDashboard() {
         </Link>
       </div>
 
-      <section className="fm-section" aria-labelledby="home-masterclasses">
-        <div className="fm-row-between">
-          <h2 id="home-masterclasses" className="fm-eyebrow">{t("Masterclasses")}</h2>
-          <Link href="/masterclasses" className="fm-link fm-link-block">
-            {t("Programme →")}
-          </Link>
-        </div>
-        <p className="fm-small">{t("Reserve a seat in a masterclass or join its waitlist.")}</p>
+      <section className="fm-section" aria-labelledby="home-beyond-now">
+        <h2 id="home-beyond-now" className="fm-eyebrow">{t("Beyond Now")}</h2>
+        <ul className="fm-hub">
+          {HUB.map((item) => (
+            <li key={item.href}>
+              <Link href={item.href} className="fm-hub-link">
+                <span className="fm-hub-icon"><HomeIcon name={item.icon} /></span>
+                <span className="fm-hub-text">
+                  <span className="fm-hub-title">{t(item.title)}</span>
+                  <span className="fm-hub-detail">{t(item.detail)}</span>
+                </span>
+                <span className="fm-hub-arrow"><HomeIcon name="arrow" /></span>
+              </Link>
+            </li>
+          ))}
+        </ul>
       </section>
 
       <section className="fm-section">
@@ -121,7 +134,7 @@ export function HomeDashboard() {
           <>
             {general && (
               <p className="fm-alert fm-alert-info">
-                {t("Select interests when you register to see your personalised match for each booth.")}
+                {t("Choose topics on your interest card in your profile to see your personalised match for each booth.")}
               </p>
             )}
             <ul className="fm-list">

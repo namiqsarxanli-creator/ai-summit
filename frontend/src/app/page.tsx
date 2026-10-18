@@ -1,3 +1,4 @@
+import { T } from "@/components/ui/LanguageProvider";
 import { BrandCredit } from "@/components/ui/BrandCredit";
 import { SessionPanel } from "@/components/auth/SessionPanel";
 import { HomeDashboard } from "@/components/dashboard/HomeDashboard";
@@ -10,8 +11,7 @@ export default function Home() {
         <div className="fm-hero-content">
           <div className="fm-hero-brand">
             <h1>AI Summit</h1>
-            {/* The event's name: the same in every language, so not translated. */}
-            <p className="fm-hero-tagline">Beyond Now</p>
+            <p className="fm-hero-tagline"><T id="Beyond Now" /></p>
           </div>
         </div>
       </header>
