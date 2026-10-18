@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useLanguage } from "@/components/ui/LanguageProvider";
-import { HomeIcon } from "@/components/ui/HomeIcons";
 import { useEffect, useState } from "react";
 
 import { messageFor } from "@/lib/errors";
@@ -33,20 +32,9 @@ export function SessionPanel() {
     return <p role="status" className="fm-note">{t("Checking your session…")}</p>;
   }
 
-  if (state.kind === "signed-in") {
-    const { attendee } = state;
-    return (
-      <section className="fm-session-strip" aria-label={t("Signed in")}>
-        <Link href="/profile" className="fm-session-avatar" aria-label={t("Profile")}>
-          <HomeIcon name="profile" />
-        </Link>
-        <div className="fm-session-identity">
-          <p className="fm-session-name">{attendee.first_name} {attendee.last_name}</p>
-          <p className="fm-session-profession">{attendee.profession}</p>
-        </div>
-      </section>
-    );
-  }
+  // Signed in: nothing here. The attendee's identity lives on the Profile tab of
+  // the tab bar; Home only offers the ways in to someone who is not signed in.
+  if (state.kind === "signed-in") return null;
   return (
     <div className="fm-stack">
       {state.kind === "error" && (

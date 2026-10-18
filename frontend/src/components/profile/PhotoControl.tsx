@@ -172,12 +172,7 @@ export function PhotoControl({
         <img src={preview} alt="" className="hidden" onError={() => setUnreadable(true)} />
       )}
 
-      <p className="fm-small">
-        {t("Your photo appears on the leaderboard and on your contact card, where other attendees can see it.")}
-      </p>
-      <p className="fm-small">
-        {t("JPEG, PNG or WebP, up to 8 MB. It is cropped to a square, and location and camera details are removed.")}
-      </p>
+      <p className="fm-small">{t("Shown on the leaderboard and your card. JPEG, PNG or WebP, up to 8 MB.")}</p>
 
       {unreadable && (
         <p role="alert" className="fm-alert fm-alert-error">

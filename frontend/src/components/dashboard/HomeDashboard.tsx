@@ -14,14 +14,16 @@ import { fetchRecommendations, isGeneralListing, type Recommendation } from "@/l
 
 const TOP_N = 3;
 
-// The Beyond Now programme surfaces, in the order an attendee uses them.
+// The Beyond Now programme surfaces, in the order an attendee uses them. Styled
+// after the event's posters: numbered like their zones, the programme as the dark
+// feature card, the last one full width.
 const HUB = [
-  { href: "/programme", icon: "calendar", title: "My programme", detail: "Your sessions and reminders" },
-  { href: "/masterclasses", icon: "masterclass", title: "Masterclasses", detail: "Reserve a seat or join the waitlist" },
-  { href: "/playground", icon: "playground", title: "AI Playground", detail: "Book a hands-on slot" },
-  { href: "/people", icon: "people", title: "People to meet", detail: "Matches for a conversation" },
-  { href: "/points", icon: "star", title: "My points", detail: "How you earned every point" },
-  { href: "/report", icon: "report", title: "My report", detail: "Your day in one place" },
+  { href: "/programme", icon: "calendar", title: "My programme", detail: "Your sessions and reminders", look: "feature" },
+  { href: "/masterclasses", icon: "masterclass", title: "Masterclasses", detail: "Reserve a seat or join the waitlist", look: "tile" },
+  { href: "/playground", icon: "playground", title: "AI Playground", detail: "Book a hands-on slot", look: "tile" },
+  { href: "/people", icon: "people", title: "People to meet", detail: "Matches for a conversation", look: "tile" },
+  { href: "/points", icon: "star", title: "My points", detail: "How you earned every point", look: "tile" },
+  { href: "/report", icon: "report", title: "My report", detail: "Your day in one place", look: "wide" },
 ] as const;
 
 type State =
@@ -103,18 +105,20 @@ export function HomeDashboard() {
         </Link>
       </div>
 
-      <section className="fm-section" aria-labelledby="home-beyond-now">
-        <h2 id="home-beyond-now" className="fm-eyebrow">{t("Beyond Now")}</h2>
+      <section className="fm-hub-section" aria-labelledby="home-beyond-now">
+        <h2 id="home-beyond-now" className="fm-hub-tag">{t("Beyond Now")}</h2>
         <ul className="fm-hub">
-          {HUB.map((item) => (
-            <li key={item.href}>
+          {HUB.map((item, index) => (
+            <li key={item.href} className={`fm-hub-item fm-hub-${item.look}`}>
               <Link href={item.href} className="fm-hub-link">
-                <span className="fm-hub-icon"><HomeIcon name={item.icon} /></span>
-                <span className="fm-hub-text">
-                  <span className="fm-hub-title">{t(item.title)}</span>
-                  <span className="fm-hub-detail">{t(item.detail)}</span>
+                <span className="fm-hub-top" aria-hidden="true">
+                  <span className="fm-hub-number">{String(index + 1).padStart(2, "0")}</span>
+                  <span className="fm-hub-icon"><HomeIcon name={item.icon} /></span>
                 </span>
-                <span className="fm-hub-arrow"><HomeIcon name="arrow" /></span>
+                <span className="fm-hub-title">{t(item.title)}</span>
+                <span className="fm-hub-detail">{t(item.detail)}</span>
+                <span className="fm-hub-arrow" aria-hidden="true"><HomeIcon name="arrow" /></span>
+                <span className="fm-hub-checks" aria-hidden="true" />
               </Link>
             </li>
           ))}

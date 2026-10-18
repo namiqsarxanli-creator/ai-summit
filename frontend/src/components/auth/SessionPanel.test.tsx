@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { messageFor } from "@/lib/errors";
@@ -42,11 +42,15 @@ describe("SessionPanel", () => {
     );
   });
 
-  it("shows the signed-in attendee resolved from the server", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(200, ATTENDEE)));
-    render(<SessionPanel />);
-    expect(await screen.findByText("Marcus Lindqvist")).toBeInTheDocument();
-    expect(screen.getByText("Data Platform Engineer")).toBeInTheDocument();
+  it("shows nothing to a signed-in attendee: the profile has its own tab", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(200, ATTENDEE));
+    vi.stubGlobal("fetch", fetchMock);
+    const { container } = render(<SessionPanel />);
+    await waitFor(() => expect(screen.queryByText("Checking your session…")).not.toBeInTheDocument());
+    expect(fetchMock).toHaveBeenCalled();
+    expect(container).toBeEmptyDOMElement();
+    expect(screen.queryByText("Marcus Lindqvist")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Register as an attendee" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Sign out" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Staff sign in" })).not.toBeInTheDocument();
     // M08: navigation to My Card and Booths now lives in the single

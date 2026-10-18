@@ -78,10 +78,10 @@ describe("Home", () => {
       }),
     );
     render(<Home />);
-    // M08: the profile summary (M05's SessionPanel) ...
-    expect(await screen.findByText("Marcus Lindqvist")).toBeInTheDocument();
-    // ... the matched-booths preview (M07 data, this milestone's UI) ...
+    // The matched-booths preview (M07 data, this milestone's UI) ...
     expect(await screen.findByRole("heading", { name: "AIWorks" })).toBeInTheDocument();
+    // ... no identity strip: the profile is the Profile tab, not a block on Home ...
+    expect(screen.queryByText("Marcus Lindqvist")).not.toBeInTheDocument();
     // ... and the shared attendee navigation, all on one coherent screen.
     expect(screen.getByRole("navigation", { name: "Attendee navigation" })).toBeInTheDocument();
   });
