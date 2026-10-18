@@ -13,11 +13,23 @@
 # the domain's DNS must point at this server). Certificates live in the
 # caddy_data volume - keep it.
 #
-# Forwarding headers: this proxy is the only thing exposed to clients and
-# trusts no upstream proxy, so Caddy REPLACES any X-Forwarded-For /
-# X-Forwarded-Proto / X-Forwarded-Host a client sends with the real values.
+# Forwarding headers: clients reach this proxy through Cloudflare (proxied DNS
+# record) or, if someone bypasses it, directly. Caddy works out ONE client
+# address, {client_ip}:
+#   - a request from a Cloudflare address (the published ranges in
+#     `trusted_proxies` below): the address Cloudflare reports in
+#     CF-Connecting-IP. Cloudflare always writes that header itself, so a
+#     client cannot choose it;
+#   - any other request: the connecting address. A CF-Connecting-IP or
+#     X-Forwarded-For sent by such a client is never believed.
+# Every upstream receives exactly that one address as X-Forwarded-For (any
+# chain a client wrote is replaced); CF-Connecting-IP, X-Real-IP and Forwarded
+# are dropped, so no upstream can trust a raw copy by mistake.
 # The backend only believes X-Forwarded-For from this proxy's fixed address
-# (TRUSTED_PROXY_CIDRS) - see docker-compose.prod.yml.
+# (TRUSTED_PROXY_CIDRS) - see docker-compose.prod.yml - so its rate limits key
+# on the real attendee, not on a Cloudflare edge shared by many.
+# Cloudflare ranges: https://www.cloudflare.com/ips/ (checked 2026-10-18,
+# etag 38f79d050aa027e3be3865e495dcc9bc). Re-check before each event.
 {
 	email {$ACME_EMAIL}
 	# Empty in production. Smoke tests set it to `local_certs` to use
@@ -25,6 +37,10 @@
 	{$CADDY_GLOBAL_OPTIONS:}
 
 	servers {
+		# Cloudflare's published edge ranges (see the header). Only requests from
+		# these may set the client address, and only through CF-Connecting-IP.
+		trusted_proxies static 173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18 108.162.192.0/18 190.93.240.0/20 188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 104.24.0.0/14 172.64.0.0/13 131.0.72.0/22 2400:cb00::/32 2606:4700::/32 2803:f800::/32 2405:b500::/32 2405:8100::/32 2a06:98c0::/29 2c0f:f248::/32
+		client_ip_headers CF-Connecting-IP
 		timeouts {
 			read_header 10s
 			idle 2m
@@ -66,8 +82,10 @@
 # The backend upstream, shared by every /api route below.
 (backend_proxy) {
 	reverse_proxy {$BACKEND_UPSTREAM:backend:8000} {
-		# Nothing but the X-Forwarded-For Caddy itself wrote is meaningful
-		# to the backend; drop the other client-controllable variants.
+		# Exactly one address: the client Caddy resolved (see the header). The
+		# other client-controllable variants are dropped.
+		header_up X-Forwarded-For {client_ip}
+		header_up -CF-Connecting-IP
 		header_up -X-Real-IP
 		header_up -Forwarded
 		# Deliver SSE frames (ready / heartbeat / events) the moment the
@@ -156,6 +174,8 @@
 			max_size 1MB
 		}
 		reverse_proxy {$FRONTEND_UPSTREAM:frontend:3000} {
+			header_up X-Forwarded-For {client_ip}
+			header_up -CF-Connecting-IP
 			header_up -X-Real-IP
 			header_up -Forwarded
 			transport http {

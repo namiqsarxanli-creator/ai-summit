@@ -508,6 +508,47 @@ Machine-readable examples (probe URLs, thresholds, log patterns) are in
   `MEDIA_ROOT is not writable`, `worker poll failed`, `OTP provider rate limit:
   sending paused`, `Unhandled exception`.
 
+## Network reachability: Cloudflare and a blocked server address
+
+**What happened (2026-10-18).** The droplet's original address 178.128.203.85
+became unreachable from Azerbaijan - every ISP and mobile network tried - while
+it answered normally from Europe and the US. The server, Compose stack and
+DigitalOcean (no cloud firewall) were fine: traffic died inside the Azerbaijani
+networks. A DigitalOcean Reserved IP (129.212.255.142) on the same droplet was
+reachable at once; the `aisummit` DNS record now points at it.
+
+**Protection: Cloudflare in front.** The `aisummit` record is proxied by
+Cloudflare, so attendees connect to Cloudflare's addresses, never the server's.
+What that needs, and where it lives:
+
+* `deploy/Caddyfile` trusts Cloudflare's published ranges (`trusted_proxies`)
+  and takes the attendee address from `CF-Connecting-IP` only from them. Every
+  upstream gets exactly one X-Forwarded-For; a header a client forges is never
+  believed (test: `deploy/tests/caddy-real-ip.test.sh`). Re-check the ranges at
+  https://www.cloudflare.com/ips/ before each event and update the one
+  `trusted_proxies` line if they changed.
+* Cloudflare SSL/TLS mode **Full (strict)**: Cloudflare checks Caddy's Let's
+  Encrypt certificate, which keeps renewing over HTTP-01 through the proxy.
+* Nothing to change for SSE (a frame every 15 s, Cloudflare's idle limit is
+  100 s) or for photo uploads (9 MB here, Cloudflare allows 100 MB).
+
+**If an address is blocked again (minutes, nothing is deleted):**
+
+1. DigitalOcean -> Networking -> Reserved IPs -> Add a Reserved IP -> assign to
+   the `aisummit` droplet. Free while assigned. The old address keeps working.
+2. Test it from an affected network:
+   `curl --resolve aisummit.aiworks.az:443:<new ip> https://aisummit.aiworks.az/api/health`
+   and `ssh root@<new ip>`.
+3. Cloudflare -> aiworks.az -> DNS -> `aisummit` A record -> Edit -> the new
+   address -> Save (keep the proxy status as it is).
+4. SSH for deploys always goes to the server's own address (Cloudflare does not
+   carry SSH): use the reserved IP.
+
+Keep the reserved IP assigned: unassigning it sends the site back to a blocked
+address. Check reachability from local networks (several mobile operators and
+the venue Wi-Fi) before the event; the server's own monitor cannot see a block
+that happens outside it.
+
 ## Accepted limitations
 
 * **In-memory rate limits reset on restart.** The request rate limiter

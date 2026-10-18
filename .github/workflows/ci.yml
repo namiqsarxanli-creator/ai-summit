@@ -161,6 +161,11 @@ jobs:
           docker run --rm -v "$PWD/deploy/Caddyfile:/etc/caddy/Caddyfile:ro" \
             -e DOMAIN=localhost -e ACME_EMAIL=ops@example.test \
             caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+      - name: Caddy request limits and client-address forwarding (real Caddy, stand-in upstream)
+        run: |
+          docker pull -q python:3.12-slim
+          bash deploy/tests/caddy-upload.test.sh
+          bash deploy/tests/caddy-real-ip.test.sh
       - name: Build the production backend image
         run: docker build -f backend/Dockerfile.prod -t facemark-backend:ci backend
       - name: Real backup and restore exercise (isolated PostgreSQL and media)

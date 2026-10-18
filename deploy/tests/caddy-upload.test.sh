@@ -34,7 +34,9 @@ docker create --name "$CADDY" --network "$NET" --network-alias proxy \
   -e DOMAIN=":8080" -e ACME_EMAIL="test@example.invalid" -e CADDY_GLOBAL_OPTIONS="auto_https off" \
   -e BACKEND_UPSTREAM="upstream:9000" -e FRONTEND_UPSTREAM="upstream:9000" \
   caddy:2-alpine caddy run --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null
-docker cp "$ROOT/deploy/Caddyfile" "$CADDY:/etc/caddy/Caddyfile"
+SRC="$ROOT/deploy/Caddyfile"
+command -v cygpath >/dev/null 2>&1 && SRC="$(cygpath -w "$SRC")"  # Git Bash on Windows
+docker cp "$SRC" "$CADDY:/etc/caddy/Caddyfile"
 docker start "$CADDY" >/dev/null
 
 docker run --rm --network "$NET" python:3.12-slim python -c '
