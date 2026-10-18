@@ -232,8 +232,6 @@ body:has(.fm-home) .fm-language-switcher { position: absolute; top: 0; left: 50%
 .fm-credit::before, .fm-credit::after { content: ''; width: 26px; height: 1px; background: #cfcfd3; }
 .fm-credit a { display: flex; align-items: center; min-height: var(--fm-tap); }
 .fm-credit img { width: 72px; height: auto; filter: grayscale(1); }
-.fm-staff-entry { display: inline-flex; align-self: center; align-items: center; gap: 8px; min-height: var(--fm-tap); padding: 0 14px; color: var(--fm-red-ink); font-size: 14px; font-weight: 600; text-decoration: none; }
-.fm-staff-entry:hover { text-decoration: underline; }
 
 /* 8. Screens -------------------------------------------------------------- */
 /* Home: artwork contains no lettering; all text is live and localised. */

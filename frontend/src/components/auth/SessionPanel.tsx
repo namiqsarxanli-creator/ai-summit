@@ -48,14 +48,8 @@ export function SessionPanel() {
       <Link href="/login" className="fm-btn fm-btn-secondary fm-btn-block">
         {t("Already registered? Sign in")}
       </Link>
-      {state.kind === "signed-out" && (
-        <>
-          {/* Booth staff and volunteers: scanning and awarding points. */}
-          <Link href="/staff/login" className="fm-staff-entry">{t("Staff sign in")} <span aria-hidden="true">→</span></Link>
-          {/* Organisers: the administration console, which signs in administrators only. */}
-          <Link href="/admin" className="fm-staff-entry">{t("Organiser sign in")} <span aria-hidden="true">→</span></Link>
-        </>
-      )}
+      {/* Staff (/staff/login) and organisers (/admin) are not linked from here:
+          their own links are handed to them, and only their accounts sign in. */}
     </div>
   );
 }

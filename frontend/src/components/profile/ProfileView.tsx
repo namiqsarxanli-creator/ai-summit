@@ -157,7 +157,7 @@ export function ProfileView() {
       {!editing && (
         <section className="fm-section" aria-label={t("Interest card")}>
           <h2 className="fm-eyebrow">{t("Interest card")}</h2>
-          <p className="fm-hint">{t("Optional. Kept on your private profile only: it is not shown on your contact card and does not change your booth recommendations.")}</p>
+          <p className="fm-hint">{t("Optional. Your topics shape your booth recommendations, and your answers help suggest people to meet. The card is not shown on your contact card.")}</p>
           <dl className="fm-dl">
             {CARD_GROUPS.map((group) => {
               const chosen = selectedIn(profile.interest_card, group.key);

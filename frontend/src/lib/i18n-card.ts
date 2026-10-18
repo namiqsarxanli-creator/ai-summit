@@ -4,9 +4,9 @@ export const cardTranslations: Record<string, { az: string; ru: string }> = {
   "Company": { az: "Şirkət", ru: "Компания" },
   "Company name is too long.": { az: "Şirkət adı çox uzundur.", ru: "Название компании слишком длинное." },
   "Interest card": { az: "Maraq kartı", ru: "Карточка интересов" },
-  "Optional. Kept on your private profile only: it is not shown on your contact card and does not change your booth recommendations.": {
-    az: "İstəyə bağlıdır. Yalnız şəxsi profilinizdə saxlanılır: əlaqə kartınızda görünmür və stend tövsiyələrinizə təsir etmir.",
-    ru: "Необязательно. Хранится только в вашем личном профиле: не показывается на контактной карточке и не влияет на рекомендации стендов.",
+  "Optional. Your topics shape your booth recommendations, and your answers help suggest people to meet. The card is not shown on your contact card.": {
+    az: "İstəyə bağlıdır. Seçdiyiniz mövzular stend tövsiyələrinizi müəyyən edir, cavablarınız isə tanış olmalı insanları təklif etməyə kömək edir. Kart əlaqə kartınızda görünmür.",
+    ru: "Необязательно. Выбранные темы определяют рекомендации стендов, а ответы помогают подобрать людей для знакомства. Карточка не показывается на контактной карточке.",
   },
   "no longer offered": { az: "artıq siyahıda yoxdur", ru: "больше не предлагается" },
   "My field": { az: "Sahəm", ru: "Моя сфера" },

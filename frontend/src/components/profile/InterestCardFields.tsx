@@ -37,7 +37,7 @@ export function InterestCardFields({
     >
       <legend className="fm-legend">{t("Interest card")}</legend>
       <p className="fm-hint">
-        {t("Optional. Kept on your private profile only: it is not shown on your contact card and does not change your booth recommendations.")}
+        {t("Optional. Your topics shape your booth recommendations, and your answers help suggest people to meet. The card is not shown on your contact card.")}
       </p>
       {CARD_GROUPS.map((group) => {
         const chosen = selectedIn(card, group.key);

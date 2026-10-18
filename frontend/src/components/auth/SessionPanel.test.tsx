@@ -35,8 +35,9 @@ describe("SessionPanel", () => {
       "href",
       "/register",
     );
-    expect(screen.getByRole("link", { name: "Staff sign in" })).toHaveAttribute("href", "/staff/login");
-    expect(screen.getByRole("link", { name: "Organiser sign in" })).toHaveAttribute("href", "/admin");
+    // Staff and organisers have their own links; the attendee home names neither.
+    expect(screen.queryByRole("link", { name: "Staff sign in" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Organiser sign in" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Already registered? Sign in" })).toHaveAttribute(
       "href",
       "/login",
