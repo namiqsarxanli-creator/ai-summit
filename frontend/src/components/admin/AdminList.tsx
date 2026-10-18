@@ -45,7 +45,7 @@ function readable(items: RecordValue[]): RecordValue[] {
 }
 
 const EMPTY: Values = {};
-const input = "min-h-11 w-full rounded-xl border border-slate-600 bg-slate-900 p-3 text-white";
+const input = "min-h-11 w-full rounded-xl border border-(--fm-line-strong) bg-white p-3 text-(--fm-ink)";
 
 export function AdminList({ kind, refreshKey }: { kind: ListKind; refreshKey: number }) {
   const { t } = useLanguage();
@@ -103,8 +103,8 @@ export function AdminList({ kind, refreshKey }: { kind: ListKind; refreshKey: nu
   }
 
   return <div className="grid gap-4">
-    <form className="grid gap-3 rounded-xl border border-slate-700 bg-slate-950/50 p-4 sm:grid-cols-2" aria-label={t("Filters")} onSubmit={apply}>
-      {FILTERS[kind].map((def) => <label key={def.key} className="flex min-w-0 flex-col gap-1 text-sm text-slate-300">{t(def.label)}
+    <form className="grid gap-3 rounded-xl border border-(--fm-line) bg-(--fm-tint) p-4 sm:grid-cols-2" aria-label={t("Filters")} onSubmit={apply}>
+      {FILTERS[kind].map((def) => <label key={def.key} className="flex min-w-0 flex-col gap-1 text-sm text-(--fm-ink-soft)">{t(def.label)}
         {def.type === "select"
           ? <select className={input} value={draft[def.key] ?? ""} onChange={(event) => setDraft({ ...draft, [def.key]: event.target.value })}>
             <option value="">{t("Any")}</option>
@@ -113,35 +113,35 @@ export function AdminList({ kind, refreshKey }: { kind: ListKind; refreshKey: nu
           : <input className={input} type={def.type === "date" ? "date" : "text"} inputMode={def.type === "number" ? "numeric" : undefined}
             value={draft[def.key] ?? ""} onChange={(event) => setDraft({ ...draft, [def.key]: event.target.value })} />}
       </label>)}
-      <p className="text-xs text-slate-400 sm:col-span-2">{t("Dates use your local time zone and the end date is included.")}</p>
-      {formProblem && <p role="alert" className="text-sm text-amber-300 sm:col-span-2">{t(formProblem)}</p>}
+      <p className="text-xs text-(--fm-muted) sm:col-span-2">{t("Dates use your local time zone and the end date is included.")}</p>
+      {formProblem && <p role="alert" className="text-sm text-(--fm-warn) sm:col-span-2">{t(formProblem)}</p>}
       <div className="flex flex-wrap gap-2 sm:col-span-2">
-        <button type="submit" className="min-h-11 rounded-xl bg-indigo-500 px-4 py-2 font-semibold">{t("Search")}</button>
-        <button type="button" className="min-h-11 rounded-xl border border-slate-600 bg-slate-800 px-4 py-2" onClick={reset}>{t("Reset")}</button>
+        <button type="submit" className="min-h-11 rounded-xl bg-(--fm-red) text-white px-4 py-2 font-semibold">{t("Search")}</button>
+        <button type="button" className="min-h-11 rounded-xl border border-(--fm-line-strong) bg-(--fm-tint) px-4 py-2" onClick={reset}>{t("Reset")}</button>
       </div>
     </form>
 
     <ExportBar kind={kind} applied={applied} pending={!sameFilters(kind, draft, applied)} />
 
-    {busy && <p role="status" className="text-sm text-slate-300">{t("Loading records…")}</p>}
+    {busy && <p role="status" className="text-sm text-(--fm-ink-soft)">{t("Loading records…")}</p>}
     {load.status === "error" && <div className="grid gap-2">
-      <p role="alert" className="text-amber-300">{t(load.message)}</p>
-      <button className="min-h-11 w-fit rounded-xl border border-slate-600 bg-slate-800 px-4 py-2" onClick={() => setRetry((n) => n + 1)}>{t("Try again")}</button>
+      <p role="alert" className="text-(--fm-warn)">{t(load.message)}</p>
+      <button className="min-h-11 w-fit rounded-xl border border-(--fm-line-strong) bg-(--fm-tint) px-4 py-2" onClick={() => setRetry((n) => n + 1)}>{t("Try again")}</button>
     </div>}
     {ready && <Records data={readable(ready.items)} empty={filtered ? "No records match these filters." : "No records to show yet."}
       actions={kind === "points-log" ? (_row, index) => {
         const entry = ready.items[index]; // the raw row: `readable` turned its dates into text
         return entry && canReverse(entry)
-          ? <button type="button" className="mt-3 min-h-11 rounded-xl border border-red-400/60 bg-slate-800 px-4 py-2 text-sm font-semibold text-red-200"
+          ? <button type="button" className="mt-3 min-h-11 rounded-xl border border-(--fm-red) bg-(--fm-tint) px-4 py-2 text-sm font-semibold text-(--fm-red)"
             onClick={() => setReversing(entry as unknown as LedgerEntry)}>{t("Reverse…")}</button>
           : null;
       } : undefined} />}
 
     {(ready || cursors.length > 1) && <nav className="flex flex-wrap items-center gap-3" aria-label={t("Pages")}>
-      <button className="min-h-11 rounded-xl border border-slate-600 bg-slate-800 px-4 py-2 disabled:opacity-50" disabled={busy || cursors.length === 1}
+      <button className="min-h-11 rounded-xl border border-(--fm-line-strong) bg-(--fm-tint) px-4 py-2 disabled:opacity-50" disabled={busy || cursors.length === 1}
         onClick={() => setCursors((stack) => stack.slice(0, -1))}>{t("Previous")}</button>
-      <span className="text-sm text-slate-300">{t("Page")} {cursors.length}</span>
-      <button className="min-h-11 rounded-xl border border-slate-600 bg-slate-800 px-4 py-2 disabled:opacity-50" disabled={busy || !ready?.next_cursor}
+      <span className="text-sm text-(--fm-ink-soft)">{t("Page")} {cursors.length}</span>
+      <button className="min-h-11 rounded-xl border border-(--fm-line-strong) bg-(--fm-tint) px-4 py-2 disabled:opacity-50" disabled={busy || !ready?.next_cursor}
         onClick={() => { const next = ready?.next_cursor; if (next) setCursors((stack) => (stack[stack.length - 1] === next ? stack : [...stack, next])); }}>{t("Next")}</button>
     </nav>}
   </div>;

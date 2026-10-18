@@ -30,12 +30,12 @@ function failure(result: Extract<ApiResult<unknown>, { ok: false }>): string {
   return messageFor(result.error.code);
 }
 
-const input = "min-h-11 w-full rounded-xl border border-slate-600 bg-slate-900 p-3 text-base text-white";
+const input = "min-h-11 w-full rounded-xl border border-(--fm-line-strong) bg-white p-3 text-base text-(--fm-ink)";
 
 function Field({ label, value, set, multiline = false }: { label: string; value: string; set: (v: string) => void; multiline?: boolean }) {
   const { t } = useLanguage();
   return (
-    <label className="flex flex-col gap-1 text-sm text-slate-300">
+    <label className="flex flex-col gap-1 text-sm text-(--fm-ink-soft)">
       {t(label)}
       {multiline
         ? <textarea className={input} rows={3} value={value} onChange={(e) => set(e.target.value)} />
@@ -191,27 +191,27 @@ export function MasterclassAdmin() {
 
   return (
     <div className="grid min-w-0 gap-5 [overflow-wrap:anywhere]">
-      {rows === null && !error && <p role="status" className="text-sm text-slate-300">{t("Loading records…")}</p>}
+      {rows === null && !error && <p role="status" className="text-sm text-(--fm-ink-soft)">{t("Loading records…")}</p>}
       {rows && (
         <>
-          <div className="grid gap-1 text-sm text-slate-300">
-            <p><span className="font-semibold text-slate-100">{t("Events")}:</span> {rows.events.map((e) => `#${String(e.id)} ${String(e.title)} (${String(e.event_date)}, ${String(e.timezone)})`).join(" · ") || "—"}</p>
-            <p><span className="font-semibold text-slate-100">{t("Blocks")}:</span> {rows.blocks.map((b) => `#${String(b.id)} ${blockTitle(b.id)}`).join(" · ") || "—"}</p>
-            <p><span className="font-semibold text-slate-100">{t("Rooms")}:</span> {rows.rooms.map((r) => `#${String(r.id)} ${roomTitle(r.id)}`).join(" · ") || "—"}</p>
+          <div className="grid gap-1 text-sm text-(--fm-ink-soft)">
+            <p><span className="font-semibold text-(--fm-ink)">{t("Events")}:</span> {rows.events.map((e) => `#${String(e.id)} ${String(e.title)} (${String(e.event_date)}, ${String(e.timezone)})`).join(" · ") || "—"}</p>
+            <p><span className="font-semibold text-(--fm-ink)">{t("Blocks")}:</span> {rows.blocks.map((b) => `#${String(b.id)} ${blockTitle(b.id)}`).join(" · ") || "—"}</p>
+            <p><span className="font-semibold text-(--fm-ink)">{t("Rooms")}:</span> {rows.rooms.map((r) => `#${String(r.id)} ${roomTitle(r.id)}`).join(" · ") || "—"}</p>
           </div>
           <div className="min-w-0 max-w-full overflow-x-auto">
             <table className="w-full min-w-[640px] text-left text-sm">
-              <thead className="text-slate-400"><tr><th className="p-2">ID</th><th className="p-2">{t("Title")}</th><th className="p-2">{t("Blocks")}</th><th className="p-2">{t("Rooms")}</th><th className="p-2">{t("Confirmed")}</th><th className="p-2">{t("Waiting")}</th><th className="p-2" /></tr></thead>
+              <thead className="text-(--fm-muted)"><tr><th className="p-2">ID</th><th className="p-2">{t("Title")}</th><th className="p-2">{t("Blocks")}</th><th className="p-2">{t("Rooms")}</th><th className="p-2">{t("Confirmed")}</th><th className="p-2">{t("Waiting")}</th><th className="p-2" /></tr></thead>
               <tbody>
                 {rows.masterclasses.map((m) => (
-                  <tr key={String(m.id)} className="border-t border-slate-700">
+                  <tr key={String(m.id)} className="border-t border-(--fm-line)">
                     <td className="p-2">{String(m.id)}</td>
-                    <td className="p-2">{String(m.title)} <span className="text-slate-400">· {m.is_published ? t("Published") : t("Hidden")}</span></td>
+                    <td className="p-2">{String(m.title)} <span className="text-(--fm-muted)">· {m.is_published ? t("Published") : t("Hidden")}</span></td>
                     <td className="p-2">{blockTitle(m.block_id)}</td>
                     <td className="p-2">{roomTitle(m.room_id)}</td>
                     <td className="p-2">{String(m.confirmed_count)}/{String(m.capacity)}</td>
                     <td className="p-2">{String(m.waitlist_count)}/{String(m.waitlist_capacity)}</td>
-                    <td className="p-2"><button className="min-h-11 rounded-xl border border-slate-600 bg-slate-800 px-3" onClick={() => void show(Number(m.id))}>{t("Show reservations")}</button></td>
+                    <td className="p-2"><button className="min-h-11 rounded-xl border border-(--fm-line-strong) bg-(--fm-tint) px-3" onClick={() => void show(Number(m.id))}>{t("Show reservations")}</button></td>
                   </tr>
                 ))}
               </tbody>
@@ -221,17 +221,17 @@ export function MasterclassAdmin() {
       )}
 
       {lists && (
-        <section className="grid gap-2 rounded-2xl border border-slate-700 p-4" aria-label={t("Show reservations")}>
+        <section className="grid gap-2 rounded-2xl border border-(--fm-line) p-4" aria-label={t("Show reservations")}>
           <h3 className="font-semibold">{String(lists.masterclass.title)}</h3>
-          <p className="text-sm text-slate-300">{t("Confirmed seats")}: {lists.confirmed_count} · {t("Waitlist")}: {lists.waitlist_count}</p>
+          <p className="text-sm text-(--fm-ink-soft)">{t("Confirmed seats")}: {lists.confirmed_count} · {t("Waitlist")}: {lists.waitlist_count}</p>
           <h4 className="text-sm font-semibold">{t("Confirmed seats")}</h4>
-          {lists.confirmed.length === 0 ? <p className="text-sm text-slate-400">{t("Nobody yet.")}</p> : <ol className="list-decimal pl-6 text-sm">{lists.confirmed.map((p) => <li key={p.reservation_id}>{p.name} · {p.email}</li>)}</ol>}
+          {lists.confirmed.length === 0 ? <p className="text-sm text-(--fm-muted)">{t("Nobody yet.")}</p> : <ol className="list-decimal pl-6 text-sm">{lists.confirmed.map((p) => <li key={p.reservation_id}>{p.name} · {p.email}</li>)}</ol>}
           <h4 className="text-sm font-semibold">{t("Waitlist")}</h4>
-          {lists.waitlist.length === 0 ? <p className="text-sm text-slate-400">{t("Nobody yet.")}</p> : <ol className="list-decimal pl-6 text-sm">{lists.waitlist.map((p) => <li key={p.reservation_id}>{p.name} · {p.email}</li>)}</ol>}
+          {lists.waitlist.length === 0 ? <p className="text-sm text-(--fm-muted)">{t("Nobody yet.")}</p> : <ol className="list-decimal pl-6 text-sm">{lists.waitlist.map((p) => <li key={p.reservation_id}>{p.name} · {p.email}</li>)}</ol>}
         </section>
       )}
 
-      <fieldset disabled={busy} className="grid max-w-lg gap-3 rounded-2xl border border-slate-700 bg-slate-900/80 p-5 disabled:opacity-60">
+      <fieldset disabled={busy} className="grid max-w-lg gap-3 rounded-2xl border border-(--fm-line) bg-white p-5 disabled:opacity-60">
         <legend className="px-1 text-lg font-medium">{t("Add or edit a masterclass")}</legend>
         <Field label="Masterclass ID (empty to add a new one)" value={mcId} set={setMcId} />
         <Field label="Event ID" value={eventId} set={setEventId} />
@@ -242,21 +242,21 @@ export function MasterclassAdmin() {
         <Field label="Description" value={description} set={setDescription} multiline />
         <Field label="Capacity" value={capacity} set={setCapacity} />
         <Field label="Waitlist size" value={waitlist} set={setWaitlist} />
-        <label className="flex flex-col gap-1 text-sm text-slate-300">{t("Visible to attendees")}
+        <label className="flex flex-col gap-1 text-sm text-(--fm-ink-soft)">{t("Visible to attendees")}
           <select className={input} value={published} onChange={(e) => setPublished(e.target.value)}>
             <option value="">{t("No change (new: hidden)")}</option>
             <option value="true">{t("Published")}</option>
             <option value="false">{t("Hidden")}</option>
           </select>
         </label>
-        <button className="rounded bg-indigo-600 p-2" onClick={saveMasterclass}>{t("Save masterclass")}</button>
-        <button className="rounded bg-slate-700 p-2" onClick={() => {
+        <button className="rounded bg-(--fm-red) text-white p-2" onClick={saveMasterclass}>{t("Save masterclass")}</button>
+        <button className="rounded bg-(--fm-red-soft) p-2" onClick={() => {
           const id = int(mcId);
           if (id !== null && window.confirm(t("Confirm this change?"))) void change(() => apiRequest(`/api/admin/masterclasses/${id}`, "DELETE"));
         }}>{t("Delete masterclass")}</button>
       </fieldset>
 
-      <fieldset disabled={busy} className="grid max-w-lg gap-3 rounded-2xl border border-slate-700 bg-slate-900/80 p-5 disabled:opacity-60">
+      <fieldset disabled={busy} className="grid max-w-lg gap-3 rounded-2xl border border-(--fm-line) bg-white p-5 disabled:opacity-60">
         <legend className="px-1 text-lg font-medium">{t("Add a block")}</legend>
         <Field label="Block ID (empty to add a new one)" value={blkId} set={setBlkId} />
         <Field label="Event ID" value={eventId} set={setEventId} />
@@ -267,10 +267,10 @@ export function MasterclassAdmin() {
         <Field label="Starts (with offset, e.g. 2026-11-13T11:30+04:00)" value={starts} set={setStarts} />
         <Field label="Ends" value={ends} set={setEnds} />
         <Field label="Change deadline" value={deadline} set={setDeadline} />
-        <button className="rounded bg-indigo-600 p-2" onClick={saveBlock}>{t("Save block")}</button>
+        <button className="rounded bg-(--fm-red) text-white p-2" onClick={saveBlock}>{t("Save block")}</button>
       </fieldset>
 
-      <fieldset disabled={busy} className="grid max-w-lg gap-3 rounded-2xl border border-slate-700 bg-slate-900/80 p-5 disabled:opacity-60">
+      <fieldset disabled={busy} className="grid max-w-lg gap-3 rounded-2xl border border-(--fm-line) bg-white p-5 disabled:opacity-60">
         <legend className="px-1 text-lg font-medium">{t("Add a room")}</legend>
         <Field label="Event ID" value={eventId} set={setEventId} />
         <Field label="Room ID (empty to add a new one)" value={editRoomId} set={setEditRoomId} />
@@ -278,21 +278,21 @@ export function MasterclassAdmin() {
         <Field label="Standard room number (optional)" value={roomNumber} set={setRoomNumber} />
         <p>{t("Leave empty to show the custom name.")}</p>
         <label>{t("Room label")}<select className={input} value={roomLabelMode} onChange={e => setRoomLabelMode(e.target.value)}><option value="">{t("Keep current label")}</option><option value="custom">{t("Use custom name")}</option><option value="standard">{t("Apply standard number")}</option></select></label>
-        <button className="rounded bg-indigo-600 p-2" onClick={saveRoom}>{t("Save room")}</button>
+        <button className="rounded bg-(--fm-red) text-white p-2" onClick={saveRoom}>{t("Save room")}</button>
       </fieldset>
 
-      <fieldset disabled={busy} className="grid max-w-lg gap-3 rounded-2xl border border-slate-700 bg-slate-900/80 p-5 disabled:opacity-60">
+      <fieldset disabled={busy} className="grid max-w-lg gap-3 rounded-2xl border border-(--fm-line) bg-white p-5 disabled:opacity-60">
         <legend className="px-1 text-lg font-medium">{t("Add an event")}</legend>
         <Field label="Code" value={evCode} set={setEvCode} />
         <Field label="Title" value={evTitle} set={setEvTitle} />
         <Field label="Venue" value={evVenue} set={setEvVenue} />
         <Field label="Time zone (e.g. Asia/Baku)" value={evZone} set={setEvZone} />
         <Field label="Date (YYYY-MM-DD)" value={evDate} set={setEvDate} />
-        <button className="rounded bg-indigo-600 p-2" onClick={() => void change(() => apiPost("/api/admin/masterclass-events", { code: evCode.trim(), title: evTitle.trim(), venue: text(evVenue), timezone: evZone.trim(), event_date: evDate.trim() }))}>{t("Save event")}</button>
+        <button className="rounded bg-(--fm-red) text-white p-2" onClick={() => void change(() => apiPost("/api/admin/masterclass-events", { code: evCode.trim(), title: evTitle.trim(), venue: text(evVenue), timezone: evZone.trim(), event_date: evDate.trim() }))}>{t("Save event")}</button>
       </fieldset>
 
-      {notice && <p role="status" className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-200">{t(notice)}</p>}
-      {error && <p role="alert" className="text-amber-300">{t(error)}</p>}
+      {notice && <p role="status" className="rounded-xl border border-(--fm-ok-line) bg-(--fm-ok-soft) p-3 text-sm text-(--fm-ok)">{t(notice)}</p>}
+      {error && <p role="alert" className="text-(--fm-warn)">{t(error)}</p>}
     </div>
   );
 }

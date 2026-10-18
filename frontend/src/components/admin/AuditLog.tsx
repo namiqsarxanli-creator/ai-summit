@@ -52,8 +52,8 @@ type Load =
   | { status: "ready"; page: AuditPageData };
 
 const LOCALES = { az: "az-AZ", en: "en-GB", ru: "ru-RU" } as const;
-const input = "min-h-11 w-full rounded-xl border border-slate-600 bg-slate-900 p-3 text-white";
-const button = "min-h-11 rounded-xl border border-slate-600 bg-slate-800 px-4 py-2 disabled:opacity-50";
+const input = "min-h-11 w-full rounded-xl border border-(--fm-line-strong) bg-white p-3 text-(--fm-ink)";
+const button = "min-h-11 rounded-xl border border-(--fm-line-strong) bg-(--fm-tint) px-4 py-2 disabled:opacity-50";
 
 function errorMessage(code: string): string {
   return code === "VALIDATION_ERROR" ? "The filters are not valid. Check the values and dates, then try again." : messageFor(code);
@@ -163,10 +163,10 @@ export function AuditLog({ refreshKey }: { refreshKey: number }) {
   function detail(event: AuditEvent) {
     const rows = diffRows(event);
     const result = event.result;
-    return <div id={`audit-detail-${event.id}`} className="mt-3 grid gap-3 border-t border-slate-700 pt-3" aria-label={`${t("Details")} #${event.id}`}>
+    return <div id={`audit-detail-${event.id}`} className="mt-3 grid gap-3 border-t border-(--fm-line) pt-3" aria-label={`${t("Details")} #${event.id}`}>
       <dl className="grid gap-2 sm:grid-cols-2">
-        <div className="min-w-0"><dt className="text-xs font-bold uppercase tracking-wide text-cyan-300">{t("Event kind")}</dt><dd className="break-words text-sm text-slate-100">{event.action}</dd></div>
-        {event.operation_id !== null && <div className="min-w-0"><dt className="text-xs font-bold uppercase tracking-wide text-cyan-300">{t("Operation ID")}</dt><dd className="break-all text-sm text-slate-100">{event.operation_id}</dd></div>}
+        <div className="min-w-0"><dt className="text-xs font-bold uppercase tracking-wide text-(--fm-red)">{t("Event kind")}</dt><dd className="break-words text-sm text-(--fm-ink)">{event.action}</dd></div>
+        {event.operation_id !== null && <div className="min-w-0"><dt className="text-xs font-bold uppercase tracking-wide text-(--fm-red)">{t("Operation ID")}</dt><dd className="break-all text-sm text-(--fm-ink)">{event.operation_id}</dd></div>}
       </dl>
 
       {result !== null && <dl className="grid gap-2 sm:grid-cols-2" aria-label={t("Result")}>
@@ -183,94 +183,94 @@ export function AuditLog({ refreshKey }: { refreshKey: number }) {
           ["Data snapshot taken", result.snapshot_at === null ? "—" : when(result.snapshot_at)],
           ["Filters used", result.filters_used.length ? result.filters_used.map((name) => labelled(FILTER_NAME_LABELS, name)).join(", ") : t("no filters")],
         ] as [string, string][]).map(([label, shown]) => <div key={label} className="min-w-0">
-          <dt className="text-xs font-bold uppercase tracking-wide text-cyan-300">{t(label)}</dt>
-          <dd className="break-words text-sm text-slate-100">{shown}</dd>
+          <dt className="text-xs font-bold uppercase tracking-wide text-(--fm-red)">{t(label)}</dt>
+          <dd className="break-words text-sm text-(--fm-ink)">{shown}</dd>
         </div>)}
-        {result.outcome === "stream_finished" && <p className="text-xs text-slate-400 sm:col-span-2">{t("The server records what it sent, not whether the browser saved the file.")}</p>}
+        {result.outcome === "stream_finished" && <p className="text-xs text-(--fm-muted) sm:col-span-2">{t("The server records what it sent, not whether the browser saved the file.")}</p>}
       </dl>}
 
       {rows.length > 0 && <div className="overflow-x-auto">
         <table className="w-full min-w-[20rem] text-left text-sm">
-          <thead><tr className="text-xs uppercase tracking-wide text-cyan-300">
+          <thead><tr className="text-xs uppercase tracking-wide text-(--fm-red)">
             <th scope="col" className="py-1 pr-3">{t("Field")}</th>
             <th scope="col" className="py-1 pr-3">{t("Before")}</th>
             <th scope="col" className="py-1">{t("After")}</th>
           </tr></thead>
-          <tbody>{rows.map((row) => <tr key={row.field} className={row.changed ? "bg-amber-500/10" : undefined}>
-            <th scope="row" className="py-1 pr-3 align-top font-medium text-slate-200">
+          <tbody>{rows.map((row) => <tr key={row.field} className={row.changed ? "bg-(--fm-warn-soft)" : undefined}>
+            <th scope="row" className="py-1 pr-3 align-top font-medium text-(--fm-ink)">
               {labelled(FIELD_LABELS, row.field)}
-              {row.changed && <span className="ml-2 rounded border border-amber-400/50 px-1 text-[0.65rem] font-semibold uppercase text-amber-300">{t("Changed")}</span>}
+              {row.changed && <span className="ml-2 rounded border border-(--fm-warn-line) px-1 text-[0.65rem] font-semibold uppercase text-(--fm-warn)">{t("Changed")}</span>}
             </th>
-            <td className="break-words py-1 pr-3 align-top text-slate-300">{value(row.field, row.before)}</td>
-            <td className="break-words py-1 align-top text-slate-100">{value(row.field, row.after)}</td>
+            <td className="break-words py-1 pr-3 align-top text-(--fm-ink-soft)">{value(row.field, row.before)}</td>
+            <td className="break-words py-1 align-top text-(--fm-ink)">{value(row.field, row.after)}</td>
           </tr>)}</tbody>
         </table>
       </div>}
 
-      {event.details === "limited" && <p className="text-sm text-slate-300">{t("This kind of event is not recognised by this page, so only who, when and what it concerned are shown.")}</p>}
-      {event.hidden_field_count > 0 && <p className="text-xs text-slate-400">{t("Some fields are hidden because they are personal or not needed here")}: {event.hidden_field_count}</p>}
+      {event.details === "limited" && <p className="text-sm text-(--fm-ink-soft)">{t("This kind of event is not recognised by this page, so only who, when and what it concerned are shown.")}</p>}
+      {event.hidden_field_count > 0 && <p className="text-xs text-(--fm-muted)">{t("Some fields are hidden because they are personal or not needed here")}: {event.hidden_field_count}</p>}
 
       {event.operation_id !== null && !(applied.target_type === "export" && applied.target_id === event.operation_id) &&
         <button type="button" className={`${button} w-fit`} onClick={() => showOperation(event.operation_id as string)}>{t("Show the events of this export")}</button>}
       {event.operation_id !== null && applied.target_type === "export" && applied.target_id === event.operation_id &&
-        <p className="text-xs text-slate-400">{t("This export's events are shown.")}</p>}
+        <p className="text-xs text-(--fm-muted)">{t("This export's events are shown.")}</p>}
     </div>;
   }
 
   return <div className="grid gap-4">
-    <p className="text-sm text-slate-300">{t("Read-only trail of administrator changes and CSV exports. Viewing it records nothing.")}</p>
-    <form className="grid gap-3 rounded-xl border border-slate-700 bg-slate-950/50 p-4 sm:grid-cols-2" aria-label={t("Audit log filters")} onSubmit={apply}>
-      <label className="flex min-w-0 flex-col gap-1 text-sm text-slate-300">{t("Staff ID")}
+    <p className="text-sm text-(--fm-ink-soft)">{t("Read-only trail of administrator changes and CSV exports. Viewing it records nothing.")}</p>
+    <form className="grid gap-3 rounded-xl border border-(--fm-line) bg-(--fm-tint) p-4 sm:grid-cols-2" aria-label={t("Audit log filters")} onSubmit={apply}>
+      <label className="flex min-w-0 flex-col gap-1 text-sm text-(--fm-ink-soft)">{t("Staff ID")}
         <input className={input} type="text" inputMode="numeric" value={draft.actor_id ?? ""} onChange={(event) => setDraft({ ...draft, actor_id: event.target.value })} />
       </label>
-      <label className="flex min-w-0 flex-col gap-1 text-sm text-slate-300">{t("Action")}
+      <label className="flex min-w-0 flex-col gap-1 text-sm text-(--fm-ink-soft)">{t("Action")}
         <select className={input} value={draft.action ?? ""} onChange={(event) => setDraft({ ...draft, action: event.target.value })}>
           <option value="">{t("Any")}</option>
           {ACTION_OPTIONS.map(([code, label]) => <option key={code} value={code}>{t(label)}</option>)}
         </select>
       </label>
-      <label className="flex min-w-0 flex-col gap-1 text-sm text-slate-300">{t("Target type")}
+      <label className="flex min-w-0 flex-col gap-1 text-sm text-(--fm-ink-soft)">{t("Target type")}
         <select className={input} value={draft.target_type ?? ""} onChange={(event) => setDraft({ ...draft, target_type: event.target.value })}>
           <option value="">{t("Any")}</option>
           {TARGET_OPTIONS.map(([code, label]) => <option key={code} value={code}>{t(label)}</option>)}
         </select>
       </label>
-      <label className="flex min-w-0 flex-col gap-1 text-sm text-slate-300">{t("Target ID")}
+      <label className="flex min-w-0 flex-col gap-1 text-sm text-(--fm-ink-soft)">{t("Target ID")}
         <input className={input} type="text" value={draft.target_id ?? ""} onChange={(event) => setDraft({ ...draft, target_id: event.target.value })} />
       </label>
-      <label className="flex min-w-0 flex-col gap-1 text-sm text-slate-300">{t("From date")}
+      <label className="flex min-w-0 flex-col gap-1 text-sm text-(--fm-ink-soft)">{t("From date")}
         <input className={input} type="date" value={draft.created_from ?? ""} onChange={(event) => setDraft({ ...draft, created_from: event.target.value })} />
       </label>
-      <label className="flex min-w-0 flex-col gap-1 text-sm text-slate-300">{t("Until date")}
+      <label className="flex min-w-0 flex-col gap-1 text-sm text-(--fm-ink-soft)">{t("Until date")}
         <input className={input} type="date" value={draft.created_to ?? ""} onChange={(event) => setDraft({ ...draft, created_to: event.target.value })} />
       </label>
-      <p className="text-xs text-slate-400 sm:col-span-2">{t("Dates use your local time zone and the end date is included.")}</p>
-      {formProblem && <p role="alert" className="text-sm text-amber-300 sm:col-span-2">{t(formProblem)}</p>}
+      <p className="text-xs text-(--fm-muted) sm:col-span-2">{t("Dates use your local time zone and the end date is included.")}</p>
+      {formProblem && <p role="alert" className="text-sm text-(--fm-warn) sm:col-span-2">{t(formProblem)}</p>}
       <div className="flex flex-wrap gap-2 sm:col-span-2">
-        <button type="submit" className="min-h-11 rounded-xl bg-indigo-500 px-4 py-2 font-semibold">{t("Search")}</button>
+        <button type="submit" className="min-h-11 rounded-xl bg-(--fm-red) text-white px-4 py-2 font-semibold">{t("Search")}</button>
         <button type="button" className={button} onClick={reset}>{t("Reset")}</button>
       </div>
     </form>
 
-    <p className="text-xs text-slate-400">{t("Times are shown in your local time zone")}: {timeZone}</p>
+    <p className="text-xs text-(--fm-muted)">{t("Times are shown in your local time zone")}: {timeZone}</p>
 
-    {busy && <p role="status" className="text-sm text-slate-300">{t("Loading audit events…")}</p>}
+    {busy && <p role="status" className="text-sm text-(--fm-ink-soft)">{t("Loading audit events…")}</p>}
     {load.status === "error" && <div className="grid gap-2">
-      <p role="alert" className="text-amber-300">{t(load.message)}</p>
+      <p role="alert" className="text-(--fm-warn)">{t(load.message)}</p>
       <button className={`${button} w-fit`} onClick={() => setRetry((n) => n + 1)}>{t("Try again")}</button>
     </div>}
     {ready && (ready.items.length === 0
-      ? <p className="rounded-xl border border-slate-700 p-5 text-sm text-slate-300">{t(anyAuditFilter(applied) ? "No audit events match these filters." : "No audit events recorded yet.")}</p>
+      ? <p className="rounded-xl border border-(--fm-line) p-5 text-sm text-(--fm-ink-soft)">{t(anyAuditFilter(applied) ? "No audit events match these filters." : "No audit events recorded yet.")}</p>
       : <ul className="grid gap-3" aria-label={t("Audit events")}>{ready.items.map((event) => {
         const open = openId === event.id;
         const kind = actionLabel(event.action);
-        return <li key={event.id} className="min-w-0 rounded-xl border border-slate-700 bg-slate-950/50 p-4">
+        return <li key={event.id} className="min-w-0 rounded-xl border border-(--fm-line) bg-(--fm-tint) p-4">
           <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-            <p className="break-words font-semibold text-slate-100">{kind === null ? event.action : t(kind)}</p>
-            <time dateTime={event.created_at} className="text-xs text-slate-400">{when(event.created_at)}</time>
+            <p className="break-words font-semibold text-(--fm-ink)">{kind === null ? event.action : t(kind)}</p>
+            <time dateTime={event.created_at} className="text-xs text-(--fm-muted)">{when(event.created_at)}</time>
           </div>
-          <p className="mt-1 break-words text-sm text-slate-300">{t("Actor")}: <span>{`${event.actor_name ?? "—"} (#${event.actor_id})`}</span> · {t("Target")}: <span>{targetText(event)}</span></p>
-          {event.result !== null && <p className="mt-1 break-words text-sm text-slate-200">{exportSummary(event.result)}</p>}
+          <p className="mt-1 break-words text-sm text-(--fm-ink-soft)">{t("Actor")}: <span>{`${event.actor_name ?? "—"} (#${event.actor_id})`}</span> · {t("Target")}: <span>{targetText(event)}</span></p>
+          {event.result !== null && <p className="mt-1 break-words text-sm text-(--fm-ink)">{exportSummary(event.result)}</p>}
           <button type="button" className={`${button} mt-3`} aria-expanded={open} aria-controls={`audit-detail-${event.id}`}
             onClick={() => setOpenId(open ? null : event.id)}>{t(open ? "Hide details" : "Details")}</button>
           {open && detail(event)}
@@ -280,7 +280,7 @@ export function AuditLog({ refreshKey }: { refreshKey: number }) {
     {(ready || cursors.length > 1) && <nav className="flex flex-wrap items-center gap-3" aria-label={t("Pages")}>
       <button className={button} disabled={busy || cursors.length === 1}
         onClick={() => { setOpenId(null); setCursors((stack) => stack.slice(0, -1)); }}>{t("Previous")}</button>
-      <span className="text-sm text-slate-300">{t("Page")} {cursors.length}</span>
+      <span className="text-sm text-(--fm-ink-soft)">{t("Page")} {cursors.length}</span>
       <button className={button} disabled={busy || !ready?.next_cursor}
         onClick={() => { const next = ready?.next_cursor; if (next) { setOpenId(null); setCursors((stack) => (stack[stack.length - 1] === next ? stack : [...stack, next])); } }}>{t("Next")}</button>
     </nav>}

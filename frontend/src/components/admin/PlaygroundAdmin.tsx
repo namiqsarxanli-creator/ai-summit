@@ -7,7 +7,7 @@ import { useLanguage } from "@/components/ui/LanguageProvider";
 import { apiPost } from "@/lib/api";
 import { messageFor } from "@/lib/errors";
 
-const input = "min-h-11 w-full rounded-xl border border-slate-600 bg-slate-900 p-3 text-base text-white";
+const input = "min-h-11 w-full rounded-xl border border-(--fm-line-strong) bg-white p-3 text-base text-(--fm-ink)";
 
 // Opens a booth's 36 fifteen-minute Playground sessions (09:00-18:00 in the
 // event's time zone). Re-running it adds only missing sessions; existing ones and
@@ -41,20 +41,20 @@ export function PlaygroundAdmin() {
 
   return (
     <div className="grid min-w-0 max-w-lg gap-3">
-      <p className="text-sm text-slate-300">{t("Create 36 fifteen-minute slots for a participating booth. Existing bookings are preserved.")}</p>
-      <label className="flex flex-col gap-1 text-sm text-slate-300">
+      <p className="text-sm text-(--fm-ink-soft)">{t("Create 36 fifteen-minute slots for a participating booth. Existing bookings are preserved.")}</p>
+      <label className="flex flex-col gap-1 text-sm text-(--fm-ink-soft)">
         {t("Event ID")}
         <input className={input} inputMode="numeric" value={event} onChange={(e) => setEvent(e.target.value)} />
       </label>
-      <label className="flex flex-col gap-1 text-sm text-slate-300">
+      <label className="flex flex-col gap-1 text-sm text-(--fm-ink-soft)">
         {t("Booth ID")}
         <input className={input} inputMode="numeric" value={booth} onChange={(e) => setBooth(e.target.value)} />
       </label>
-      <button type="button" className="rounded bg-indigo-600 p-2" disabled={busy} onClick={() => void prepare()}>
+      <button type="button" className="rounded bg-(--fm-red) text-white p-2" disabled={busy} onClick={() => void prepare()}>
         {t("Open Playground slots")}
       </button>
-      {notice && <p role="status" className="text-sm text-slate-100">{notice}</p>}
-      <Link className="text-sm text-cyan-300 underline" href="/staff/playground">{t("Playground arrivals and queue")} →</Link>
+      {notice && <p role="status" className="text-sm text-(--fm-ink)">{notice}</p>}
+      <Link className="text-sm text-(--fm-red) underline" href="/staff/playground">{t("Playground arrivals and queue")} →</Link>
     </div>
   );
 }

@@ -44,12 +44,12 @@ function Deliveries({ page }: { page: DeliveryPage }) {
     } catch (cause) { setFailure(cause instanceof Error ? cause.message : "Request failed"); }
   }
   return <div className="grid gap-3">
-    <p className="text-sm text-slate-300">{t(page.note)}</p>
-    <p className="text-sm text-slate-100">{Object.entries(page.summary.counts).map(([status, total]) => `${t(status)}: ${total}`).join(" · ")}</p>
-    {page.summary.due_now > 0 && <p className="text-sm text-amber-300">{t("Waiting to be sent now")}: {page.summary.due_now}</p>}
+    <p className="text-sm text-(--fm-ink-soft)">{t(page.note)}</p>
+    <p className="text-sm text-(--fm-ink)">{Object.entries(page.summary.counts).map(([status, total]) => `${t(status)}: ${total}`).join(" · ")}</p>
+    {page.summary.due_now > 0 && <p className="text-sm text-(--fm-warn)">{t("Waiting to be sent now")}: {page.summary.due_now}</p>}
     <Records data={[...page.items, ...older]} />
-    {next !== null && <button className="min-h-11 w-fit rounded-xl border border-slate-600 bg-slate-800 px-4 py-2" onClick={() => void loadOlder()}>{t("Load older")}</button>}
-    {failure && <p role="alert" className="text-amber-300">{t(failure)}</p>}
+    {next !== null && <button className="min-h-11 w-fit rounded-xl border border-(--fm-line-strong) bg-(--fm-tint) px-4 py-2" onClick={() => void loadOlder()}>{t("Load older")}</button>}
+    {failure && <p role="alert" className="text-(--fm-warn)">{t(failure)}</p>}
   </div>;
 }
 
@@ -66,8 +66,8 @@ async function request(path: string, method = "GET", body?: RecordValue): Promis
 
 function Field({ label, value, set }: { label: string; value: string; set: (value: string) => void }) {
   const { t } = useLanguage();
-  return <label className="flex flex-col gap-1 text-sm text-slate-300">{t(label)}
-    <input className="min-h-11 w-full rounded-xl border border-slate-600 bg-slate-900 p-3 text-base text-white" value={value} onChange={(event) => set(event.target.value)} />
+  return <label className="flex flex-col gap-1 text-sm text-(--fm-ink-soft)">{t(label)}
+    <input className="min-h-11 w-full rounded-xl border border-(--fm-line-strong) bg-white p-3 text-base text-(--fm-ink)" value={value} onChange={(event) => set(event.target.value)} />
   </label>;
 }
 
@@ -198,23 +198,23 @@ export default function AdminPage() {
   const pointValue = Number(points);
   const weightValue = Number(weight);
 
-  return <main id="main-content" className="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-8 text-white sm:px-6">
-    <header><p className="text-xs font-bold uppercase tracking-[0.25em] text-cyan-300">{t("AI Summit · Operations")}</p><h1 className="mt-2 text-3xl font-bold tracking-tight">{t("AI Summit admin")}</h1><p className="mt-2 text-sm text-slate-300">{t("Manage event setup and inspect activity.")}</p></header>
-    {!signedIn ? <section className="grid max-w-sm gap-3">
+  return <main id="main-content" className="fm-admin mx-auto flex max-w-5xl flex-col gap-6 px-4 py-8 text-(--fm-ink) sm:px-6">
+    <header><p className="text-xs font-bold uppercase tracking-[0.25em] text-(--fm-red)">{t("AI Summit · Operations")}</p><h1 className="mt-2 text-3xl font-bold tracking-tight">{t("AI Summit admin")}</h1><p className="mt-2 text-sm text-(--fm-ink-soft)">{t("Manage event setup and inspect activity.")}</p></header>
+    {!signedIn ? <section className="grid max-w-sm gap-3 rounded-2xl border border-(--fm-line) bg-white p-5 shadow-[0_8px_21px_#42151a10]">
       <Field label={t("Staff email" )} value={email} set={setEmail} />
-      <label className="flex flex-col gap-1 text-sm text-slate-300">{t("Password")}
-        <input type="password" autoComplete="current-password" className="min-h-11 rounded-xl border border-slate-600 bg-slate-900 p-3 text-base text-white" value={password} onChange={(event) => setPassword(event.target.value)} />
+      <label className="flex flex-col gap-1 text-sm text-(--fm-ink-soft)">{t("Password")}
+        <input type="password" autoComplete="current-password" className="min-h-11 rounded-xl border border-(--fm-line-strong) bg-white p-3 text-base text-(--fm-ink)" value={password} onChange={(event) => setPassword(event.target.value)} />
       </label>
-      <button className="min-h-11 rounded-xl bg-indigo-500 p-3 font-semibold" onClick={() => void login()}>{t("Sign in")}</button>
+      <button className="min-h-11 rounded-xl bg-(--fm-red) text-white p-3 font-semibold" onClick={() => void login()}>{t("Sign in")}</button>
     </section> : <>
       <nav className="flex flex-wrap gap-2" aria-label={t("Admin sections")}>
-        {sections.filter((item) => item !== "demo-otps" || demoOtpsAvailable).map((item) => <button key={item} aria-current={item === section ? "page" : undefined} className={`min-h-11 rounded-xl px-3 py-2 text-sm font-semibold ${item === section ? "bg-indigo-500 text-white" : "border border-slate-600 bg-slate-800 text-slate-200"}`} onClick={() => { setSection(item); setNotice(""); setError(""); }}>{t(titles[item])}</button>)}
+        {sections.filter((item) => item !== "demo-otps" || demoOtpsAvailable).map((item) => <button key={item} aria-current={item === section ? "page" : undefined} className={`min-h-11 rounded-xl px-3 py-2 text-sm font-semibold ${item === section ? "bg-(--fm-red) text-white text-(--fm-ink)" : "border border-(--fm-line-strong) bg-(--fm-tint) text-(--fm-ink)"}`} onClick={() => { setSection(item); setNotice(""); setError(""); }}>{t(titles[item])}</button>)}
       </nav>
       <div className="flex flex-wrap gap-2">
-        <button className="min-h-11 w-fit rounded-xl border border-slate-600 bg-slate-800 px-4 py-2" onClick={() => void refresh()}>{t("Refresh")}</button>
-        <Link href="/staff/password" className="inline-flex min-h-11 items-center rounded-xl border border-slate-600 bg-slate-800 px-4 py-2">{t("Change my password")}</Link>
+        <button className="min-h-11 w-fit rounded-xl border border-(--fm-line-strong) bg-(--fm-tint) px-4 py-2" onClick={() => void refresh()}>{t("Refresh")}</button>
+        <Link href="/staff/password" className="inline-flex min-h-11 items-center rounded-xl border border-(--fm-line-strong) bg-(--fm-tint) px-4 py-2">{t("Change my password")}</Link>
       </div>
-      <section className="min-w-0 rounded-2xl border border-slate-700 bg-slate-900/80 p-4" aria-label={`${section} data`}>
+      <section className="min-w-0 rounded-2xl border border-(--fm-line) bg-white p-4" aria-label={`${section} data`}>
         <h2 className="mb-4 text-xl font-semibold">{t(titles[section])}</h2>
         {section === "competition" ? <CompetitionAdmin key={`${section}-${refreshKey}`} /> : section === "connection-hub" ? <ConnectionHubAdmin key={`${section}-${refreshKey}`} /> : section === "playground" ? <PlaygroundAdmin /> : section === "masterclasses"
           ? <MasterclassAdmin key={`${section}-${refreshKey}`} />
@@ -223,90 +223,90 @@ export default function AdminPage() {
           : paged(section)
           ? <AdminList key={section} kind={section as "attendees" | "points-log"} refreshKey={refreshKey} />
           : <>
-            {(loading || (data === null && !error)) && <p role="status" className="text-sm text-slate-300">{t("Loading records…")}</p>}
+            {(loading || (data === null && !error)) && <p role="status" className="text-sm text-(--fm-ink-soft)">{t("Loading records…")}</p>}
             {!loading && data !== null && (section === "otp-deliveries" && Array.isArray((data as DeliveryPage).items)
               ? <Deliveries key={`${String((data as DeliveryPage).items[0]?.id)}-${JSON.stringify((data as DeliveryPage).summary)}`} page={data as DeliveryPage} />
               : <Records data={data} />)}
           </>}
       </section>
-      {section === "attendees" && <p className="text-sm text-slate-300">{t("Attendee records are for inspection only.")}</p>}
-      {section === "points-log" && <p className="text-sm text-slate-300">{t("The ledger itself is never edited. An award can be reversed in full, with a reason: the reversal is a new entry linked to it.")}</p>}
-      {section === "demo-otps" && <p className="text-sm text-slate-300">{t("Recent codes are visible only in demo mode to signed-in administrators.")}</p>}
-      {section !== "attendees" && section !== "competition" && section !== "masterclasses" && section !== "playground" && section !== "points-log" && section !== "audit" && section !== "otp-deliveries" && section !== "demo-otps" && <fieldset disabled={busy} className="grid max-w-lg gap-3 rounded-2xl border border-slate-700 bg-slate-900/80 p-5 disabled:opacity-60">
+      {section === "attendees" && <p className="text-sm text-(--fm-ink-soft)">{t("Attendee records are for inspection only.")}</p>}
+      {section === "points-log" && <p className="text-sm text-(--fm-ink-soft)">{t("The ledger itself is never edited. An award can be reversed in full, with a reason: the reversal is a new entry linked to it.")}</p>}
+      {section === "demo-otps" && <p className="text-sm text-(--fm-ink-soft)">{t("Recent codes are visible only in demo mode to signed-in administrators.")}</p>}
+      {section !== "attendees" && section !== "competition" && section !== "masterclasses" && section !== "playground" && section !== "points-log" && section !== "audit" && section !== "otp-deliveries" && section !== "demo-otps" && <fieldset disabled={busy} className="grid max-w-lg gap-3 rounded-2xl border border-(--fm-line) bg-white p-5 disabled:opacity-60">
         <h2 className="text-lg font-medium">{t("Manage")} {t(titles[section])}</h2>
         {section === "staff" && <>
           <Field label={t("Email" )} value={email} set={setEmail} /><Field label={t("Full name" )} value={name} set={setName} />
           <Field label={t("New password" )} value={password} set={setPassword} />
-          <label>Role <select className="bg-slate-900 p-2" value={role} onChange={(event) => setRole(event.target.value)}><option>BOOTH_STAFF</option><option>ADMIN</option></select></label>
+          <label>Role <select className="bg-white p-2" value={role} onChange={(event) => setRole(event.target.value)}><option>BOOTH_STAFF</option><option>ADMIN</option></select></label>
           <Field label={t("Booth ID (booth staff only)" )} value={boothId} set={setBoothId} />
-          <button className="rounded bg-indigo-600 p-2" onClick={() => void change("staff", "POST", { email, password, full_name: name, role, booth_id: role === "ADMIN" ? null : booth })}>{t("Create staff")}</button>
+          <button className="rounded bg-(--fm-red) text-white p-2" onClick={() => void change("staff", "POST", { email, password, full_name: name, role, booth_id: role === "ADMIN" ? null : booth })}>{t("Create staff")}</button>
           <Field label={t("Staff ID to deactivate" )} value={recordId} set={setRecordId} />
-          <button className="rounded bg-slate-700 p-2" onClick={() => void change(`staff/${id}/deactivate`, "POST")}>{t("Deactivate staff")}</button>
+          <button className="rounded bg-(--fm-red-soft) p-2" onClick={() => void change(`staff/${id}/deactivate`, "POST")}>{t("Deactivate staff")}</button>
           <Field label={t("Staff ID for the reset email" )} value={resetId} set={setResetId} />
-          <label className="flex flex-col gap-1 text-sm text-slate-300">{t("Email language")}
-            <select className="min-h-11 rounded-xl border border-slate-600 bg-slate-900 p-3 text-white" value={resetLanguage || language} onChange={(event) => setResetLanguage(event.target.value)}>
+          <label className="flex flex-col gap-1 text-sm text-(--fm-ink-soft)">{t("Email language")}
+            <select className="min-h-11 rounded-xl border border-(--fm-line-strong) bg-white p-3 text-(--fm-ink)" value={resetLanguage || language} onChange={(event) => setResetLanguage(event.target.value)}>
               <option value="az">Azərbaycan</option><option value="en">English</option><option value="ru">Русский</option>
             </select>
           </label>
-          <button className="rounded bg-slate-700 p-2" onClick={() => void sendResetEmail()}>{t("Send password reset email")}</button>
+          <button className="rounded bg-(--fm-red-soft) p-2" onClick={() => void sendResetEmail()}>{t("Send password reset email")}</button>
         </>}
         {section === "booths" && <>
           <Field label={t("Slug" )} value={slug} set={setSlug} /><Field label={t("Name" )} value={name} set={setName} />
-          <button className="rounded bg-indigo-600 p-2" onClick={() => void change("booths", "POST", { slug, name })}>{t("Create booth")}</button>
+          <button className="rounded bg-(--fm-red) text-white p-2" onClick={() => void change("booths", "POST", { slug, name })}>{t("Create booth")}</button>
           <Field label={t("Booth ID" )} value={boothId} set={setBoothId} />
-          <button className="rounded bg-slate-700 p-2" onClick={() => void change(`booths/${booth}`, "PATCH", { name })}>{t("Rename booth")}</button>
-          <button className="rounded bg-slate-700 p-2" onClick={() => void change(`booths/${booth}`, "PATCH", { is_active: false })}>{t("Deactivate booth")}</button>
+          <button className="rounded bg-(--fm-red-soft) p-2" onClick={() => void change(`booths/${booth}`, "PATCH", { name })}>{t("Rename booth")}</button>
+          <button className="rounded bg-(--fm-red-soft) p-2" onClick={() => void change(`booths/${booth}`, "PATCH", { is_active: false })}>{t("Deactivate booth")}</button>
           <Field label={t("Interest ID" )} value={interestId} set={setInterestId} /><Field label={t("Weight (0.01–1.00)" )} value={weight} set={setWeight} />
-          <button className="rounded bg-slate-700 p-2" onClick={() => void change(`booths/${booth}/weights/${interest}`, "PUT", { weight: weightValue })}>{t("Set interest weight")}</button>
-          <button className="rounded bg-slate-700 p-2" onClick={() => void change(`booths/${booth}/weights/${interest}`, "DELETE")}>{t("Remove interest weight")}</button>
+          <button className="rounded bg-(--fm-red-soft) p-2" onClick={() => void change(`booths/${booth}/weights/${interest}`, "PUT", { weight: weightValue })}>{t("Set interest weight")}</button>
+          <button className="rounded bg-(--fm-red-soft) p-2" onClick={() => void change(`booths/${booth}/weights/${interest}`, "DELETE")}>{t("Remove interest weight")}</button>
         </>}
         {section === "interests" && <>
           <Field label={t("Slug" )} value={slug} set={setSlug} /><Field label={t("Name" )} value={name} set={setName} />
-          <button className="rounded bg-indigo-600 p-2" onClick={() => void change("interests", "POST", { slug, name })}>{t("Create interest")}</button>
+          <button className="rounded bg-(--fm-red) text-white p-2" onClick={() => void change("interests", "POST", { slug, name })}>{t("Create interest")}</button>
           <Field label={t("Interest ID" )} value={interestId} set={setInterestId} />
-          <button className="rounded bg-slate-700 p-2" onClick={() => void change(`interests/${interest}`, "PATCH", { name })}>{t("Rename interest")}</button>
-          <button className="rounded bg-slate-700 p-2" onClick={() => void change(`interests/${interest}`, "PATCH", { is_active: false })}>{t("Deactivate interest")}</button>
+          <button className="rounded bg-(--fm-red-soft) p-2" onClick={() => void change(`interests/${interest}`, "PATCH", { name })}>{t("Rename interest")}</button>
+          <button className="rounded bg-(--fm-red-soft) p-2" onClick={() => void change(`interests/${interest}`, "PATCH", { is_active: false })}>{t("Deactivate interest")}</button>
         </>}
         {section === "tasks" && <>
           <Field label={t("Booth ID" )} value={boothId} set={setBoothId} /><Field label={t("Title" )} value={name} set={setName} />
           <Field label={t("Points per award (1–100)" )} value={points} set={setPoints} />
-          <label className="flex flex-col gap-1 text-sm text-slate-300">{t("Repeat policy")}
-            <select className="min-h-11 rounded-xl border border-slate-600 bg-slate-900 p-3 text-white" value={taskRepeat} onChange={(event) => setTaskRepeat(event.target.value as "inherit" | "allow" | "deny")}>
+          <label className="flex flex-col gap-1 text-sm text-(--fm-ink-soft)">{t("Repeat policy")}
+            <select className="min-h-11 rounded-xl border border-(--fm-line-strong) bg-white p-3 text-(--fm-ink)" value={taskRepeat} onChange={(event) => setTaskRepeat(event.target.value as "inherit" | "allow" | "deny")}>
               <option value="inherit">{t("Inherit from booth / event")}</option>
               <option value="allow">{t("Allow repeats")}</option>
               <option value="deny">{t("Once per attendee")}</option>
             </select>
           </label>
-          <p className="text-xs text-slate-400">{t("Staff cannot change the points: each award pays exactly this value.")}</p>
-          <button className="rounded bg-indigo-600 p-2" onClick={() => void change("tasks", "POST", { booth_id: booth, title: name, points: pointValue, allow_repeat_points: taskRepeatValue })}>{t("Create task")}</button>
+          <p className="text-xs text-(--fm-muted)">{t("Staff cannot change the points: each award pays exactly this value.")}</p>
+          <button className="rounded bg-(--fm-red) text-white p-2" onClick={() => void change("tasks", "POST", { booth_id: booth, title: name, points: pointValue, allow_repeat_points: taskRepeatValue })}>{t("Create task")}</button>
           <Field label={t("Task ID" )} value={recordId} set={setRecordId} />
-          <button className="rounded bg-slate-700 p-2" onClick={() => void change(`tasks/${id}`, "PATCH", { points: pointValue })}>{t("Set task points")}</button>
-          <button className="rounded bg-slate-700 p-2" onClick={() => void change(`tasks/${id}`, "PATCH", { allow_repeat_points: taskRepeatValue })}>{t("Set repeat policy")}</button>
-          <button className="rounded bg-slate-700 p-2" onClick={() => void change(`tasks/${id}`, "PATCH", { title: name })}>{t("Rename task")}</button>
-          <button className="rounded bg-slate-700 p-2" onClick={() => void change(`tasks/${id}`, "PATCH", { is_active: false })}>{t("Deactivate task")}</button>
+          <button className="rounded bg-(--fm-red-soft) p-2" onClick={() => void change(`tasks/${id}`, "PATCH", { points: pointValue })}>{t("Set task points")}</button>
+          <button className="rounded bg-(--fm-red-soft) p-2" onClick={() => void change(`tasks/${id}`, "PATCH", { allow_repeat_points: taskRepeatValue })}>{t("Set repeat policy")}</button>
+          <button className="rounded bg-(--fm-red-soft) p-2" onClick={() => void change(`tasks/${id}`, "PATCH", { title: name })}>{t("Rename task")}</button>
+          <button className="rounded bg-(--fm-red-soft) p-2" onClick={() => void change(`tasks/${id}`, "PATCH", { is_active: false })}>{t("Deactivate task")}</button>
         </>}
         {section === "presets" && <>
-          <div role="note" className="grid gap-1 rounded border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-200">
+          <div role="note" className="grid gap-1 rounded border border-(--fm-warn-line) bg-(--fm-warn-soft) p-3 text-sm text-(--fm-warn)">
             <p className="font-semibold">{t("Legacy — these presets no longer affect new activity points.")}</p>
             <p>{t("Awards now pay the points set on each activity (Tasks). Presets are kept as-is for history and are not used when awarding.")}</p>
           </div>
           <Field label={t("Booth ID (blank for global)" )} value={boothId} set={setBoothId} /><Field label={t("Points" )} value={points} set={setPoints} />
-          <button className="rounded bg-indigo-600 p-2" onClick={() => void change("presets", "POST", { booth_id: boothId === "" ? null : booth, points: pointValue })}>{t("Create preset")}</button>
+          <button className="rounded bg-(--fm-red) text-white p-2" onClick={() => void change("presets", "POST", { booth_id: boothId === "" ? null : booth, points: pointValue })}>{t("Create preset")}</button>
           <Field label={t("Preset ID" )} value={recordId} set={setRecordId} />
-          <button className="rounded bg-slate-700 p-2" onClick={() => void change(`presets/${id}`, "PATCH", { points: pointValue })}>{t("Change preset value")}</button>
-          <button className="rounded bg-slate-700 p-2" onClick={() => void change(`presets/${id}`, "PATCH", { is_active: false })}>{t("Deactivate preset")}</button>
+          <button className="rounded bg-(--fm-red-soft) p-2" onClick={() => void change(`presets/${id}`, "PATCH", { points: pointValue })}>{t("Change preset value")}</button>
+          <button className="rounded bg-(--fm-red-soft) p-2" onClick={() => void change(`presets/${id}`, "PATCH", { is_active: false })}>{t("Deactivate preset")}</button>
         </>}
         {section === "event-config" && <>
           <Field label={t("Feedback reward points" )} value={points} set={setPoints} />
-          <button className="rounded bg-indigo-600 p-2" onClick={() => void change("event-config", "PATCH", { feedback_points: pointValue })}>{t("Set feedback points")}</button>
+          <button className="rounded bg-(--fm-red) text-white p-2" onClick={() => void change("event-config", "PATCH", { feedback_points: pointValue })}>{t("Set feedback points")}</button>
           <Field label={t("Leaderboard top N" )} value={recordId} set={setRecordId} />
-          <button className="rounded bg-slate-700 p-2" onClick={() => void change("event-config", "PATCH", { leaderboard_top_n: id })}>{t("Set top N")}</button>
+          <button className="rounded bg-(--fm-red-soft) p-2" onClick={() => void change("event-config", "PATCH", { leaderboard_top_n: id })}>{t("Set top N")}</button>
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={repeatDefault} onChange={(event) => setRepeatDefault(event.target.checked)} />{t("Allow repeat task points by default")}</label>
-          <button className="rounded bg-slate-700 p-2" onClick={() => void change("event-config", "PATCH", { allow_repeat_task_points_default: repeatDefault })}>{t("Set repeat default")}</button>
+          <button className="rounded bg-(--fm-red-soft) p-2" onClick={() => void change("event-config", "PATCH", { allow_repeat_task_points_default: repeatDefault })}>{t("Set repeat default")}</button>
         </>}
       </fieldset>}
     </>}
-    {notice && <p role="status" className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-200">{t(notice)}</p>}
-    {error && <p role="alert" className="text-amber-300">{t(error)}</p>}
+    {notice && <p role="status" className="rounded-xl border border-(--fm-ok-line) bg-(--fm-ok-soft) p-3 text-sm text-(--fm-ok)">{t(notice)}</p>}
+    {error && <p role="alert" className="text-(--fm-warn)">{t(error)}</p>}
   </main>;
 }

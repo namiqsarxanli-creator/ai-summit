@@ -111,6 +111,7 @@ export function HomeDashboard() {
           {HUB.map((item, index) => (
             <li key={item.href} className={`fm-hub-item fm-hub-${item.look}`}>
               <Link href={item.href} className="fm-hub-link">
+                {item.look === "feature" && <span className="fm-hub-art" aria-hidden="true" />}
                 <span className="fm-hub-top" aria-hidden="true">
                   <span className="fm-hub-number">{String(index + 1).padStart(2, "0")}</span>
                   <span className="fm-hub-icon"><HomeIcon name={item.icon} /></span>

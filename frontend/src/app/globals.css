@@ -57,6 +57,12 @@
 html, body { background: #081326; }
 html:has(.fm-page), html:has(.fm-home),
 body:has(.fm-page), body:has(.fm-home) { color-scheme: light; background: var(--fm-surface); color: var(--fm-ink); }
+/* Administration console: the brand's light surfaces, red accents, the hero's face for headings. */
+body:has(.fm-admin) { color-scheme: light; background: var(--fm-red-wash); color: var(--fm-ink); }
+.fm-admin h1 { font-weight: 900; letter-spacing: -.03em; color: var(--fm-red); }
+.fm-admin h2, .fm-admin h3 { color: var(--fm-red-ink); }
+.fm-admin input, .fm-admin select, .fm-admin textarea { background: #fff; color: var(--fm-ink); }
+.fm-admin input:focus-visible, .fm-admin select:focus-visible, .fm-admin textarea:focus-visible { outline: 3px solid var(--fm-red); outline-offset: 1px; }
 button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
 button, a { touch-action: manipulation; }
 button, input, select, textarea { min-height: 44px; }
@@ -248,8 +254,8 @@ body:has(.fm-home) .fm-language-switcher { position: absolute; top: 0; left: 50%
 
 /* "Beyond Now" hub: the event posters' language - cream paper, a tilted red tag,
    tall condensed capitals, zone numbers, red-and-white checks. */
-.fm-hub-section { --hub-red: #b3141d; --hub-cream: #fbeee1; --hub-paper: #fff8f1; --hub-night: #1d1113;
-  --hub-display: "Arial Black", "Arial Bold", Arial, sans-serif;
+.fm-hub-section { --hub-red: #b3141d; --hub-cream: #fbeee1; --hub-paper: #fff8f1;
+  --hub-display: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   position: relative; padding: 22px 14px 16px; border-radius: 22px; background: var(--hub-cream); }
 .fm-hub-tag { display: inline-block; margin: 0 0 16px 4px; padding: 6px 12px 5px; transform: rotate(-2.5deg); background: var(--hub-red); color: #fff; font-family: var(--hub-display); font-size: 17px; font-weight: 900; letter-spacing: -.01em; line-height: 1; text-transform: uppercase; box-shadow: 0 6px 14px #8a0d1533; }
 .fm-hub { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 0; padding: 0; list-style: none; }
@@ -265,12 +271,14 @@ body:has(.fm-home) .fm-language-switcher { position: absolute; top: 0; left: 50%
 .fm-hub-arrow { position: absolute; right: 12px; bottom: 21px; display: grid; width: 26px; height: 26px; place-items: center; border-radius: 50%; background: var(--hub-red); color: #fff; }
 .fm-hub-arrow svg { width: 12px; height: 12px; }
 .fm-hub-checks { position: absolute; left: 0; right: 0; bottom: 0; height: 12px; background: conic-gradient(var(--hub-red) 25%, #fff 0 50%, var(--hub-red) 0 75%, #fff 0) 0 0 / 12px 12px; opacity: .9; }
-.fm-hub-feature .fm-hub-link { min-height: 168px; padding: 18px 18px 34px; border-color: #3a1517; background: radial-gradient(120% 90% at 100% 0%, #c0161f 0%, #7d0e15 38%, var(--hub-night) 78%); color: #fff; box-shadow: 0 12px 26px #4d0b1240; }
-.fm-hub-feature .fm-hub-number { color: #fff; font-size: 32px; }
-.fm-hub-feature .fm-hub-icon { background: #ffffff1f; color: #fff; }
-.fm-hub-feature .fm-hub-title { max-width: 80%; color: #fff; font-size: 28px; }
-.fm-hub-feature .fm-hub-detail { color: #f6d9d6; font-size: 14px; }
-.fm-hub-feature .fm-hub-arrow { right: 16px; bottom: 26px; width: 32px; height: 32px; background: #fff; color: var(--hub-red); }
+.fm-hub-feature .fm-hub-link { min-height: 0; padding: 0 18px 44px; border-color: #e6d3c3; background: var(--hub-paper); color: var(--fm-ink); box-shadow: 0 10px 24px #5a1a1a1a; }
+/* The poster's robot, whole: never cropped by the card or hidden under a fade. */
+.fm-hub-art { display: block; margin: 0 -18px 14px; aspect-ratio: 700 / 610; background: #ddd0c2 url('/beyond-now-robot.webp') no-repeat center / contain; border-bottom: 1px solid #e6d3c3; }
+.fm-hub-feature .fm-hub-number { color: var(--hub-red); font-size: 34px; }
+.fm-hub-feature .fm-hub-icon { display: none; }
+.fm-hub-feature .fm-hub-title { color: var(--hub-red); font-size: 28px; }
+.fm-hub-feature .fm-hub-detail { color: var(--fm-ink-soft); font-size: 14px; }
+.fm-hub-feature .fm-hub-arrow { right: 18px; bottom: 28px; width: 32px; height: 32px; background: var(--hub-red); color: #fff; }
 .fm-hub-feature .fm-hub-checks { height: 14px; background-size: 14px 14px; }
 .fm-hub-tile .fm-hub-link { container-type: inline-size; }
 .fm-hub-tile .fm-hub-title { font-size: 15px; font-size: min(19px, 11.6cqi); }

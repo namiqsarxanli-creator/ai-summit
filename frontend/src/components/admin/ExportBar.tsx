@@ -179,31 +179,31 @@ export function ExportBar({ kind, applied, pending }: { kind: ListKind; applied:
   const busy = BUSY_PHASES.has(view.phase);
   const preparing = view.phase === "preparing" ? view.which : null;
   const button = "min-h-11 rounded-xl border px-4 py-2 disabled:opacity-50";
-  const retryButton = "min-h-11 w-fit rounded-xl border border-slate-600 bg-slate-800 px-4 py-2";
-  return <section aria-label={t("Export")} className="grid gap-3 rounded-xl border border-slate-700 bg-slate-950/50 p-4">
+  const retryButton = "min-h-11 w-fit rounded-xl border border-(--fm-line-strong) bg-(--fm-tint) px-4 py-2";
+  return <section aria-label={t("Export")} className="grid gap-3 rounded-xl border border-(--fm-line) bg-(--fm-tint) p-4">
     <div className="flex flex-wrap items-center gap-3">
-      <button type="button" className={`${button} border-slate-600 bg-slate-800`} disabled={busy} onClick={() => void run("list")}>
+      <button type="button" className={`${button} border-(--fm-line-strong) bg-(--fm-tint)`} disabled={busy} onClick={() => void run("list")}>
         {preparing === "list" ? t("Preparing export…") : t("Export CSV")}
       </button>
-      {kind === "attendees" && <button type="button" className={`${button} border-amber-500/60 bg-amber-500/10 text-amber-100`} disabled={busy} onClick={() => void run("sponsor")}>
+      {kind === "attendees" && <button type="button" className={`${button} border-(--fm-warn-line) bg-(--fm-warn-soft) text-(--fm-warn)`} disabled={busy} onClick={() => void run("sponsor")}>
         {preparing === "sponsor" ? t("Preparing export…") : t("Export sponsor contacts")}
       </button>}
     </div>
-    <p className="text-xs text-slate-400">{t("Exports every record that matches the applied filters, not only this page.")}</p>
-    {pending && <p className="text-xs text-amber-300">{t("You changed the filters but did not press Search. The export uses the filters that are applied.")}</p>}
-    {kind === "attendees" && <p className="text-xs text-slate-400">{t("Sponsor contacts: only active attendees who currently agree to share their details with sponsors. Includes phone and LinkedIn. The filters do not apply.")}</p>}
+    <p className="text-xs text-(--fm-muted)">{t("Exports every record that matches the applied filters, not only this page.")}</p>
+    {pending && <p className="text-xs text-(--fm-warn)">{t("You changed the filters but did not press Search. The export uses the filters that are applied.")}</p>}
+    {kind === "attendees" && <p className="text-xs text-(--fm-muted)">{t("Sponsor contacts: only active attendees who currently agree to share their details with sponsors. Includes phone and LinkedIn. The filters do not apply.")}</p>}
 
-    {view.phase === "waiting" && <p role="status" className="text-sm text-slate-200">{`${t("Export prepared")} (${t("about")} ${view.rows} ${t("rows")}). ${t("Waiting for the download to start…")}`}</p>}
-    {view.phase === "starting" && <p role="status" className="text-sm text-slate-200">{t("The server is preparing the file…")}</p>}
-    {view.phase === "streaming" && <p role="status" className="text-sm text-slate-200">
+    {view.phase === "waiting" && <p role="status" className="text-sm text-(--fm-ink)">{`${t("Export prepared")} (${t("about")} ${view.rows} ${t("rows")}). ${t("Waiting for the download to start…")}`}</p>}
+    {view.phase === "starting" && <p role="status" className="text-sm text-(--fm-ink)">{t("The server is preparing the file…")}</p>}
+    {view.phase === "streaming" && <p role="status" className="text-sm text-(--fm-ink)">
       {view.written !== null && view.expected !== null ? `${t("The server is sending the file")}: ${view.written} ${t("of")} ${view.expected} ${t("rows")}…` : `${t("The server is sending the file")}…`}
     </p>}
-    {view.phase === "finished" && <p role="status" className="text-sm text-emerald-200">
+    {view.phase === "finished" && <p role="status" className="text-sm text-(--fm-ok)">
       {`${t("The server finished sending the file")}${view.rows === null ? "" : view.rows === 0 ? ` (${t("header row only")})` : ` (${view.rows} ${t("rows")})`}.`}{" "}
       {t("This page cannot tell whether your browser saved it. Check your downloads.")}
     </p>}
     {view.phase === "problem" && <div className="grid gap-2">
-      <p role="alert" className="text-sm text-amber-300">
+      <p role="alert" className="text-sm text-(--fm-warn)">
         {t(errorText(view.problem.code))}
         {view.problem.written != null && view.problem.expected != null ? ` (${view.problem.written} ${t("of")} ${view.problem.expected} ${t("rows")} ${t("were sent")}.)` : ""}
       </p>
