@@ -13,9 +13,9 @@
   confirmed meetings at once.
 * `connection_scans` - one direction of the mutual QR scan.
 * `connections` - both directions done: the pair is connected, the contact
-  action opens to these two only, and the kind (a top-five recommendation in either direction = MATCH,
-  otherwise OTHER) and same-company flag are FROZEN at that moment, so a later
-  profile edit never rewrites an earned score.
+  action opens to these two only, and the kind (a top-five recommendation in
+  either direction = MATCH, otherwise OTHER) and same-company flag are FROZEN at
+  that moment, so a later profile edit never rewrites an earned score.
 """
 
 from __future__ import annotations
