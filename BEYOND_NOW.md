@@ -188,6 +188,26 @@ pair-photo keys as in use. Nothing deletes a file only because
 before. Pair photo files are served like profile photos: by an unguessable URL
 given only to the pair (and, after both consents and moderation, the screen).
 
+## FACEMARK — Organiser Panel (`/staff/organiser`)
+
+One workspace for the FACEMARK team's tools on the day. It is reached by its own
+link and from the admin console (never from attendee pages or the staff page),
+and it grants nothing by itself: `GET /api/staff/organiser`
+(competition/organiser.py) admits an administrator or an account holding a live
+GAME_MASTER scope, refuses everyone else (booth staff, door and mentor
+volunteers, attendees) and tells the screen which sections this account may
+use. Every action inside a section goes to that tool's own endpoint, which
+checks its own role or scope again:
+
+| Section | Who | Reused |
+|---|---|---|
+| Overview | organiser | `/api/screen/live` (state, close, what is missing), `/api/staff/final` (late scans, latest version) |
+| Scanning | organiser; the desks follow the account's scopes | `AttendanceDesk` (door entry/exit, mentor end, offline queue) |
+| Qmeter | GAME_MASTER | `AttendanceDesk` Qmeter desk: name + phone, panel, what was checked, an explicit confirmation of the person; manual check, no Qmeter integration |
+| Points corrections | ADMIN | the ledger list and `PointsReversal` (reason, confirmation screen, append-only REVERSAL, audit) |
+| Final results | ADMIN or GAME_MASTER | `FinalReview` (draft, review, publish; safeguards unchanged; Founder stays gated) |
+| Venue screens | organiser | links to `/screen/live`, `/screen/final`, `/screen/photos`; panel QR codes for administrators |
+
 ## External gates not passed by this work
 
 Real-device tests (iOS Safari, Android Chrome: camera, keyboard, safe areas,

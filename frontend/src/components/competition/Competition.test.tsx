@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AttendanceDesk } from "./AttendanceDesk";
@@ -129,8 +129,64 @@ describe("AttendanceDesk", () => {
     fireEvent.click(screen.getByRole("button", { name: "Find the attendee" }));
     expect(await screen.findByText("Aysel Məmmədova · •••2233")).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("What you checked in Qmeter"), { target: { value: "Question 14" } });
+    // Nothing is recorded until the Game Master confirms the person explicitly.
+    expect(screen.getByRole("button", { name: "Record the question" })).toBeDisabled();
+    fireEvent.click(screen.getByLabelText("I confirm this is the person who asked the question in Qmeter."));
     fireEvent.click(screen.getByRole("button", { name: "Record the question" }));
     await waitFor(() => expect(writes).toHaveLength(2));
     expect(writes[1]).toEqual({ url: "/api/staff/qmeter/award", body: { user_id: 4, panel_id: 1, reason: "Question 14" } });
+  });
+
+  it("forgets the found person and the confirmation when the name or phone changes", async () => {
+    desk({
+      scopes: [{ scope: "GAME_MASTER", target_id: null }],
+      write: () => json(200, { user_id: 4, name: "Aysel Məmmədova", phone: "•••2233" }),
+    });
+    render(<AttendanceDesk />);
+    await screen.findByRole("region", { name: "Qmeter questions" });
+    fireEvent.change(screen.getByLabelText("Full name"), { target: { value: "Aysel Məmmədova" } });
+    fireEvent.change(screen.getByLabelText("Phone"), { target: { value: "+994 50 111 22 33" } });
+    fireEvent.click(screen.getByRole("button", { name: "Find the attendee" }));
+    fireEvent.click(await screen.findByLabelText("I confirm this is the person who asked the question in Qmeter."));
+    fireEvent.change(screen.getByLabelText("Phone"), { target: { value: "+994 55 000 00 00" } });
+    expect(screen.queryByRole("button", { name: "Record the question" })).toBeNull();
+    expect(screen.queryByText("Aysel Məmmədova · •••2233")).toBeNull();
+  });
+
+  it("drops a late identify answer once the name or phone has changed (independent audit 2026-10-19)", async () => {
+    let resolve!: (response: Response) => void;
+    const pending = new Promise<Response>((r) => { resolve = r; });
+    const writes: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        writes.push(url);
+        return url.endsWith("/identify") ? pending : json(200, { outcome: "awarded", points: 2 });
+      }
+      if (url === "/api/staff/me") return json(200, { full_name: "GM", role: "VOLUNTEER", booth_name: null });
+      if (url === "/api/staff/me/scopes") return json(200, { scopes: [{ scope: "GAME_MASTER", target_id: null }] });
+      if (url === "/api/panels") return json(200, PANELS);
+      if (url === "/api/masterclasses") return json(200, { server_time: "x", events: [] });
+      return json(200, { sessions: [] });
+    }));
+    render(<AttendanceDesk jobs="qmeter" />);
+    const name = await screen.findByLabelText("Full name");
+    fireEvent.change(name, { target: { value: "Old Guest" } });
+    fireEvent.change(screen.getByLabelText("Phone"), { target: { value: "+994500000001" } });
+    fireEvent.click(screen.getByRole("button", { name: "Find the attendee" }));
+    fireEvent.change(name, { target: { value: "New Guest" } });
+    fireEvent.change(screen.getByLabelText("Phone"), { target: { value: "+994500000002" } });
+    await act(async () => resolve(json(200, { user_id: 21, name: "Old Guest", phone: "•••0001" })));
+    expect(screen.queryByText(/Old Guest ·/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Record the question" })).toBeNull();
+    expect(writes).toEqual(["/api/staff/qmeter/identify"]); // nothing was awarded
+  });
+
+  it("shows only the Qmeter desk, or only the scanning desks, when asked to", async () => {
+    desk({ scopes: [{ scope: "GAME_MASTER", target_id: null }], write: () => json(200, {}) });
+    const { unmount } = render(<AttendanceDesk jobs="scans" />);
+    expect(await screen.findByText("No scanning job is assigned to this account. Ask an administrator.")).toBeInTheDocument();
+    unmount();
+    render(<AttendanceDesk jobs="qmeter" />);
+    expect(await screen.findByRole("region", { name: "Qmeter questions" })).toBeInTheDocument();
   });
 });

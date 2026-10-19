@@ -285,6 +285,8 @@ def test_staff_registration_endpoint_does_not_exist() -> None:
         # Verified participation (migration 0020): scopes are granted by an
         # administrator; none of these creates or changes an account.
         "/api/staff/me/scopes",
+        # The FACEMARK organiser workspace: a read of what this account may do.
+        "/api/staff/organiser",
         "/api/staff/masterclasses/{masterclass_id}/door",
         "/api/staff/playground/slots/{slot_id}/complete",
         "/api/staff/qmeter/identify",

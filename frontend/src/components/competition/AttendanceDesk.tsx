@@ -44,7 +44,11 @@ type State = { kind: "loading" } | { kind: "error"; text: string } | { kind: "ok
 // (booth staff), Qmeter questions (GAME_MASTER), the end of a mentor group
 // (MENTOR_HOST). The list of jobs comes from the
 // server; each scan is re-checked there (a revoked scope fails at once).
-export function AttendanceDesk() {
+// `jobs` lets the organiser panel show the scanning jobs and Qmeter in separate
+// sections; it only hides desks, it never adds one the scopes do not allow.
+export type DeskJobs = "all" | "scans" | "qmeter";
+
+export function AttendanceDesk({ jobs = "all" }: { jobs?: DeskJobs }) {
   const { t } = useLanguage();
   const [state, setState] = useState<State>({ kind: "loading" });
 
@@ -82,18 +86,21 @@ export function AttendanceDesk() {
   if (state.kind === "loading") return <p role="status" className="fm-note">{t("Checking your session…")}</p>;
   if (state.kind === "error") return <p role="alert" className="fm-alert fm-alert-warn">{t(state.text)}</p>;
   const { data } = state;
-  const doors = data.scopes.filter((s) => s.scope === "MASTERCLASS_DOOR" && s.target_id !== null);
-  const gameMaster = data.scopes.some((s) => s.scope === "GAME_MASTER");
-  const booth = data.me.role === "BOOTH_STAFF" && data.slots !== null;
-  const hosts = data.scopes.some((s) => s.scope === "MENTOR_HOST") && (data.mentor?.sessions.length ?? 0) > 0;
+  const scans = jobs !== "qmeter";
+  const doors = scans ? data.scopes.filter((s) => s.scope === "MASTERCLASS_DOOR" && s.target_id !== null) : [];
+  const gameMaster = jobs !== "scans" && data.scopes.some((s) => s.scope === "GAME_MASTER");
+  const booth = scans && data.me.role === "BOOTH_STAFF" && data.slots !== null;
+  const hosts = scans && data.scopes.some((s) => s.scope === "MENTOR_HOST") && (data.mentor?.sessions.length ?? 0) > 0;
   if (!doors.length && !gameMaster && !booth && !hosts) {
-    return <p className="fm-alert fm-alert-info">{t("No scanning job is assigned to this account. Ask an administrator.")}</p>;
+    return <p className="fm-alert fm-alert-info">{t(jobs === "qmeter"
+      ? "Qmeter needs the Game Master scope. Ask an administrator."
+      : "No scanning job is assigned to this account. Ask an administrator.")}</p>;
   }
   // Queued scans are filed under this account and this dataset (lib/offlineQueue.ts).
   const owner: Owner = { queue_owner: data.me.queue_owner, dataset_generation: data.me.dataset_generation, name: data.me.full_name };
   return (
     <div className="fm-stack-lg">
-      <OfflineQueuePanel owner={owner} />
+      {scans && <OfflineQueuePanel owner={owner} />}
       {doors.length > 0 && <DoorDesk doors={doors.map((d) => d.target_id as number)} programme={data.programme} owner={owner} />}
       {booth && data.slots && <PlaygroundDesk slots={data.slots} owner={owner} />}
       {gameMaster && <QmeterDesk panels={data.panels} />}
@@ -262,12 +269,23 @@ function QmeterDesk({ panels }: { panels: PublicPanel[] }) {
   const { t, language } = useLanguage();
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
-  const [found, setFound] = useState<Identified | null>(null);
+  // The person found, with the exact name and phone that were searched for.
+  const [found, setFound] = useState<(Identified & { query: string }) | null>(null);
+  // Every lookup takes a number; changing the name or phone takes a new one, so
+  // an answer that arrives late - for what was typed BEFORE - is dropped.
+  const lookup = useRef(0);
   const [panel, setPanel] = useState(String(panels[0]?.id ?? ""));
   const [reason, setReason] = useState("");
+  // The Game Master confirms, explicitly, that the person found is the one who
+  // asked; changing the name or phone forgets the person and the confirmation.
+  const [confirmed, setConfirmed] = useState(false);
   const [notice, setNotice] = useState<Notice>(null);
   const { busy, once } = useOneAtATime();
   const fail = (r: Extract<ApiResult<unknown>, { ok: false }>) => setNotice({ tone: "warn", text: scanFailure(r, messageFor) });
+  const query = `${name.trim()}\n${phone.trim()}`;
+  const forget = () => { lookup.current += 1; setFound(null); setConfirmed(false); };
+  // Only a person found for what the fields say NOW can be confirmed or paid.
+  const current = found !== null && found.query === query ? found : null;
   return (
     <section className="fm-card fm-section" aria-labelledby="desk-qmeter">
       <h2 id="desk-qmeter" className="fm-h3">{t("Qmeter questions")}</h2>
@@ -275,25 +293,30 @@ function QmeterDesk({ panels }: { panels: PublicPanel[] }) {
       <form className="fm-stack" onSubmit={(e) => {
         e.preventDefault();
         void once(async () => {
-          setFound(null);
+          forget();
+          const mine = lookup.current;
+          const asked = query;
           const r = await identifyAttendee(name, phone);
-          if (r.ok) { setFound(r.data); setNotice(null); } else fail(r);
+          if (mine !== lookup.current) return; // the fields changed meanwhile
+          if (r.ok) { setFound({ ...r.data, query: asked }); setNotice(null); } else fail(r);
         });
       }}>
-        <label className="fm-field"><span className="fm-label">{t("Full name")}</span><input className="fm-input" value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" /></label>
-        <label className="fm-field"><span className="fm-label">{t("Phone")}</span><input className="fm-input" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} autoComplete="off" /></label>
+        <label className="fm-field"><span className="fm-label">{t("Full name")}</span><input className="fm-input" value={name} onChange={(e) => { setName(e.target.value); forget(); }} autoComplete="off" /></label>
+        <label className="fm-field"><span className="fm-label">{t("Phone")}</span><input className="fm-input" inputMode="tel" value={phone} onChange={(e) => { setPhone(e.target.value); forget(); }} autoComplete="off" /></label>
         <button type="submit" disabled={busy || name.trim().length < 2 || phone.trim().length < 7} className="fm-btn fm-btn-secondary fm-btn-block">{t("Find the attendee")}</button>
       </form>
-      {found && (
+      {current && (
         <form className="fm-stack" onSubmit={(e) => {
           e.preventDefault();
+          if (!confirmed || current.query !== query) return;
+          const person = current;
           void once(async () => {
-            const r = await awardQmeter(found.user_id, Number(panel), reason.trim());
-            if (r.ok) setNotice({ tone: r.data.points > 0 ? "ok" : "warn", text: `${found.name} · ${t(OUTCOME_TEXT[r.data.outcome])}` });
+            const r = await awardQmeter(person.user_id, Number(panel), reason.trim());
+            if (r.ok) setNotice({ tone: r.data.points > 0 ? "ok" : "warn", text: `${person.name} · ${t(OUTCOME_TEXT[r.data.outcome])}` });
             else fail(r);
           });
         }}>
-          <p className="fm-alert fm-alert-info">{found.name} · {found.phone}</p>
+          <p className="fm-alert fm-alert-info">{current.name} · {current.phone}</p>
           <label className="fm-field">
             <span className="fm-label">{t("Panel")}</span>
             <select className="fm-input" value={panel} onChange={(e) => setPanel(e.target.value)}>
@@ -301,7 +324,11 @@ function QmeterDesk({ panels }: { panels: PublicPanel[] }) {
             </select>
           </label>
           <label className="fm-field"><span className="fm-label">{t("What you checked in Qmeter")}</span><input className="fm-input" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={300} /></label>
-          <button type="submit" disabled={busy || reason.trim().length < 3 || !panel} className="fm-btn fm-btn-primary fm-btn-block">{t("Record the question")}</button>
+          <label className="fm-remember">
+            <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
+            <span>{t("I confirm this is the person who asked the question in Qmeter.")}</span>
+          </label>
+          <button type="submit" disabled={busy || !confirmed || reason.trim().length < 3 || !panel} className="fm-btn fm-btn-primary fm-btn-block">{t("Record the question")}</button>
         </form>
       )}
       <NoticeLine notice={notice} />

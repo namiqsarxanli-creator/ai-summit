@@ -12,6 +12,7 @@ import { mentorTranslations } from "./i18n-mentors";
 import { peopleTranslations } from "./i18n-people";
 import { playgroundTranslations } from "./i18n-playground";
 import { masterclassTranslations } from "./i18n-masterclass";
+import { organiserTranslations } from "./i18n-organiser";
 
 export type Language = "az" | "en" | "ru";
 
@@ -108,6 +109,7 @@ const translations: Record<string, { az: string; ru: string }> = {
   ...peopleTranslations,
   ...masterclassTranslations,
   ...playgroundTranslations,
+  ...organiserTranslations,
 };
 
 // Whether a UI text has an entry (Azerbaijani and Russian) - for tests that guard

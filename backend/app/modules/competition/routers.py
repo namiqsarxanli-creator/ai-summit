@@ -7,6 +7,8 @@ Attendee (the session's own person; no request names anyone):
 
 Staff (each checked against a server-owned scope or booth INSIDE the fence):
 * GET  /api/staff/me/scopes
+* GET  /api/staff/organiser                 - the FACEMARK organiser workspace:
+                                              administrator or GAME_MASTER only
 * POST /api/staff/masterclasses/{id}/door    - MASTERCLASS_DOOR volunteer
 * POST /api/staff/playground/slots/{id}/complete - that booth's staff
 * POST /api/staff/qmeter/identify            - GAME_MASTER
@@ -39,7 +41,7 @@ from app.modules.admin.routers import _read
 from app.modules.admin.service import AdminInvalid, AdminResult, required
 from app.modules.attendees.models import User
 from app.modules.attendees.profile import lock_attendee
-from app.modules.competition import attendance, panels
+from app.modules.competition import attendance, organiser, panels
 from app.modules.competition.models import SCOPES, Panel, StaffScope
 from app.modules.competition.rules import CATEGORIES
 from app.modules.masterclasses.models import Masterclass, MasterclassEvent
@@ -189,6 +191,12 @@ def my_scopes(staff: CurrentStaff, db: DbSession, response: Response) -> dict[st
         )
     ).all()
     return {"scopes": [{"scope": s, "target_id": t} for s, t in rows]}
+
+
+@router.get("/staff/organiser")
+def organiser_workspace(staff: CurrentStaff, db: DbSession, response: Response) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "no-store"
+    return organiser.workspace(db, staff)
 
 
 @router.post("/staff/masterclasses/{masterclass_id}/door")

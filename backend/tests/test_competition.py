@@ -985,3 +985,90 @@ def test_readiness_accepts_a_complete_programme_without_writing(comp: Comp) -> N
         checks = check(db)
     assert ready(checks), [(c.key, c.detail) for c in checks if c.status == "missing"]
     assert _row_counts(comp) == before
+
+
+# --- the FACEMARK organiser workspace -----------------------------------------------------
+
+ORGANISER = "/api/staff/organiser"
+
+
+def _workspace(c: TestClient) -> httpx.Response:
+    return cast(httpx.Response, c.get(ORGANISER))
+
+
+def test_only_administrators_and_game_masters_open_the_organiser_workspace(comp: Comp) -> None:
+    anonymous = TestClient(app)
+    assert _workspace(anonymous).status_code == 401
+    (uid,) = comp.users(1)
+    attendee = comp.client(uid)
+    assert _workspace(attendee).status_code in (401, 403)
+    assert "sections" not in _workspace(attendee).text
+    _, booth_staff = comp.rig.booth_with_staff()
+    assert _workspace(comp.staff_client(booth_staff)).json()["error"]["code"] == (
+        "STAFF_NOT_AUTHORIZED"
+    )
+    mc = comp.masterclass(comp.b1, capacity=5)
+    door_volunteer = comp.volunteer("MASTERCLASS_DOOR", mc)
+    assert _workspace(door_volunteer).status_code == 403
+
+    gm = comp.volunteer("GAME_MASTER", None)
+    body = _workspace(gm).json()
+    assert body["title"] == "FACEMARK — Organiser Panel" and body["game_master"] is True
+    assert body["sections"] == {
+        "overview": True,
+        "scanning": True,
+        "qmeter": True,
+        "corrections": False,  # reversals stay administrator-only
+        "final": True,
+        "screens": True,
+    }
+    assert body["panel_codes"] is False
+    assert _workspace(gm).headers["cache-control"] == "no-store"
+
+    admin = comp.staff_client(comp.rig.staff_id(StaffRole.ADMIN))
+    sections = _workspace(admin).json()["sections"]
+    assert sections["corrections"] is True and sections["final"] is True
+    assert sections["qmeter"] is False  # Qmeter needs the Game Master scope itself
+    assert _workspace(admin).json()["panel_codes"] is True
+
+
+def test_the_workspace_grants_nothing_each_tool_keeps_its_own_check(comp: Comp) -> None:
+    gm = comp.volunteer("GAME_MASTER", None)
+    assert _workspace(gm).status_code == 200
+    (uid,) = comp.users(1)
+    entry = int(
+        comp.rig.scalar(
+            "INSERT INTO points_log (user_id, source, points, entered_by_system, dedupe_key) "
+            "VALUES (:u, 'PROFILE', 5, true, :k) RETURNING id",
+            u=uid,
+            k=f"COMP:PROFILE:{uid}:profile",
+        )
+    )
+    # A Game Master in the workspace still cannot reverse points (administrators only).
+    refused = gm.post(
+        f"/api/admin/points-log/{entry}/reverse",
+        json={"reason": "Wrong person", "idempotency_key": str(uuid4())},
+    )
+    assert refused.status_code in (401, 403)
+    assert int(comp.rig.scalar("SELECT count(*) FROM points_log WHERE user_id = :u", u=uid)) == 1
+    # An administrator without the Game Master scope cannot record Qmeter.
+    admin = comp.staff_client(comp.rig.staff_id(StaffRole.ADMIN))
+    q = admin.post(
+        "/api/staff/qmeter/identify", json={"full_name": "Guest N1", "phone": "+10000000"}
+    )
+    assert q.status_code == 403
+
+
+def test_a_revoked_game_master_scope_or_account_closes_the_workspace_at_once(comp: Comp) -> None:
+    gm = comp.volunteer("GAME_MASTER", None)
+    assert _workspace(gm).status_code == 200
+    comp.rig.sql("UPDATE staff_scopes SET revoked_at = now() WHERE scope = 'GAME_MASTER'")
+    assert _workspace(gm).status_code == 403
+    other = comp.volunteer("GAME_MASTER", None)
+    assert _workspace(other).status_code == 200
+    comp.rig.sql(
+        "UPDATE staff_accounts SET is_active = false WHERE id IN "
+        "(SELECT staff_account_id FROM staff_scopes WHERE revoked_at IS NULL "
+        "AND scope = 'GAME_MASTER')"
+    )
+    assert _workspace(other).status_code in (401, 403)

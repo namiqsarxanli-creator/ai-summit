@@ -90,6 +90,18 @@ html { scroll-padding-bottom: calc(var(--fm-tabbar-h) + env(safe-area-inset-bott
 /* The venue's big screen (/screen/live): phone width on a phone, a wide two-column
    board on a screen. The countdown is the largest thing on it. */
 .fm-page.fm-screen-wide { max-width: 1600px; }
+/* The FACEMARK organiser panel: phone width on a phone, room for the ledger and
+   the review on a laptop. Its section bar scrolls sideways on a phone. */
+.fm-page.fm-organiser { max-width: 1040px; }
+.fm-org-nav { display: flex; gap: 8px; margin-inline: calc(-1 * var(--fm-gutter)); padding: 0 var(--fm-gutter) 4px; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; }
+.fm-org-nav::-webkit-scrollbar { display: none; }
+.fm-org-tab { flex: none; min-height: var(--fm-tap); padding: 0 16px; border: 1px solid var(--fm-line-strong); border-radius: 999px; background: var(--fm-surface); color: var(--fm-red-ink); font-size: 14px; font-weight: 700; white-space: nowrap; scroll-snap-align: start; cursor: pointer; }
+.fm-org-tab.is-current { border-color: var(--fm-red); background: var(--fm-red); color: #fff; }
+.fm-org-tab:focus-visible { outline: 3px solid var(--fm-red-soft); outline-offset: 2px; }
+@media (min-width: 768px) { .fm-org-nav { flex-wrap: wrap; margin-inline: 0; padding-inline: 0; overflow: visible; } }
+.fm-org-rules { display: grid; gap: 4px; padding-left: 20px; list-style: disc; }
+.fm-muted { color: var(--fm-muted); }
+button.fm-link { min-height: var(--fm-tap); padding: 0; border: 0; background: none; cursor: pointer; }
 .fm-live { display: grid; gap: var(--fm-gap); grid-template-columns: minmax(0, 1fr); }
 .fm-live-clock { display: flex; flex-direction: column; gap: 4px; padding: 18px; border-radius: var(--fm-radius); background: var(--fm-red); color: #fff; }
 .fm-live-clock .fm-eyebrow, .fm-live-clock .fm-strong { color: #fff; }

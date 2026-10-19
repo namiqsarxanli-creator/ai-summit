@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { messageFor } from "@/lib/errors";
 
-import { StaffLoginForm } from "./StaffLoginForm";
+import { StaffLoginForm, returnPath } from "./StaffLoginForm";
 
 const push = vi.hoisted(() => vi.fn());
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
@@ -41,6 +41,23 @@ async function submit(email: string, password: string) {
 }
 
 describe("StaffLoginForm", () => {
+  it("returns to the organiser panel the sign-in was opened from", async () => {
+    window.history.pushState({}, "", "/staff/login?next=/staff/organiser");
+    try {
+      await submit("organiser@example.com", "hunter2");
+      await waitFor(() => expect(push).toHaveBeenCalledWith("/staff/organiser"));
+    } finally {
+      window.history.pushState({}, "", "/");
+    }
+  });
+
+  it("never returns to another site or an unknown path: the staff page instead", async () => {
+    for (const next of ["https://evil.example/", "//evil.example", "/admin", "/staff/organiser/../../x", "javascript:alert(1)"]) {
+      expect(returnPath(`?next=${encodeURIComponent(next)}`)).toBe("/staff");
+    }
+    expect(returnPath("")).toBe("/staff");
+    expect(returnPath("?next=/staff/final")).toBe("/staff/final");
+  });
   it("links to the password reset page", () => {
     render(<StaffLoginForm />);
     expect(screen.getByRole("link", { name: "Forgot your password?" })).toHaveAttribute("href", "/staff/reset");

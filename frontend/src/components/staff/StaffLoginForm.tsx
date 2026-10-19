@@ -11,6 +11,16 @@ import { staffLogin } from "@/lib/staff";
 
 const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+// Where a sign-in may return to (`?next=`): staff pages of this site only, named
+// exactly - never a full URL, another site or an arbitrary path. Anything else,
+// or nothing, goes to the staff page as before.
+const RETURN_TO = new Set(["/staff/organiser", "/staff/attendance", "/staff/final", "/staff/playground", "/staff/scan", "/staff/booth-report"]);
+
+export function returnPath(search: string): string {
+  const next = new URLSearchParams(search).get("next");
+  return next !== null && RETURN_TO.has(next) ? next : "/staff";
+}
+
 // §12.1: email + password. No self-registration link anywhere on this
 // form — staff accounts are seed/admin-created only (§12.1), and there
 // is nowhere in the API surface this page could point to even if it
@@ -42,7 +52,7 @@ export function StaffLoginForm() {
     const result = await staffLogin(email.trim(), password);
     setBusy(false);
     if (result.ok) {
-      router.push("/staff");
+      router.push(returnPath(window.location.search));
       return;
     }
     // §12.1: one message regardless of cause — this form never guesses
