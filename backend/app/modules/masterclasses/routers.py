@@ -174,6 +174,32 @@ def admin_reservations(
     return mc_admin.reservation_rows(db, masterclass_id)
 
 
+def _skeleton(tx: Session, actor: Any) -> admin.AdminResult:
+    """The confirmed frame of the programme (masterclasses/skeleton.py): the event
+    on its date in Asia/Baku, its two blocks and five rooms - never a masterclass,
+    a speaker or a close. Adds only what is missing; re-running changes nothing."""
+    from sqlalchemy import select
+
+    from app.modules.masterclasses.models import MasterclassEvent
+    from app.modules.masterclasses.skeleton import EVENT_CODE, create_program_skeleton
+
+    codes = set(tx.execute(select(MasterclassEvent.code)).scalars())
+    if codes and EVENT_CODE not in codes:  # never a second event beside one entered by hand
+        raise admin.AdminConflict("An event already exists; edit it instead.")
+    report = create_program_skeleton(tx)
+    after = {
+        "event_created": report.event_created,
+        "blocks_created": report.blocks_created,
+        "rooms_created": report.rooms_created,
+    }
+    return "masterclass.skeleton", "masterclass_event", None, after, after
+
+
+@admin_router.post("/masterclass-skeleton")
+def create_skeleton(token: SessionToken, db: DbSession) -> dict[str, Any]:
+    return _admin_write(db, token, _skeleton)
+
+
 @admin_router.post("/masterclass-events", status_code=201)
 def create_event(payload: EventWrite, token: SessionToken, db: DbSession) -> dict[str, Any]:
     return _admin_write(db, token, lambda tx, actor: mc_admin.create_event(tx, actor, payload))

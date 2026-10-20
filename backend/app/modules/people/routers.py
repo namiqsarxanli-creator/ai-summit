@@ -8,7 +8,7 @@ the same answer). Mutations are fenced and rate-limited.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Path, Response
 from pydantic import BaseModel, ConfigDict, Field
@@ -24,7 +24,7 @@ from app.modules.admin.service import AdminResult, required
 from app.modules.attendees.models import User
 from app.modules.attendees.profile import lock_attendee
 from app.modules.masterclasses.models import MasterclassEvent
-from app.modules.people import connections, meetings
+from app.modules.people import connections, meetings, reconcile
 from app.modules.people.compatibility import suggestions
 from app.modules.people.models import MatchTable
 from app.modules.points.service import maintenance_fast_path_check
@@ -212,3 +212,47 @@ def edit_table(
     table_id: RowId, payload: TableEdit, token: SessionToken, db: DbSession
 ) -> dict[str, Any]:
     return _admin_write(db, token, lambda tx, actor: _edit_table(tx, actor, table_id, payload))
+
+
+# --- unpaid connections: an administrator's review (people/reconcile.py) ------------------
+
+
+class ReconcileItem(Strict):
+    connection_id: int = Field(ge=1, le=2**53)
+    user_id: int = Field(ge=1, le=2**53)
+
+
+class ReconcileRequest(Strict):
+    items: list[ReconcileItem] = Field(min_length=1, max_length=100)
+    reason: str = Field(min_length=3, max_length=300)
+    confirm: Literal[True]  # an explicit confirmation, never a default
+
+
+@admin_router.get("/connections/unpaid")
+def unpaid_connections(
+    admin_user: CurrentAdmin, db: DbSession, response: Response
+) -> dict[str, Any]:
+    """READ-ONLY: every unpaid side of a connection and why."""
+    _read(admin_user)
+    response.headers["Cache-Control"] = "no-store"
+    return reconcile.review(db)
+
+
+def _reconcile(tx: Any, actor: StaffAccount, payload: ReconcileRequest) -> AdminResult:
+    selected = list(dict.fromkeys((i.connection_id, i.user_id) for i in payload.items))
+    result = reconcile.apply(tx, actor, selected, payload.reason.strip())
+    applied = sum(1 for r in result["results"] if r["result"] == "awarded")
+    return (
+        "connection.reconcile_batch",
+        "connection",
+        {"selected": len(selected)},
+        {"applied": applied, "reason": payload.reason.strip()},
+        result,
+    )
+
+
+@admin_router.post("/connections/reconcile")
+def reconcile_connections(
+    payload: ReconcileRequest, token: SessionToken, db: DbSession
+) -> dict[str, Any]:
+    return _admin_write(db, token, lambda tx, actor: _reconcile(tx, actor, payload))

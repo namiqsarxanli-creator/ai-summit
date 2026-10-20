@@ -51,6 +51,8 @@ function server(workspace: () => Response) {
     if (url === "/api/staff/me/scopes") return json(200, { scopes: [{ scope: "GAME_MASTER", target_id: null }] });
     if (url === "/api/masterclasses") return json(200, { server_time: "x", events: [] });
     if (url.startsWith("/api/admin/points-log")) return json(200, { items: [], next_cursor: null, limit: 50 });
+    if (url.startsWith("/api/admin/connections/unpaid")) return json(200, { items: [], counts: {}, applicable: "eligible" });
+    if (url === "/api/admin/readiness") return json(200, { ready: false, checks: [{ key: "competition_close", status: "missing", detail: "NOT SET - nothing can be earned" }] });
     return json(200, { timezone: "Asia/Baku", sessions: [] });
   }));
   return calls;
@@ -63,7 +65,7 @@ describe("OrganiserPanel", () => {
     server(() => failure(401, "UNAUTHENTICATED"));
     render(<OrganiserPanel />);
     expect(screen.getByRole("status")).toHaveTextContent("Checking your session…");
-    expect(await screen.findByRole("link", { name: "Staff sign in" })).toHaveAttribute("href", "/staff/login?next=/staff/organiser");
+    expect(await screen.findByRole("link", { name: "FACEMARK sign in" })).toHaveAttribute("href", "/facemark/login");
     expect(screen.queryByRole("navigation")).toBeNull();
   });
 

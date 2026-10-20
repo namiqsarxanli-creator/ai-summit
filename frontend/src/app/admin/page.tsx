@@ -74,6 +74,11 @@ function Field({ label, value, set }: { label: string; value: string; set: (valu
 export default function AdminPage() {
   const { t, language } = useLanguage();
   const [section, setSection] = useState<Section>("attendees");
+  // A link (e.g. from the FACEMARK overview) may name the section to open.
+  useEffect(() => {
+    const asked = new URLSearchParams(window.location.search).get("section");
+    if (asked && (sections as string[]).includes(asked)) void Promise.resolve().then(() => setSection(asked as Section));
+  }, []);
   // What a plain section loaded, tagged with the section it belongs to, so
   // records of one section can never be shown under another's heading.
   const [loaded, setLoaded] = useState<{ section: Section; value: unknown } | null>(null);
@@ -212,7 +217,7 @@ export default function AdminPage() {
       </nav>
       <div className="flex flex-wrap gap-2">
         <button className="min-h-11 w-fit rounded-xl border border-(--fm-line-strong) bg-(--fm-tint) px-4 py-2" onClick={() => void refresh()}>{t("Refresh")}</button>
-        <Link href="/staff/organiser" className="inline-flex min-h-11 items-center rounded-xl bg-(--fm-red) px-4 py-2 font-semibold text-white">{t("FACEMARK — Organiser Panel")}</Link>
+        <Link href="/facemark" className="inline-flex min-h-11 items-center rounded-xl bg-(--fm-red) px-4 py-2 font-semibold text-white">{t("FACEMARK — Organiser Panel")}</Link>
         <Link href="/staff/password" className="inline-flex min-h-11 items-center rounded-xl border border-(--fm-line-strong) bg-(--fm-tint) px-4 py-2">{t("Change my password")}</Link>
       </div>
       <section className="min-w-0 rounded-2xl border border-(--fm-line) bg-white p-4" aria-label={`${section} data`}>

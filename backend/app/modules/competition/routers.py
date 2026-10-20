@@ -397,6 +397,21 @@ def _eligibility(
     return AUDIT_ELIGIBILITY, "user", before, after, after
 
 
+@admin_router.get("/readiness")
+def readiness_report(admin_user: CurrentAdmin, db: DbSession, response: Response) -> dict[str, Any]:
+    """READ-ONLY: the event-readiness checklist of `competition-report`
+    (competition/readiness.py) - counts, times and row ids, no personal data."""
+    from app.modules.competition.readiness import check, ready
+
+    _read(admin_user)
+    response.headers["Cache-Control"] = "no-store"
+    checks = check(db)
+    return {
+        "ready": ready(checks),
+        "checks": [{"key": c.key, "status": c.status, "detail": c.detail} for c in checks],
+    }
+
+
 @admin_router.get("/panels")
 def list_panels(admin_user: CurrentAdmin, db: DbSession) -> list[dict[str, Any]]:
     _read(admin_user)

@@ -188,8 +188,10 @@ pair-photo keys as in use. Nothing deletes a file only because
 before. Pair photo files are served like profile photos: by an unguessable URL
 given only to the pair (and, after both consents and moderation, the screen).
 
-## FACEMARK — Organiser Panel (`/staff/organiser`)
+## FACEMARK — Organiser Panel (`/facemark`)
 
+A section of its own beside `/admin` and `/staff`, with its own sign-in
+(`/facemark/login`, the staff accounts; `/staff/organiser` redirects here).
 One workspace for the FACEMARK team's tools on the day. It is reached by its own
 link and from the admin console (never from attendee pages or the staff page),
 and it grants nothing by itself: `GET /api/staff/organiser`
@@ -207,6 +209,37 @@ checks its own role or scope again:
 | Points corrections | ADMIN | the ledger list and `PointsReversal` (reason, confirmation screen, append-only REVERSAL, audit) |
 | Final results | ADMIN or GAME_MASTER | `FinalReview` (draft, review, publish; safeguards unchanged; Founder stays gated) |
 | Venue screens | organiser | links to `/screen/live`, `/screen/final`, `/screen/photos`; panel QR codes for administrators |
+
+## Honest statuses and connection points (20 October 2026)
+
+* **One public status.** `GET /api/final` and `GET /api/screen/live` take the same
+  decision (`competition/final.py` `public`, `missing_configuration`):
+  `not_configured` (no event or no close - nothing can be earned yet, never
+  called "closed"), `disabled` (configured, ranking switched off), `open`,
+  `pending_review` (the screen says `review`) and `published`, with the same
+  `missing` list. The ledger answers `not_configured` instead of `closed` when
+  no close is set.
+* **What a connection scan says** is what happened to the scanning person's own
+  points: `waiting` (one-sided), `awarded`, `already_paid`, `replaced` (best
+  four), `reversed` (an organiser), or the zero-point reasons `same_company`,
+  `ineligible`, `not_configured`, `closed`, `limit_reached`. `points` is what the
+  person holds from it, never the pair's nominal value. A later scan of an
+  existing connection never pays: one that was never paid says `unpaid` with the
+  reason as far as it is known now.
+* **Unpaid connections** (`GET /api/admin/connections/unpaid`, read-only; the
+  FACEMARK panel's "Points corrections" section): each unpaid side with its
+  category - `eligible` (event day, before the close, competing person; worth
+  its FROZEN kind), `needs_decision` (before the event day), `not_configured`,
+  and the legitimate zero cases `same_company`, `ineligible`, `after_close`.
+  `POST /api/admin/connections/reconcile` (administrators; selected sides, a
+  reason, `confirm: true`) pays only sides still `eligible`, dated at the moment
+  the pair connected, through the normal payment (ledger key once per pair and
+  person, eligibility, the close, the best four); one transaction, an audit row
+  per paid side, a repeat pays nothing. Paid-then-replaced or reversed sides are
+  never listed.
+* **The confirmed event frame** can be created from the admin panel
+  (`POST /api/admin/masterclass-skeleton`, the same as the CLI, audited; refused
+  beside an event entered by hand). It sets no close and no masterclass.
 
 ## External gates not passed by this work
 

@@ -103,12 +103,12 @@ export function LiveScreen() {
       </div>
     );
   }
-  if (data.state === "not_configured") {
+  if (data.state === "not_configured" || data.state === "disabled") {
     return (
       <div className="fm-stack-lg">
         {banner}
         <section className="fm-alert fm-alert-info" role="status">
-          <p className="fm-strong">{t("The competition programme is not set up yet.")}</p>
+          <p className="fm-strong">{t(data.state === "disabled" ? "The competition ranking is not switched on yet." : "The competition programme is not set up yet.")}</p>
           <p>{t("The organisers still need to set:")}</p>
           <ul style={{ paddingLeft: 20, listStyle: "disc" }}>{data.missing.map((m) => <li key={m}>{t(MISSING_LABEL[m] ?? m)}</li>)}</ul>
         </section>

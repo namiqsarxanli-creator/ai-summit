@@ -1072,3 +1072,24 @@ def test_a_revoked_game_master_scope_or_account_closes_the_workspace_at_once(com
         "AND scope = 'GAME_MASTER')"
     )
     assert _workspace(other).status_code in (401, 403)
+
+
+def test_the_admin_readiness_endpoint_is_read_only_admin_only_and_private(comp: Comp) -> None:
+    (uid,) = comp.users(1)
+    comp.rig.sql(
+        "UPDATE users SET last_name = 'Nəsirov', email = 'anar.private@mail.test' WHERE id = :u",
+        u=uid,
+    )
+    before = _row_counts(comp)
+    admin = comp.staff_client(comp.rig.staff_id(StaffRole.ADMIN))
+    r = admin.get("/api/admin/readiness")
+    assert r.status_code == 200 and r.headers["cache-control"] == "no-store"
+    body = r.json()
+    keys = {c["key"]: c["status"] for c in body["checks"]}
+    assert body["ready"] is False
+    assert keys["event"] == "ok" and keys["playground_slots"] == "missing"
+    assert keys["founder_rule"] == "info"
+    assert "Nəsirov" not in r.text and "@" not in r.text
+    assert _row_counts(comp) == before
+    for c in (comp.volunteer("GAME_MASTER", None), comp.client(uid), TestClient(app)):
+        assert c.get("/api/admin/readiness").status_code in (401, 403)

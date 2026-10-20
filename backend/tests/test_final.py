@@ -684,3 +684,22 @@ def test_after_the_close_the_screen_reviews_and_after_publication_it_shows_the_f
     assert _screen()["state"] == "review"  # a draft is not a result
     gm.post(f"/api/staff/final/{draft['id']}/publish")
     assert _screen()["state"] == "published"
+
+
+def test_public_statuses_agree_when_the_close_is_missing_or_the_ranking_is_off(
+    fin: Final,
+) -> None:
+    fin.rig.sql("UPDATE masterclass_events SET competition_closes_at = NULL")
+    final_ = TestClient(app).get("/api/final").json()
+    screen = TestClient(app).get("/api/screen/live").json()
+    assert final_["status"] == screen["state"] == "not_configured"
+    assert final_["missing"] == screen["missing"] == ["close"]
+    fin.rig.sql("UPDATE masterclass_events SET competition_closes_at = :c", c=baku("17:30"))
+    fin.rig.sql("UPDATE event_config SET competition_mode = false")
+    final_ = TestClient(app).get("/api/final").json()
+    screen = TestClient(app).get("/api/screen/live").json()
+    assert final_["status"] == screen["state"] == "disabled"
+    assert final_["missing"] == screen["missing"] == ["competition_mode"]
+    fin.rig.sql("UPDATE event_config SET competition_mode = true")
+    assert TestClient(app).get("/api/final").json()["status"] == "open"
+    assert TestClient(app).get("/api/screen/live").json()["state"] == "open"

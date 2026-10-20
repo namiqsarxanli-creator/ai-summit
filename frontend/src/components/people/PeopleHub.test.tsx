@@ -78,6 +78,17 @@ describe("PeopleHub", () => {
     await screen.findByRole("region", { name: "Connect" });
     fireEvent.change(screen.getByLabelText("Their attendee code"), { target: { value: "A".repeat(43) } });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
-    expect(await screen.findByRole("status")).toHaveTextContent("Connected. Their contact is below.");
+    expect(await screen.findByRole("status")).toHaveTextContent("Connected. +1 points for you. Their contact is below.");
+  });
+
+  it("explains a zero-point connection instead of showing the pair's value", async () => {
+    server({ write: () => json(200, { connected: true, mutual: true, name: "Aysel M.", kind: "match", points: 0, outcome: "not_configured" }) });
+    render(<PeopleHub />);
+    await screen.findByRole("region", { name: "Connect" });
+    fireEvent.change(screen.getByLabelText("Their attendee code"), { target: { value: "A".repeat(43) } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    const status = await screen.findByRole("status");
+    expect(status).toHaveTextContent("No points yet: the competition is not set up yet.");
+    expect(status.textContent).not.toMatch(/\+3|\+1/);
   });
 });

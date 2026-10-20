@@ -33,7 +33,11 @@ export function FinalScreen() {
   if (final.status !== "published") {
     return (
       <p role="status" className="fm-alert fm-alert-info">
-        {t(final.status === "open" ? "The competition is still open." : "The ranking has closed. The Game Master is reviewing the results.")}
+        {t(final.status === "not_configured"
+          ? "The competition programme is not set up yet."
+          : final.status === "disabled"
+            ? "The competition ranking is not switched on yet."
+            : final.status === "open" ? "The competition is still open." : "The ranking has closed. The Game Master is reviewing the results.")}
       </p>
     );
   }

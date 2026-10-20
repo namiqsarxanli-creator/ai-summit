@@ -3,7 +3,7 @@
 
 import { apiGet } from "@/lib/api";
 
-export type LiveState = "not_configured" | "open" | "review" | "published";
+export type LiveState = "not_configured" | "disabled" | "open" | "review" | "published";
 export type LivePerson = { place: number; name: string; points: number; photo_url: string | null };
 export type LiveAward = { name: string; points: number; category: string; at: string };
 export type LiveScreen = {
@@ -20,6 +20,13 @@ export type LiveScreen = {
 export const fetchLiveScreen = () => apiGet<LiveScreen>("/api/screen/live");
 
 // What `missing` names, for the "not set up yet" state.
+// Where an administrator sets it: the section of the admin console (/admin?section=).
+export const MISSING_SECTION: Record<string, string> = {
+  event: "masterclasses",
+  close: "competition",
+  competition_mode: "competition",
+};
+
 export const MISSING_LABEL: Record<string, string> = {
   event: "The event and its date",
   close: "The competition close time (17:30)",

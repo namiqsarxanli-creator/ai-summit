@@ -25,8 +25,54 @@ export type MeetingRequest = {
 };
 
 export type ContactAction = { type: "LINKEDIN" | "EMAIL"; value: string };
-export type ConnectionRow = { user_id: number; name: string; profession: string; kind: "match" | "other"; points: number; contact: ContactAction };
-export type ScanResult = { connected: boolean; name: string; kind?: "match" | "other"; same_company?: boolean; points?: number; outcome?: string };
+// `points`: what THIS person holds from the connection (never its nominal value);
+// `paid` / `status` say whether it was ever paid (backend people/connections.py).
+export type ConnectionRow = {
+  user_id: number; name: string; profession: string; kind: "match" | "other"; points: number;
+  paid?: boolean; status?: string; contact: ContactAction;
+};
+export type ScanOutcome =
+  | "waiting" | "awarded" | "already_paid" | "replaced" | "reversed" | "unpaid"
+  | "same_company" | "ineligible" | "not_configured" | "closed" | "limit_reached";
+export type ScanResult = {
+  connected: boolean; mutual?: boolean; name: string; kind?: "match" | "other"; same_company?: boolean;
+  points?: number; outcome?: ScanOutcome | string; reason?: string;
+};
+
+const NOT_PAID = "An organiser can review it.";
+
+// Why a connection earned this person nothing (the same words for a new scan and
+// for a connection that was never paid).
+const ZERO_REASON: Record<string, string> = {
+  same_company: "No points: you work at the same company.",
+  ineligible: "No points: you are not part of the competition.",
+  not_configured: "No points yet: the competition is not set up yet.",
+  closed: "No points: the competition has closed.",
+  limit_reached: "No points: your best four connections already count more.",
+  not_paid: NOT_PAID,
+};
+
+// What a scan did for THIS person, in words: one-sided or mutual, the points
+// actually added, and why nothing was added. `t` translates a fixed sentence.
+export function scanMessage(r: ScanResult, t: (key: string) => string): string {
+  const n = String(r.points ?? 0);
+  const outcome = r.outcome ?? (r.connected ? "unpaid" : "waiting");
+  if (!r.connected || outcome === "waiting") return t("Scanned. When they scan your QR too, you are connected.");
+  switch (outcome) {
+    case "awarded":
+      return t("Connected. +{n} points for you. Their contact is below.").replace("{n}", n);
+    case "already_paid":
+      return t("Already connected. You hold {n} points from this connection.").replace("{n}", n);
+    case "replaced":
+      return t("Already connected. Its points were replaced by a better connection: only your best four count.");
+    case "reversed":
+      return t("Already connected. An organiser cancelled the points of this connection.");
+    case "unpaid":
+      return `${t("Already connected. This connection has not earned you points.")} ${t(ZERO_REASON[r.reason ?? "not_paid"] ?? NOT_PAID)}`;
+    default:
+      return `${t("Connected. Their contact is below.")} ${t(ZERO_REASON[outcome] ?? "Recorded, without points.")}`;
+  }
+}
 
 export const fetchPeople = () => apiGet<{ people: Person[] }>("/api/attendees/me/people");
 export const fetchMeetings = () => apiGet<{ timezone: string | null; requests: MeetingRequest[] }>("/api/attendees/me/meetings");

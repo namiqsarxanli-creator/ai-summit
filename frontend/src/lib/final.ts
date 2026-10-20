@@ -5,7 +5,8 @@ import { apiGet, apiPost, type ApiResult } from "@/lib/api";
 
 export type PublicPerson = { name: string; photo_url: string | null; place?: number; points?: number };
 export type PublicFinal =
-  | { status: "open" | "pending_review"; closes_at: string | null }
+  // not_configured: no event or no close yet; disabled: the ranking is switched off.
+  | { status: "not_configured" | "disabled" | "open" | "pending_review"; closes_at: string | null; missing?: string[] }
   | { status: "published"; closes_at: string | null; version: number; published_at: string | null; top: PublicPerson[]; founders: PublicPerson[]; founder_rule_confirmed?: boolean };
 
 export type VersionSummary = {

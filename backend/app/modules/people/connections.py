@@ -12,6 +12,18 @@ skanı: match 3 bal, digər tanışlıq 1 bal; ən yüksək 4 tanışlıq sayıl
   never "the first four"). Every connection is kept even when it earns nothing.
 * The contact action (LinkedIn or e-mail) opens to the connected pair only; a
   public card shows no contact at all to anyone else.
+
+What a scan answers (`outcome`) is what happened to THIS person's points, never
+the pair's nominal value: `waiting` (only one side has scanned), `awarded` (paid
+now), `already_paid` (paid earlier and still counted), `replaced` (paid earlier,
+then replaced by a better connection), `reversed` (paid earlier, cancelled by an
+organiser), and the zero-point reasons `same_company`, `ineligible`,
+`not_configured` (no competition close is set - never called "closed"),
+`closed` (after the close) and `limit_reached` (the best four are better). A
+later scan of an existing connection never pays: one that was never paid says
+`unpaid` with the reason as far as it is known now; an organiser reviews such
+connections (people/reconcile.py). `points` is what this person holds from the
+connection now.
 """
 
 from __future__ import annotations
@@ -24,7 +36,13 @@ from sqlalchemy.orm import Session, aliased
 
 from app.core.errors import DomainError
 from app.modules.attendees.models import User
-from app.modules.competition.ledger import award, closes_at, eligible, lock_attendee_points
+from app.modules.competition.ledger import (
+    award,
+    closes_at,
+    dedupe_key,
+    eligible,
+    lock_attendee_points,
+)
 from app.modules.contact_cards.service import contact_action_for, resolve_active_attendee
 from app.modules.people.compatibility import blocked_ids, normalise_company, suggestions
 from app.modules.people.models import Connection, ConnectionScan
@@ -90,22 +108,67 @@ def _counted_entries(db: Session, user_id: int) -> list[PointsLog]:
     )
 
 
+def unit(row: Connection) -> str:
+    return f"pair:{row.user_low_id}:{row.user_high_id}"
+
+
+def award_entry(db: Session, user_id: int, row: Connection) -> PointsLog | None:
+    """The CONNECTION award this person got for this pair, if any (one per pair:
+    the ledger's unique `dedupe_key`)."""
+    key = dedupe_key(PointsSource.CONNECTION, user_id, unit(row))
+    return db.execute(select(PointsLog).where(PointsLog.dedupe_key == key)).scalar_one_or_none()
+
+
+def held(db: Session, user_id: int, row: Connection) -> tuple[str, int]:
+    """What the person holds from an existing connection: (status, points)."""
+    entry = award_entry(db, user_id, row)
+    if entry is None:
+        return "unpaid", 0
+    reversal = db.execute(
+        select(PointsLog).where(PointsLog.reverses_points_log_id == entry.id)
+    ).scalar_one_or_none()
+    if reversal is None:
+        return "already_paid", entry.points
+    # The best-four replacement is the only reversal the system makes itself.
+    return ("replaced" if reversal.entered_by_system else "reversed"), 0
+
+
+def unpaid_reason(db: Session, user_id: int, row: Connection) -> str:
+    """Why a connection holds no award for this person, as far as it is known NOW.
+    `not_paid` means none of the recorded facts explains it: an organiser reviews
+    it (people/reconcile.py); nothing is paid by a later scan."""
+    if value(row) == 0:
+        return "same_company"
+    if not eligible(db.get(User, user_id)):
+        return "ineligible"
+    close = closes_at(db)
+    if close is None:
+        return "not_configured"
+    if row.established_at >= close:
+        return "closed"
+    return "not_paid"
+
+
 def _pay(db: Session, user_id: int, row: Connection, now: datetime) -> str:
     """Count the connection for `user_id` if it belongs in their best four."""
     points = value(row)
     if points == 0:
-        return "not_scored"
+        return "same_company"
     lock_attendee_points(db, user_id)
     # Checked BEFORE anything is reversed: a refused award must not cost the
     # person a connection they already have counted.
+    if not eligible(db.get(User, user_id)):
+        return "ineligible"
     close = closes_at(db)
-    if not eligible(db.get(User, user_id)) or close is None or now >= close:
-        return "ineligible" if close is not None and now < close else "closed"
+    if close is None:
+        return "not_configured"
+    if now >= close:
+        return "closed"
     counted = _counted_entries(db, user_id)
     if len(counted) >= COUNTED:
         weakest = counted[0]  # lowest value; among equals the most recent
         if weakest.points >= points:
-            return "not_scored"  # kept, not counted: it is not better than the four
+            return "limit_reached"  # kept, not counted: it is not better than the four
         db.add(
             PointsLog(
                 user_id=user_id,
@@ -118,14 +181,15 @@ def _pay(db: Session, user_id: int, row: Connection, now: datetime) -> str:
             )
         )
         db.flush()
-    return award(
+    outcome = award(
         db,
         user_id=user_id,
         source=PointsSource.CONNECTION,
-        unit=f"pair:{row.user_low_id}:{row.user_high_id}",
+        unit=unit(row),
         points=points,
         occurred_at=now,
     ).outcome
+    return {"already": "already_paid", "category_full": "limit_reached"}.get(outcome, outcome)
 
 
 def scan(db: Session, me: User, card_token: str, now: datetime) -> dict[str, Any]:
@@ -151,7 +215,13 @@ def scan(db: Session, me: User, card_token: str, now: datetime) -> dict[str, Any
     ).first()
     name = f"{other.first_name} {other.last_name[:1]}."
     if reverse is None:
-        return {"connected": False, "name": name}
+        return {
+            "connected": False,
+            "mutual": False,
+            "name": name,
+            "outcome": "waiting",
+            "points": 0,
+        }
     low, high = _pair(me.id, other.id)
     row = db.execute(
         select(Connection)
@@ -159,6 +229,7 @@ def scan(db: Session, me: User, card_token: str, now: datetime) -> dict[str, Any
         .with_for_update()
     ).scalar_one_or_none()
     outcomes: dict[int, str] = {}
+    created = row is None
     if row is None:
         company = normalise_company(me.company)
         row = Connection(
@@ -172,14 +243,19 @@ def scan(db: Session, me: User, card_token: str, now: datetime) -> dict[str, Any
         db.flush()
         for uid in sorted((low, high)):  # a stable order: no lock cycle between the two
             outcomes[uid] = _pay(db, uid, row, now)
-    return {
+    status, points = held(db, me.id, row)
+    result: dict[str, Any] = {
         "connected": True,
+        "mutual": True,
         "name": name,
         "kind": row.kind.lower(),
         "same_company": row.same_company,
-        "points": value(row),
-        "outcome": outcomes.get(me.id, "already"),
+        "points": points,  # what this person holds from it now, not its nominal value
+        "outcome": outcomes[me.id] if created else status,
     }
+    if result["outcome"] == "unpaid":
+        result["reason"] = unpaid_reason(db, me.id, row)
+    return result
 
 
 def my_connections(db: Session, me: User) -> list[dict[str, Any]]:
@@ -195,16 +271,22 @@ def my_connections(db: Session, me: User) -> list[dict[str, Any]]:
         )
         .order_by(Connection.established_at.desc(), Connection.id.desc())
     ).all()
-    return [
-        {
-            "user_id": other.id,
-            "name": f"{other.first_name} {other.last_name}",
-            "profession": other.profession,
-            "kind": row.kind.lower(),
-            "points": value(row),
-            "contact": contact_action_for(
-                linkedin_url=other.linkedin_url, email=str(other.email)
-            ).model_dump(),
-        }
-        for row, other in rows
-    ]
+    out: list[dict[str, Any]] = []
+    for row, other in rows:
+        status, points = held(db, me.id, row)
+        out.append(
+            {
+                "user_id": other.id,
+                "name": f"{other.first_name} {other.last_name}",
+                "profession": other.profession,
+                "kind": row.kind.lower(),
+                # What this person holds from it, not its nominal value.
+                "points": points,
+                "paid": status == "already_paid",
+                "status": status,
+                "contact": contact_action_for(
+                    linkedin_url=other.linkedin_url, email=str(other.email)
+                ).model_dump(),
+            }
+        )
+    return out

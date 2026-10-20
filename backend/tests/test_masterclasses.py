@@ -797,6 +797,35 @@ def test_the_skeleton_adds_only_the_confirmed_frame_and_can_be_rerun(program: Pr
     assert program.rig.scalar("SELECT count(*) FROM masterclasses") == 0
 
 
+def test_an_administrator_creates_the_confirmed_frame_from_the_admin_panel(rig: Rig) -> None:
+    """The same frame as the CLI, from the admin panel: audited, re-runnable,
+    administrators only, and never a second event beside one entered by hand."""
+    assert rig.scalar("SELECT count(*) FROM masterclass_events") == 0
+    _, booth_staff = rig.booth_with_staff()
+    rig.sign_in_as(booth_staff)
+    assert rig.client.post(f"{ADMIN}/masterclass-skeleton").status_code in {401, 403}
+    rig.sign_in(StaffRole.ADMIN)
+    first = rig.client.post(f"{ADMIN}/masterclass-skeleton")
+    assert first.status_code == 200, first.text
+    assert first.json() == {"event_created": True, "blocks_created": 2, "rooms_created": 5}
+    again = rig.client.post(f"{ADMIN}/masterclass-skeleton").json()
+    assert again == {"event_created": False, "blocks_created": 0, "rooms_created": 0}
+    assert rig.scalar("SELECT count(*) FROM masterclass_events") == 1
+    assert rig.scalar("SELECT count(*) FROM masterclasses") == 0  # never a masterclass
+    assert rig.scalar("SELECT competition_closes_at FROM masterclass_events") is None
+    assert len(rig.audit_rows("masterclass.skeleton")) == 2
+
+
+def test_the_frame_is_refused_beside_an_event_entered_by_hand(rig: Rig) -> None:
+    rig.sql(
+        "INSERT INTO masterclass_events (code, title, timezone, event_date) "
+        "VALUES ('by-hand', 'Entered by hand', 'Asia/Baku', '2026-11-13')"
+    )
+    rig.sign_in(StaffRole.ADMIN)
+    assert rig.client.post(f"{ADMIN}/masterclass-skeleton").status_code == 409
+    assert rig.scalar("SELECT count(*) FROM masterclass_events") == 1
+
+
 # Preconditions are captured by a device, not re-read when a delayed request arrives.
 def test_old_choice_retry_cannot_overwrite_newer_choice(program: Program) -> None:
     a, b = program.masterclass(program.b1), program.masterclass(program.b1)

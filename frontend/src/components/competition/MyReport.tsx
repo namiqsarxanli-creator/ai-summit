@@ -23,7 +23,7 @@ type Report = {
   founder: boolean;
   lucky_draw: boolean;
   final: { version: number; place: number | null; points: number | null; founder: boolean } | null;
-  final_status: "open" | "pending_review" | "published";
+  final_status: "not_configured" | "disabled" | "open" | "pending_review" | "published";
   timezone: string;
   attended: ProgrammeItem[];
   // Begun but never completed (an exit / end never scanned); absent from an
@@ -80,6 +80,7 @@ export function MyReport() {
         <p className="fm-h2">{r.total} / 100</p>
         {r.final && r.final.place !== null && <p className="fm-strong">{t("Final result: place {n} with {p} points.").replace("{n}", String(r.final.place)).replace("{p}", String(r.final.points ?? 0))}</p>}
         {r.final_status === "pending_review" && <p className="fm-small">{t("The ranking has closed. The Game Master is reviewing the results.")}</p>}
+        {r.final_status === "not_configured" && <p className="fm-small">{t("The competition programme is not set up yet.")}</p>}
         {r.founder && <p className="fm-strong">{t(r.lucky_draw ? "You are a Beyond Now Founder and in the Lucky Draw." : "You are a Beyond Now Founder.")}</p>}
         <dl className="fm-dl">
           {r.categories.map((c) => (

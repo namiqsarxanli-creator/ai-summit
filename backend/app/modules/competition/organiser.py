@@ -1,4 +1,4 @@
-"""The FACEMARK organiser workspace (`/staff/organiser`): who may open it, and
+"""The FACEMARK organiser workspace (`/facemark`): who may open it, and
 which of its sections this account may use.
 
 FACEMARK is the event's organiser. Its workspace gathers tools that already

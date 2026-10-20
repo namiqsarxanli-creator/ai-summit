@@ -54,6 +54,14 @@ describe("LiveScreen", () => {
     expect(screen.queryByRole("list", { name: "Live top 10" })).toBeNull();
   });
 
+  it("says the ranking is off when it is configured but switched off", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json(200, live({ state: "disabled", missing: ["competition_mode"], top: [], recent: [] }))));
+    render(<LiveScreen />);
+    expect(await screen.findByText("The competition ranking is not switched on yet.")).toBeInTheDocument();
+    expect(screen.getByText("The competition ranking switched on")).toBeInTheDocument();
+    expect(screen.queryByTestId("countdown")).toBeNull();
+  });
+
   it("after the close shows the review, without a ranking", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => json(200, live({ state: "review", top: [], recent: [] }))));
     render(<LiveScreen />);

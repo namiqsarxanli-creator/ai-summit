@@ -9,6 +9,7 @@ Inside the caller's fenced transaction it:
 3. refuses an ineligible person (not ACTIVE, or excluded by the organiser),
    activity at or after the competition close, and anything beyond the
    category's own maximum (and, for Playground, beyond the first 8 booths) -
+   without a configured close it pays nothing either (`not_configured`) -
    such evidence is still kept by the caller, it just earns nothing.
 
 It never edits or deletes a ledger row; a correction is a REVERSAL entry
@@ -32,7 +33,11 @@ from app.modules.points.models import PointsEntryType, PointsLog, PointsSource
 
 _USER_LOCK_CLASS = 21461017
 
-Outcome = Literal["awarded", "already", "ineligible", "closed", "category_full", "not_scored"]
+# "not_configured": no competition close is set, so nothing can be earned YET -
+# never reported as "closed" (the close has passed).
+Outcome = Literal[
+    "awarded", "already", "ineligible", "not_configured", "closed", "category_full", "not_scored"
+]
 
 
 @dataclass(frozen=True)
@@ -118,7 +123,9 @@ def award(
     if not eligible(db.get(User, user_id)):
         return AwardResult("ineligible", 0)
     close = closes_at(db)
-    if close is None or occurred_at >= close:
+    if close is None:
+        return AwardResult("not_configured", 0)
+    if occurred_at >= close:
         return AwardResult("closed", 0)
     if source == PointsSource.PLAYGROUND:
         booths = {row.booth_id for row in _unreversed_awards(db, user_id, source)}

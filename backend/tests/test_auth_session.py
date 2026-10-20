@@ -661,6 +661,9 @@ def test_the_mutating_route_inventory_is_what_m16_expects() -> None:
         ("PATCH", "/api/admin/users/{user_id}/competition-eligibility"),
         ("POST", "/api/admin/booths"),
         # CSV exports: step 1 of 2 (prepare + one-time ticket); the file itself is a GET.
+        # Unpaid connections: administrators pay selected, still-eligible sides
+        # through the ledger (people/reconcile.py); audited, fenced.
+        ("POST", "/api/admin/connections/reconcile"),
         ("POST", "/api/admin/exports/attendees"),
         ("POST", "/api/admin/exports/points-log"),
         ("POST", "/api/admin/exports/sponsor-contacts"),
@@ -668,6 +671,8 @@ def test_the_mutating_route_inventory_is_what_m16_expects() -> None:
         ("POST", "/api/admin/masterclass-blocks"),
         ("POST", "/api/admin/masterclass-events"),
         ("POST", "/api/admin/masterclass-rooms"),
+        # The confirmed programme frame (as the CLI); audited, fenced.
+        ("POST", "/api/admin/masterclass-skeleton"),
         ("POST", "/api/admin/masterclasses"),
         ("POST", "/api/admin/match-tables"),
         ("POST", "/api/admin/mentor-sessions"),

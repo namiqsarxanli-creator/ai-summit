@@ -4,7 +4,7 @@
 import { apiGet, apiPost, type ApiResult } from "@/lib/api";
 import { tokenFromScannedText } from "@/lib/scanner";
 
-export type AwardOutcome = "awarded" | "already" | "ineligible" | "closed" | "category_full" | "not_scored";
+export type AwardOutcome = "awarded" | "already" | "ineligible" | "not_configured" | "closed" | "category_full" | "not_scored";
 export type Award = { outcome: AwardOutcome; points: number };
 
 export type PanelScanResult = {
@@ -26,7 +26,7 @@ export type MyCompetition = {
   founder_rule_confirmed?: boolean;
   lucky_draw?: boolean;
   final?: { version: number; place: number | null; points: number | null; founder: boolean } | null;
-  final_status?: "open" | "pending_review" | "published";
+  final_status?: "not_configured" | "disabled" | "open" | "pending_review" | "published";
 };
 export type PublicPanel = { id: number; title: string; starts_at: string; ends_at: string; timezone: string };
 export type Scope = { scope: "MASTERCLASS_DOOR" | "GAME_MASTER" | "MENTOR_HOST"; target_id: number | null };
@@ -72,6 +72,7 @@ export const OUTCOME_TEXT: Record<AwardOutcome, string> = {
   awarded: "Points added.",
   already: "Already counted. Nothing was added twice.",
   ineligible: "This person is not part of the competition.",
+  not_configured: "The competition is not set up yet: no points can be earned yet.",
   closed: "The competition has closed. No more points can be earned.",
   category_full: "This category is already at its maximum.",
   not_scored: "Recorded, without points.",

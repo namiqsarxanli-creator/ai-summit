@@ -22,6 +22,7 @@ import {
   peopleFailure,
   promptText,
   respond,
+  scanMessage,
   scanPerson,
   sendRequest,
   type ConnectionRow,
@@ -185,10 +186,7 @@ export function PeopleHub() {
           onText={(text) => {
             const token = cardTokenFrom(text);
             if (!token) { setNotice({ tone: "warn", text: "This is not an attendee QR code.", place: "scan" }); return; }
-            void run("scan", () => scanPerson(token), (data) =>
-              (data as ScanResult).connected
-                ? "Connected. Their contact is below."
-                : "Scanned. When they scan your QR too, you are connected.");
+            void run("scan", () => scanPerson(token), (data) => scanMessage(data as ScanResult, t));
           }}
         />
         {line("scan")}

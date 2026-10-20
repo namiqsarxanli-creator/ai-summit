@@ -339,17 +339,52 @@ def _public_person(entry: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def missing_configuration(db: Session) -> list[str]:
+    """What the competition still lacks, in a fixed order: the event, its 17:30
+    close, the competition ranking switched on. The same list everywhere a
+    status is shown (`public`, the venue screen, the organiser overview)."""
+    from app.modules.leaderboard.service import competition_mode
+
+    has_event = db.execute(select(MasterclassEvent.id).limit(1)).first() is not None
+    return [
+        name
+        for name, absent in (
+            ("event", not has_event),
+            ("close", closes_at(db) is None),
+            ("competition_mode", not competition_mode(db)),
+        )
+        if absent
+    ]
+
+
 def public(db: Session, now: datetime) -> dict[str, Any]:
-    """What the big screen and every attendee see. Never contact data."""
+    """What the big screen and every attendee see. Never contact data.
+
+    `status`: `published` (a Game Master published a result), `not_configured`
+    (no event or no close: nothing can be earned yet - never shown as closed),
+    `disabled` (configured, but the competition ranking is switched off), `open`
+    (before the close) or `pending_review` (after it). `missing` names what is
+    absent (`missing_configuration`)."""
     close = closes_at(db)
+    missing = missing_configuration(db)
     row = db.execute(
         select(FinalResult).where(FinalResult.status == "PUBLISHED").limit(1)
     ).scalar_one_or_none()
     if row is None:
-        status = "open" if close is None or now < close else "pending_review"
-        return {"status": status, "closes_at": close.isoformat() if close else None}
+        if "event" in missing or "close" in missing:
+            status = "not_configured"
+        elif missing:
+            status = "disabled"
+        else:
+            status = "open" if close is not None and now < close else "pending_review"
+        return {
+            "status": status,
+            "missing": missing,
+            "closes_at": close.isoformat() if close else None,
+        }
     return {
         "status": "published",
+        "missing": missing,
         "closes_at": close.isoformat() if close else None,
         "version": row.version,
         "published_at": row.published_at.isoformat() if row.published_at else None,

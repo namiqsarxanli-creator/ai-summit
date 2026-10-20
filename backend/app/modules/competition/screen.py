@@ -6,11 +6,12 @@ contact data, no user id, no email/phone/QR token, no staff or audit detail and
 never a photo that is not consented to by both people AND approved by a
 moderator. A person is shown as first name and surname initial (app/core/names).
 
-States, decided by the server:
+States, the same decision as `GET /api/final` (competition/final.py `public`):
 
-* `not_configured` - the programme is not set up for the competition: no event,
-  no 17:30 close, or the competition ranking is not switched on. `missing` names
-  what is absent. Nothing is shown as if the competition were running.
+* `not_configured` - no event or no 17:30 close: nothing can be earned yet and
+  nothing is shown as if the competition were running (never as "closed").
+* `disabled` - configured, but the competition ranking is switched off.
+  `missing` names what is absent in both cases.
 * `open` - before the close: the live top 10 (people with points only), the most
   recent standing awards, the countdown basis (`server_time`, `closes_at`).
 * `review` - after the close, until a Game Master publishes: no ranking (the
@@ -37,7 +38,7 @@ from app.modules.competition.final import public as public_final
 from app.modules.competition.founder import rule_confirmed
 from app.modules.competition.ledger import closes_at
 from app.modules.competition.rules import COMPETITION_SOURCES
-from app.modules.leaderboard.service import competition_mode, shared_ranking
+from app.modules.leaderboard.service import shared_ranking
 from app.modules.masterclasses.models import MasterclassEvent
 from app.modules.people.pair_photos import feed as photo_feed
 from app.modules.points.models import PointsEntryType, PointsLog, PointsSource
@@ -100,25 +101,10 @@ def _recent(db: Session) -> list[dict[str, Any]]:
 def live(db: Session, now: datetime) -> dict[str, Any]:
     event = db.execute(select(MasterclassEvent).order_by(MasterclassEvent.id).limit(1)).scalar()
     close = closes_at(db)
-    ranking_on = competition_mode(db)
+    # One decision for every public status (competition/final.py `public`).
     final = public_final(db, now)
-    missing = [
-        name
-        for name, absent in (
-            ("event", event is None),
-            ("close", close is None),
-            ("competition_mode", not ranking_on),
-        )
-        if absent
-    ]
-    if final["status"] == "published":
-        state = "published"
-    elif missing:
-        state = "not_configured"
-    elif close is not None and now < close:
-        state = "open"
-    else:
-        state = "review"
+    missing: list[str] = final["missing"]
+    state = "review" if final["status"] == "pending_review" else str(final["status"])
     return {
         "state": state,
         "missing": missing,

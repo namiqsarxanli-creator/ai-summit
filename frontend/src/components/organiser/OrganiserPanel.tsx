@@ -12,7 +12,9 @@ import { messageFor } from "@/lib/errors";
 import { fetchVersions, type Versions } from "@/lib/final";
 import { eventTime } from "@/lib/masterclasses";
 import { SECTION_NEEDS, SECTION_TITLE, SECTIONS, fetchWorkspace, type OrganiserSection, type Workspace } from "@/lib/organiser";
-import { fetchLiveScreen, MISSING_LABEL, type LiveScreen } from "@/lib/screen";
+import { fetchLiveScreen, MISSING_LABEL, MISSING_SECTION, type LiveScreen } from "@/lib/screen";
+import { SetupChecklist } from "./SetupChecklist";
+import { UnpaidConnections } from "./UnpaidConnections";
 
 type State =
   | { kind: "loading" }
@@ -48,7 +50,7 @@ export function OrganiserPanel() {
     return (
       <div className="fm-stack">
         <p className="fm-note">{t("Sign in with your staff account to continue.")}</p>
-        <Link href="/staff/login?next=/staff/organiser" className="fm-btn fm-btn-primary fm-btn-block">{t("Staff sign in")}</Link>
+        <Link href="/facemark/login" className="fm-btn fm-btn-primary fm-btn-block">{t("FACEMARK sign in")}</Link>
       </div>
     );
   }
@@ -101,6 +103,7 @@ export function OrganiserPanel() {
           <>
             <p className="fm-small">{t("The ledger itself is never edited. An award can be reversed in full, with a reason: the reversal is a new entry linked to it.")}</p>
             <AdminList kind="points-log" refreshKey={0} />
+            <UnpaidConnections />
           </>
         )}
         {current === "final" && (
@@ -121,6 +124,7 @@ export function OrganiserPanel() {
 
 const STATE_TEXT: Record<LiveScreen["state"], string> = {
   not_configured: "Not set up yet",
+  disabled: "Set up, but the competition ranking is off",
   open: "Open",
   review: "Closed · results in review",
   published: "Final result published",
@@ -162,12 +166,23 @@ function Overview({ ws, open }: { ws: Workspace; open: (s: OrganiserSection) => 
             {live.data.missing.length > 0 && (
               <>
                 <p className="fm-small">{t("The organisers still need to set:")}</p>
-                <ul className="fm-small fm-org-rules">{live.data.missing.map((m) => <li key={m}>{t(MISSING_LABEL[m] ?? m)}</li>)}</ul>
+                <ul className="fm-small fm-org-rules">{live.data.missing.map((m) => (
+                  <li key={m}>
+                    {t(MISSING_LABEL[m] ?? m)}
+                    {ws.role === "ADMIN" && MISSING_SECTION[m] && (
+                      <> · <Link className="fm-link" href={`/admin?section=${MISSING_SECTION[m]}`}>{t("Set it in the admin console")}</Link></>
+                    )}
+                  </li>
+                ))}</ul>
+                {ws.role !== "ADMIN" && <p className="fm-small">{t("An administrator sets these in the admin console.")}</p>}
+                <p className="fm-small">{t("Masterclass titles, speakers, panels, Playground booths, mentors, tables and staff are entered by the organisers; nothing is filled in for them.")}</p>
               </>
             )}
           </>
         )}
       </section>
+
+      {ws.role === "ADMIN" && <SetupChecklist />}
 
       {final !== null && (
         <section className="fm-card fm-section" aria-labelledby="org-final">

@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { LanguageProvider } from "@/components/ui/LanguageProvider";
@@ -45,6 +45,25 @@ describe("AdminPage", () => {
     expect(await screen.findByText(/The ledger itself is never edited/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /award points/i })).not.toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith("/api/admin/points-log", expect.anything());
+  });
+
+  it("opens the section a link names, and ignores an unknown one", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url === "/api/staff/auth/login") return new Response(null, { status: 204 });
+      if (url === "/api/staff/me") return jsonResponse(200, { role: "ADMIN" });
+      return jsonResponse(200, []);
+    }));
+    for (const [query, current] of [["?section=playground", "AI Playground"], ["?section=nope", "Attendees"]] as const) {
+      window.history.pushState({}, "", `/admin${query}`);
+      const { unmount } = render(<AdminPage />);
+      fireEvent.change(screen.getByLabelText("Staff email"), { target: { value: "admin@example.test" } });
+      fireEvent.change(screen.getByLabelText("Password"), { target: { value: "password" } });
+      fireEvent.click(screen.getByText("Sign in"));
+      const nav = await screen.findByLabelText("Admin sections");
+      await waitFor(() => expect(within(nav).getByRole("button", { name: current })).toHaveAttribute("aria-current", "page"));
+      unmount();
+    }
+    window.history.pushState({}, "", "/");
   });
 
   it("does not show admin controls to a booth-staff session", async () => {
