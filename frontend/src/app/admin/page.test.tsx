@@ -101,6 +101,31 @@ describe("AdminPage", () => {
     confirm.mockRestore();
   });
 
+  it("creates a volunteer account, which never carries a booth", async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === "/api/staff/auth/login") return new Response(null, { status: 204 });
+      if (url === "/api/staff/me") return jsonResponse(200, { role: "ADMIN" });
+      if (url === "/api/admin/staff") return jsonResponse(201, { id: 8 });
+      return jsonResponse(200, []);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<AdminPage />);
+    fireEvent.change(screen.getByLabelText("Staff email"), { target: { value: "admin@example.com" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "password" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Staff$/ }));
+    fireEvent.change(screen.getByLabelText("Role"), { target: { value: "VOLUNTEER" } });
+    fireEvent.change(screen.getByLabelText("Booth ID (booth staff only)"), { target: { value: "3" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create staff" }));
+    // The section's list is a GET to the same path: pick the POST.
+    const created = () => (fetchMock.mock.calls as unknown as [string, RequestInit?][])
+      .find(([url, init]) => url === "/api/admin/staff" && init?.method === "POST");
+    await waitFor(() => expect(created()).toBeDefined());
+    expect(JSON.parse(String(created()![1]!.body))).toMatchObject({ role: "VOLUNTEER", booth_id: null });
+    confirm.mockRestore();
+  });
+
   it("shows email delivery status without any code or full address and pages older rows", async () => {
     const row = (id: number) => ({
       id,

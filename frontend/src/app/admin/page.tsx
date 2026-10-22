@@ -243,9 +243,9 @@ export default function AdminPage() {
         {section === "staff" && <>
           <Field label={t("Email" )} value={email} set={setEmail} /><Field label={t("Full name" )} value={name} set={setName} />
           <Field label={t("New password" )} value={password} set={setPassword} />
-          <label>Role <select className="bg-white p-2" value={role} onChange={(event) => setRole(event.target.value)}><option>BOOTH_STAFF</option><option>ADMIN</option></select></label>
+          <label>Role <select className="bg-white p-2" value={role} onChange={(event) => setRole(event.target.value)}><option>BOOTH_STAFF</option><option>VOLUNTEER</option><option>ADMIN</option></select></label>
           <Field label={t("Booth ID (booth staff only)" )} value={boothId} set={setBoothId} />
-          <button className="rounded bg-(--fm-red) text-white p-2" onClick={() => void change("staff", "POST", { email, password, full_name: name, role, booth_id: role === "ADMIN" ? null : booth })}>{t("Create staff")}</button>
+          <button className="rounded bg-(--fm-red) text-white p-2" onClick={() => void change("staff", "POST", { email, password, full_name: name, role, booth_id: role === "BOOTH_STAFF" ? booth : null })}>{t("Create staff")}</button>
           <Field label={t("Staff ID to deactivate" )} value={recordId} set={setRecordId} />
           <button className="rounded bg-(--fm-red-soft) p-2" onClick={() => void change(`staff/${id}/deactivate`, "POST")}>{t("Deactivate staff")}</button>
           <Field label={t("Staff ID for the reset email" )} value={resetId} set={setResetId} />
