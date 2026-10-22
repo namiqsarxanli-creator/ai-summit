@@ -104,7 +104,10 @@ export function PanelScan() {
           {mine.categories.map((c) => (
             <div key={c.category}>
               <dt>{t(CATEGORY_LABEL[c.category] ?? c.category)}</dt>
-              <dd>{fill(t("{n} of {total}"), { n: c.points, total: c.maximum })}</dd>
+              <dd>
+                {fill(t("{n} of {total}"), { n: c.points, total: c.maximum })}
+                {c.points >= c.maximum && <span className="fm-done" role="img" aria-label={t("Completed")}> ✓</span>}
+              </dd>
             </div>
           ))}
         </dl>

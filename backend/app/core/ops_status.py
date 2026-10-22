@@ -29,7 +29,7 @@ import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from sqlalchemy import Engine, text
 from sqlalchemy.orm import Session
@@ -170,10 +170,13 @@ _FAILURES_SQL = text(
 
 def check_outbox(db: Session, thresholds: Thresholds = DEFAULT_THRESHOLDS) -> list[CheckResult]:
     try:
-        due, oldest, retrying, stuck = db.execute(
+        backlog: Any = db.execute(
             _BACKLOG_SQL, {"stuck": thresholds.outbox_stuck_lease_seconds}
         ).one()
-        failures = db.execute(_FAILURES_SQL, {"window": thresholds.recent_window_seconds}).all()
+        due, oldest, retrying, stuck = backlog
+        failures: Any = db.execute(
+            _FAILURES_SQL, {"window": thresholds.recent_window_seconds}
+        ).all()
     except Exception as exc:  # noqa: BLE001
         db.rollback()
         return [CheckResult("outbox", "crit", f"unreadable ({type(exc).__name__})")]

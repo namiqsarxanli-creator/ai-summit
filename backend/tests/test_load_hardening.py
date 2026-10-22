@@ -150,6 +150,40 @@ def test_caching_off_means_every_request_ranks(db: Session) -> None:
     assert leaderboard_service.ranking_snapshot(db) is None
 
 
+def test_a_burst_of_changes_is_pushed_once_now_and_once_at_the_end_of_the_window(
+    ranking_cache: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """500-phone load test: a push per award re-ranked and re-sent the board to
+    every stream and starved the requests. The first change goes out at once, the
+    rest of the window as ONE push with the newest version; every change still
+    discards the ranking cache at once, so reads stay exact."""
+    from app.modules.realtime import service as realtime_service
+
+    monkeypatch.setattr(get_settings(), "leaderboard_push_interval_seconds", 0.4)
+    realtime_service.reset_leaderboard_push()
+    sent: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        event_bus, "publish_broadcast", lambda e, d: sent.append(dict(d["leaderboard"]))
+    )
+    before = event_bus.leaderboard_version
+    try:
+        for _ in range(5):
+            realtime_service.publish_leaderboard_changed()
+        assert event_bus.leaderboard_version == before + 5  # every change invalidates
+        assert [p["version"] for p in sent] == [before + 1]  # the first one at once
+        time.sleep(0.8)
+        assert [p["version"] for p in sent] == [before + 1, before + 5]  # one trailing push
+        # After a quiet window the next change goes out at once again; one more
+        # inside the new window waits for its end.
+        realtime_service.publish_leaderboard_changed()
+        realtime_service.publish_leaderboard_changed()
+        assert [p["version"] for p in sent] == [before + 1, before + 5, before + 6]
+        time.sleep(0.8)
+        assert [p["version"] for p in sent] == [before + 1, before + 5, before + 6, before + 7]
+    finally:
+        realtime_service.reset_leaderboard_push()
+
+
 def test_an_award_pushes_the_ranked_top_n_with_its_version(
     ranking_cache: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:

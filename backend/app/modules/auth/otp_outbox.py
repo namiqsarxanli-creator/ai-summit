@@ -36,7 +36,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -632,16 +632,18 @@ class DeliverySummary:
 
 def summarise(db: Session) -> DeliverySummary:
     counts = {s.value: 0 for s in OtpDeliveryStatus}
-    for status, n in db.execute(
+    by_status: Sequence[Any] = db.execute(
         text("SELECT status, count(*) FROM otp_deliveries GROUP BY status")
-    ).all():
+    ).all()
+    for status, n in by_status:
         counts[status] = int(n)
-    due, oldest = db.execute(
+    due_row: Any = db.execute(
         text(
             "SELECT count(*), EXTRACT(EPOCH FROM (now() - min(next_attempt_at))) "
             "FROM otp_deliveries WHERE status = 'pending' AND next_attempt_at <= now()"
         )
     ).one()
+    due, oldest = due_row
     return DeliverySummary(
         counts=counts,
         due_now=int(due),

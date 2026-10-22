@@ -7,7 +7,7 @@ export type PublicPerson = { name: string; photo_url: string | null; place?: num
 export type PublicFinal =
   // not_configured: no event or no close yet; disabled: the ranking is switched off.
   | { status: "not_configured" | "disabled" | "open" | "pending_review"; closes_at: string | null; missing?: string[] }
-  | { status: "published"; closes_at: string | null; version: number; published_at: string | null; top: PublicPerson[]; founders: PublicPerson[]; founder_rule_confirmed?: boolean };
+  | { status: "published"; closes_at: string | null; missing?: string[]; version: number; published_at: string | null; top: PublicPerson[]; founders: PublicPerson[]; founder_rule_confirmed?: boolean };
 
 export type VersionSummary = {
   id: number;
@@ -26,6 +26,15 @@ export type FinalDetail = VersionSummary & {
 };
 
 export const fetchFinal = () => apiGet<PublicFinal>("/api/final");
+
+// The competition ranking is on unless the public status names it as missing
+// (`competition_mode`). Unknown (the status could not be read) is reported as
+// null, so a caller can keep its default instead of guessing.
+export async function competitionRankingOn(): Promise<boolean | null> {
+  const r = await fetchFinal();
+  if (!r.ok) return null;
+  return !(r.data.missing ?? []).includes("competition_mode");
+}
 export type Versions = { closes_at: string | null; timezone: string; pending_offline_scans: number; versions: VersionSummary[] };
 export const fetchVersions = () => apiGet<Versions>("/api/staff/final");
 export const fetchVersion = (id: number) => apiGet<FinalDetail>(`/api/staff/final/${id}`);

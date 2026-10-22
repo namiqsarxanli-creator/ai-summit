@@ -22,6 +22,7 @@ none of it creates an external account or sends a notification by itself.
 5. [Monitoring and alerts](#monitoring-and-alerts)
 6. [Accepted limitations](#accepted-limitations)
 7. [What was verified, and what was not](#what-was-verified-and-what-was-not)
+8. [Event day: setup, 17:30 close and acceptance](#event-day-setup-1730-close-and-acceptance)
 
 ## Automated vs. the operator's job
 
@@ -641,3 +642,62 @@ release and rollback procedures; do not deploy unrelated unfinished backup work.
 but ignored in booth scoring; an explicit true restores their union with card
 topics. This is not a new booth matching formula. Real-device, live email and
 production-sized load checks remain separate release gates.
+
+## Event day: setup, 17:30 close and acceptance
+
+### Setup with the confirmed values (administrator, `/admin`)
+
+Every step is idempotent or refuses a duplicate; check `/facemark` → Overview →
+"Event setup" (the read-only readiness list) after each one.
+
+| Step | Where | Value | Re-run |
+|---|---|---|---|
+| Event frame | Masterclass programme → "Create the confirmed event frame" | 13 Nov 2026, Asia/Baku, blocks 11:30–13:00 / 16:00–17:30 (changes until 11:00 / 15:30), 5 rooms | adds only what is missing; refused beside an event entered by hand |
+| Close | Beyond Now competition → Event ID + "Competition closes at" | `2026-11-13T17:30:00+04:00` | a PATCH; the same value changes nothing |
+| Panels | Beyond Now competition → Main Stage panels | 10:00–11:30 and 14:00–15:30 `+04:00`, titles from the organisers | a code is unique: a second create is refused |
+| Ranking | Beyond Now competition → "Turn the competition ranking on" | only when the rest is set | a flag |
+
+**When to set the close.** The close is the only gate on *profile* (+5) and
+*connection* points: they have no start time. Setting it before the event lets
+attendees earn those two before 13 November (every other activity has its own
+event-day time window). Whether that is wanted is the organiser's decision; the
+code does not invent a start limit. Note that `people/reconcile.py` treats a
+connection made before the event day as `needs_decision` - set the close on the
+event morning if pre-event connections should not count.
+
+### 17:30 - the close (Game Master or administrator, `/facemark`)
+
+1. **Queues.** Ask every scanning phone to come online and open its desk: queued
+   scans are sent automatically. Staff tabs from before the last deploy must be
+   reloaded.
+2. **Reviews.** Final results → "Late scans to review": approve (with what you
+   checked and the verified time) or reject each one. A scan dated at or after
+   17:30 never pays, approved or not.
+3. **Check.** Points corrections: reverse a mistaken award only with a reason;
+   Connections without points: pay only `eligible` sides, never `needs_decision`.
+4. **Snapshot.** Final results → take a snapshot (refused before 17:30, and while
+   a late scan waits for review). Read the ranking: equal points are ordered by
+   who reached them first.
+5. **Publish.** Publish that snapshot. It is refused with `stale_snapshot` if the
+   ledger moved since - take a new one and publish that. `/screen/final` and
+   `/screen/live` switch to the published result.
+
+### Two-phone acceptance (before the doors open, on the real network)
+
+Phone A: an attendee account; phone B: a volunteer with a MASTERCLASS_DOOR scope
+for one published masterclass; one laptop: `/screen/live`.
+
+1. A registers (real e-mail code arrives; note the delay), completes the interest
+   card - +5 shows on A only after the close is set.
+2. A chooses the masterclass; B scans A at the door within the entry window
+   (first 10 min), then the exit window (last 10 min): +12 once. Scan the exit
+   again: "Already counted".
+3. B denies the camera permission once: the desk says the camera was refused
+   and offers typing the attendee code; allowing it in the browser settings and
+   reloading brings the camera back.
+4. B turns on airplane mode, scans A, reloads the page: the scan is listed as
+   waiting; airplane mode off: it is sent; points appear once.
+5. A and a second attendee scan each other's QR: the first scan says it waits,
+   the second shows the points actually added (or why none).
+6. A signs out on another tab: the stream ends and the app asks to sign in.
+7. `/screen/live` shows the change within ~15 s; nothing private is on it.

@@ -490,7 +490,7 @@ def attendee_page(db: Session, query: AttendeeListQuery) -> AttendeePage:
     )
 
 
-def points_statement() -> Select[Any]:
+def points_statement() -> Select[*tuple[Any, ...]]:
     """The ledger rows with the names joined in for reading. Outer joins: a
     row whose activity or staff account is gone still lists. A reversal and the
     entry it reverses are linked both ways: `reverses_points_log_id` on the

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { messageFor } from "@/lib/errors";
+import { competitionRankingOn } from "@/lib/final";
 import { fetchStaffMe, fetchStaffTasks, staffLogout, type StaffMe, type StaffTask } from "@/lib/staff";
 
 type TasksState = { kind: "none" } | { kind: "ok"; tasks: StaffTask[] } | { kind: "error"; code: string };
@@ -30,6 +31,14 @@ function isSignedOut(code: string): boolean {
 export function StaffPanel() {
   const { t } = useLanguage();
   const [state, setState] = useState<State>({ kind: "loading" });
+  // The old booth-activity points do not count in the Beyond Now ranking, so
+  // its scanner is not offered while that ranking is on (unknown: offered).
+  const [legacyScan, setLegacyScan] = useState(true);
+  useEffect(() => {
+    let active = true;
+    void competitionRankingOn().then((on) => { if (active && on !== null) setLegacyScan(!on); });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -110,9 +119,11 @@ export function StaffPanel() {
       {me.role !== "VOLUNTEER" && (
         <>
           <Link href="/staff/playground" className="fm-btn fm-btn-secondary fm-btn-block">{t("Playground arrivals and queue")}</Link>
-          <Link href="/staff/scan" className="fm-btn fm-btn-primary fm-btn-block">
-            {t("Scan attendee")}
-          </Link>
+          {legacyScan && (
+            <Link href="/staff/scan" className="fm-btn fm-btn-primary fm-btn-block">
+              {t("Scan attendee")}
+            </Link>
+          )}
         </>
       )}
 

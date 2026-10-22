@@ -53,6 +53,19 @@ describe("MyReport", () => {
     expect(begun.queryByText("Completed")).toBeNull();
   });
 
+  it("marks a category at its maximum as completed, and only that one", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json(200, report({
+      categories: [
+        { category: "PROFILE", points: 5, maximum: 5 },
+        { category: "MASTERCLASS", points: 12, maximum: 24 },
+      ],
+    }))));
+    render(<MyReport />);
+    const done = await screen.findAllByRole("img", { name: "Completed" });
+    expect(done).toHaveLength(1);
+    expect(done[0]!.closest("div")).toHaveTextContent("5 / 5");
+  });
+
   it("shows no begun-only section when there is nothing of the kind, or an older server sends none", async () => {
     const { not_completed: _omitted, ...older } = report({ attended: [item({})] });
     void _omitted;

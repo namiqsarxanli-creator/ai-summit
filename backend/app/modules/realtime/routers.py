@@ -113,7 +113,11 @@ async def stream(
                 item = None
 
             if item is not None:
-                yield ServerSentEvent(event=item.event, data=item.data)
+                yield (
+                    ServerSentEvent(event=item.event, raw_data=item.raw)
+                    if item.raw is not None
+                    else ServerSentEvent(event=item.event, data=item.data)
+                )
                 if item.event == "dataset_reset":
                     # M15 compatibility only — nothing in M14 ever
                     # publishes this event. A reset invalidates the

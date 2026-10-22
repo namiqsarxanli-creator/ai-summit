@@ -158,7 +158,7 @@ def _try_acquire_admission_lock(conn: Connection) -> bool:
     """Non-blocking. `True` means this invocation may proceed; `False`
     means another reset already holds it — the caller must not touch
     maintenance_mode, the real fence, or anything else."""
-    acquired = conn.execute(
+    acquired: Any = conn.execute(
         text("SELECT pg_try_advisory_lock(:key)"), {"key": FACEMARK_RESET_ADMISSION}
     ).scalar_one()
     conn.commit()
@@ -506,7 +506,7 @@ def _insert_demo_attendees(conn: Connection) -> tuple[tuple[str, str], ...]:
     }
     attendees: list[tuple[str, str]] = []
     for a in fx.ATTENDEES:
-        user_id = conn.execute(
+        user_id: Any = conn.execute(
             text(
                 "INSERT INTO users "
                 "(first_name, last_name, email, phone, profession, sponsor_consent, "
@@ -569,19 +569,19 @@ def _verify_restore(conn: Connection, *, expected_generation: int) -> None:
     """§19.5 step 6 / §19.7: "abort to the failure path if they
     disagree" — maintenance stays ON (the caller never reaches
     `_exit_maintenance` if this raises)."""
-    generation = conn.execute(
+    generation: Any = conn.execute(
         text("SELECT dataset_generation FROM event_config WHERE id = 1")
     ).scalar_one()
     if generation != expected_generation:
         raise ResetVerificationError(
             f"expected dataset_generation {expected_generation}, found {generation}"
         )
-    attendee_count = conn.execute(text("SELECT count(*) FROM users")).scalar_one()
+    attendee_count: Any = conn.execute(text("SELECT count(*) FROM users")).scalar_one()
     if attendee_count != len(fx.ATTENDEES):
         raise ResetVerificationError(
             f"expected {len(fx.ATTENDEES)} demo attendees, found {attendee_count}"
         )
-    booth_count = conn.execute(text("SELECT count(*) FROM booths")).scalar_one()
+    booth_count: Any = conn.execute(text("SELECT count(*) FROM booths")).scalar_one()
     if booth_count != len(fx.BOOTHS):
         raise ResetVerificationError(f"expected {len(fx.BOOTHS)} booths, found {booth_count}")
     conn.commit()

@@ -104,7 +104,7 @@ def _insert_real_data(db: Session) -> None:
         )
     )
     db.execute(text("INSERT INTO interests (slug, name) VALUES ('real-topic', 'Real Topic')"))
-    booth_id = db.execute(
+    booth_id: Any = db.execute(
         text("INSERT INTO booths (slug, name) VALUES ('real-booth', 'Real Booth') RETURNING id")
     ).scalar_one()
     db.execute(
@@ -302,7 +302,7 @@ def test_create_admin_stores_only_an_argon2id_hash_and_never_echoes_the_password
 
     _run(["create-admin", "--email", "Director@Summit.Example.org ", "--name", "  Director  "])
 
-    row = blank_db.execute(
+    row: Any = blank_db.execute(
         text(
             "SELECT email::text, password_hash, full_name, role::text, booth_id, is_active "
             "FROM staff_accounts"

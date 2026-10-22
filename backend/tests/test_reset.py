@@ -216,7 +216,7 @@ class TestFenceLifecycle:
 
         try:
             reset_module._enter_maintenance(conn)
-            backend_pid = conn.execute(text("SELECT pg_backend_pid()")).scalar_one()
+            backend_pid: Any = conn.execute(text("SELECT pg_backend_pid()")).scalar_one()
 
             reset_module._acquire_fence(conn)
             pid_after_acquire = _lock_holder_pid()
@@ -590,10 +590,10 @@ class TestReconciliation:
         (nullable) must be reconcilable without an FK violation, and
         without a blind `TRUNCATE admin_audit`."""
         with reset_db_engine.connect() as conn:
-            booth_id = conn.execute(
+            booth_id: Any = conn.execute(
                 text("SELECT id FROM booths WHERE slug = :slug"), {"slug": fx.BOOTHS[0].slug}
             ).scalar_one()
-            extra_staff_id = conn.execute(
+            extra_staff_id: Any = conn.execute(
                 text(
                     "INSERT INTO staff_accounts (email, password_hash, full_name, role, booth_id) "
                     "VALUES ('rehearsal-staff@test.facemark.demo', 'x', 'Rehearsal Staff', "
@@ -682,7 +682,7 @@ class TestReconciliation:
 def _mint_attendee_session(engine: Engine, *, user_email: str) -> str:
     session = Session(bind=engine)
     try:
-        user_id = session.execute(
+        user_id: Any = session.execute(
             text("SELECT id FROM users WHERE email = :e"), {"e": user_email}
         ).scalar_one()
         raw_token = generate_session_token()
@@ -702,7 +702,7 @@ def _mint_attendee_session(engine: Engine, *, user_email: str) -> str:
 def _mint_staff_session(engine: Engine, *, staff_email: str) -> str:
     session = Session(bind=engine)
     try:
-        staff_id = session.execute(
+        staff_id: Any = session.execute(
             text("SELECT id FROM staff_accounts WHERE email = :e"), {"e": staff_email}
         ).scalar_one()
         raw_token = generate_session_token()
@@ -880,13 +880,13 @@ def _fixture_ids(engine: Engine) -> tuple[int, int, int]:
     attendee, the first fixture booth, and that booth's staff account."""
     booth_staff = next(s for s in fx.STAFF if s.booth_slug is not None)
     with engine.connect() as conn:
-        user_id = conn.execute(
+        user_id: Any = conn.execute(
             text("SELECT id FROM users WHERE email = :e"), {"e": fx.ATTENDEES[0].email}
         ).scalar_one()
-        booth_id = conn.execute(
+        booth_id: Any = conn.execute(
             text("SELECT id FROM booths WHERE slug = :s"), {"s": booth_staff.booth_slug}
         ).scalar_one()
-        staff_id = conn.execute(
+        staff_id: Any = conn.execute(
             text("SELECT id FROM staff_accounts WHERE email = :e"), {"e": booth_staff.email}
         ).scalar_one()
     return int(user_id), int(booth_id), int(staff_id)
@@ -898,7 +898,7 @@ class TestIdempotencyPointsFeedback:
     ) -> None:
         user_id, booth_id, staff_id = _fixture_ids(reset_db_engine)
         with reset_db_engine.connect() as conn:
-            points_log_id = conn.execute(
+            points_log_id: Any = conn.execute(
                 text(
                     "INSERT INTO points_log (user_id, booth_id, source, entry_type, points, "
                     "entered_by_staff_id, entered_by_system, dedupe_key) VALUES "
@@ -924,7 +924,7 @@ class TestIdempotencyPointsFeedback:
     def test_points_and_reversals_removed(self, reset_db_engine: Engine, reset_db_url: str) -> None:
         user_id, booth_id, staff_id = _fixture_ids(reset_db_engine)
         with reset_db_engine.connect() as conn:
-            award_id = conn.execute(
+            award_id: Any = conn.execute(
                 text(
                     "INSERT INTO points_log (user_id, booth_id, source, entry_type, points, "
                     "entered_by_staff_id, entered_by_system) VALUES "
@@ -1017,7 +1017,7 @@ class TestIdempotencyPointsFeedback:
         scoped to entry_type = 'AWARD')."""
         user_id, booth_id, _ = _fixture_ids(reset_db_engine)
         with reset_db_engine.connect() as conn:
-            award_id = conn.execute(
+            award_id: Any = conn.execute(
                 text(
                     "INSERT INTO points_log (user_id, booth_id, source, entry_type, points, "
                     "entered_by_system) VALUES (:u, :b, 'FEEDBACK', 'AWARD', 5, true) RETURNING id"

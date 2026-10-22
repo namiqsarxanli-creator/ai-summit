@@ -11,6 +11,7 @@ buffered connection.)
 from __future__ import annotations
 
 import logging
+import threading
 import time
 
 from sqlalchemy import select
@@ -148,11 +149,63 @@ def current_dataset_generation() -> int:
         db.close()
 
 
+_push_lock = threading.Lock()
+_last_push = float("-inf")
+_trailing: threading.Timer | None = None
+
+
 def publish_leaderboard_changed() -> None:
-    """Invalidate the shared ranking, rank once, push the new top N to every
-    stream (see `leaderboard_push_payload`). If ranking fails the event still
-    goes out without a payload and clients fall back to refetching."""
+    """The leaderboard may differ now. The shared ranking is discarded AT ONCE
+    (every read stays exact); the push to the open streams is coalesced
+    (`leaderboard_push_interval_seconds`): the first change is pushed now, the
+    changes of the next window go out as one push at its end, carrying the
+    newest ranking and version. A client drops an out-of-order push by version."""
+    global _last_push, _trailing
     event_bus.invalidate_leaderboard()
+    interval = get_settings().leaderboard_push_interval_seconds
+    if interval <= 0:
+        _push_leaderboard()
+        return
+    with _push_lock:
+        now = time.monotonic()
+        if _trailing is None and now - _last_push >= interval:
+            _last_push = now
+            push_now = True
+        else:
+            push_now = False
+            if _trailing is None:
+                _trailing = threading.Timer(max(0.0, interval - (now - _last_push)), _push_trailing)
+                _trailing.daemon = True
+                _trailing.start()
+    if push_now:
+        _push_leaderboard()
+
+
+def _push_trailing() -> None:
+    global _last_push, _trailing
+    with _push_lock:
+        _trailing = None
+        _last_push = time.monotonic()
+    try:
+        _push_leaderboard()
+    except Exception:
+        logger.exception("failed to publish the coalesced leaderboard push")
+
+
+def reset_leaderboard_push() -> None:
+    """Forget the coalescing window (tests; a dataset reset)."""
+    global _last_push, _trailing
+    with _push_lock:
+        if _trailing is not None:
+            _trailing.cancel()
+        _trailing = None
+        _last_push = float("-inf")
+
+
+def _push_leaderboard() -> None:
+    """Rank once and push the top N to every stream (see `leaderboard_push_payload`).
+    If ranking fails the event still goes out without a payload and clients fall
+    back to refetching."""
     payload: dict[str, object] = {}
     try:
         db = SessionLocal()

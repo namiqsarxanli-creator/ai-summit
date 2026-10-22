@@ -84,7 +84,7 @@ export function MyReport() {
         {r.founder && <p className="fm-strong">{t(r.lucky_draw ? "You are a Beyond Now Founder and in the Lucky Draw." : "You are a Beyond Now Founder.")}</p>}
         <dl className="fm-dl">
           {r.categories.map((c) => (
-            <div key={c.category}><dt>{t(CATEGORY_LABEL[c.category] ?? c.category)}</dt><dd>{c.points} / {c.maximum}</dd></div>
+            <div key={c.category}><dt>{t(CATEGORY_LABEL[c.category] ?? c.category)}</dt><dd>{c.points} / {c.maximum}{c.points >= c.maximum && <span className="fm-done" role="img" aria-label={t("Completed")}> ✓</span>}</dd></div>
           ))}
         </dl>
         <ul className="fm-stack" style={{ gap: 4 }}>

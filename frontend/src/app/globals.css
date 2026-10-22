@@ -101,6 +101,8 @@ html { scroll-padding-bottom: calc(var(--fm-tabbar-h) + env(safe-area-inset-bott
 @media (min-width: 768px) { .fm-org-nav { flex-wrap: wrap; margin-inline: 0; padding-inline: 0; overflow: visible; } }
 .fm-org-rules { display: grid; gap: 4px; padding-left: 20px; list-style: disc; }
 .fm-muted { color: var(--fm-muted); }
+/* A category at its maximum: a check mark next to the count. */
+.fm-done { color: var(--fm-ok); font-weight: 800; }
 button.fm-link { min-height: var(--fm-tap); padding: 0; border: 0; background: none; cursor: pointer; }
 .fm-live { display: grid; gap: var(--fm-gap); grid-template-columns: minmax(0, 1fr); }
 .fm-live-clock { display: flex; flex-direction: column; gap: 4px; padding: 18px; border-radius: var(--fm-radius); background: var(--fm-red); color: #fff; }

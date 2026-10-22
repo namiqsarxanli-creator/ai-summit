@@ -155,4 +155,5 @@ export const organiserTranslations: Record<string, { az: string; ru: string }> =
   "Who does not compete": { az: "Yarışda iştirak etməyənlər", ru: "Кто не участвует в соревновании" },
   "Founder rule": { az: "Founder qaydası", ru: "Правило Founder" },
   "Reminder emails": { az: "Xatırlatma məktubları", ru: "Письма-напоминания" },
+  "Points given here do not count in the Beyond Now competition. Use the attendance desk for competition points.": { az: "Burada verilən xallar Beyond Now yarışında sayılmır. Yarış xalları üçün iştirak skanından istifadə edin.", ru: "Баллы, начисленные здесь, не учитываются в соревновании Beyond Now. Для баллов соревнования используйте сканирование участия." },
 };

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { waitFor, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { messageFor } from "@/lib/errors";
@@ -51,16 +51,37 @@ describe("StaffPanel", () => {
     // The organiser console has its own link; the staff panel does not point to it.
     expect(screen.queryByRole("link", { name: "Organiser panel" })).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Activities")).not.toBeInTheDocument();
-    // Only /me was ever called — never /staff/tasks for an admin.
+    // Never /staff/tasks for an admin (the public competition status is read too).
     const calls = fetchMock.mock.calls as unknown as [string, RequestInit][];
-    expect(calls.map(([u]) => u)).toEqual(["/api/staff/me"]);
+    expect(calls.map(([u]) => u).sort()).toEqual(["/api/final", "/api/staff/me"]);
+  });
+
+  it("hides the old booth-activity scanner while the competition ranking is on", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        url === "/api/staff/me"
+          ? jsonResponse(200, BOOTH_STAFF_ME)
+          : url === "/api/final"
+            ? jsonResponse(200, { status: "open", missing: [], closes_at: null })
+            : jsonResponse(200, TASKS),
+      ),
+    );
+    render(<StaffPanel />);
+    await screen.findByText("Noah Bergström");
+    await waitFor(() => expect(screen.queryByRole("link", { name: "Scan attendee" })).toBeNull());
+    expect(screen.getByRole("link", { name: "Attendance scanning" })).toHaveAttribute("href", "/staff/attendance");
   });
 
   it("offers scanning (M10) but no award controls yet", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string) =>
-        url === "/api/staff/me" ? jsonResponse(200, BOOTH_STAFF_ME) : jsonResponse(200, TASKS),
+        url === "/api/staff/me"
+          ? jsonResponse(200, BOOTH_STAFF_ME)
+          : url === "/api/final"
+            ? jsonResponse(200, { status: "disabled", missing: ["competition_mode"], closes_at: null })
+            : jsonResponse(200, TASKS),
       ),
     );
     render(<StaffPanel />);

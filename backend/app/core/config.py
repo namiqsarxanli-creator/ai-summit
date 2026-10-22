@@ -189,6 +189,13 @@ class Settings(BaseSettings):
     # How long the shared leaderboard ranking may be reused when no award or
     # profile change was signalled in this process (0 = recompute every request).
     leaderboard_cache_seconds: float = Field(default=5.0, ge=0, le=60)
+    # Leaderboard pushes to the open streams are coalesced: the first change is
+    # pushed at once, later ones within this window go out as ONE push at its end
+    # (0 = push every change). Found by a 500-phone load test on one CPU: a push
+    # per award re-ranked and re-sent the board to every stream (TLS included)
+    # and starved the requests. Reads are exact either way - the ranking cache is
+    # discarded at every change; only the push to idle phones is batched.
+    leaderboard_push_interval_seconds: float = Field(default=2.0, ge=0, le=30)
     # Beyond Now Founder: which activities complete a zone is NOT confirmed by the
     # organiser (competition/founder.py). Until an operator sets this after that
     # decision, no Founder bonus is awarded and no final result names Founders or

@@ -30,6 +30,7 @@ import re
 import string
 from collections.abc import Iterator
 from decimal import Decimal
+from typing import Any
 
 import pytest
 from argon2 import PasswordHasher
@@ -368,7 +369,7 @@ def test_public_tokens_contain_no_attendee_pii() -> None:
 
 def test_event_config_row_is_the_fixed_singleton(seed_session: Session) -> None:
     _run_seed(seed_session)
-    row_count = seed_session.execute(text("SELECT count(*) FROM event_config")).scalar_one()
+    row_count: Any = seed_session.execute(text("SELECT count(*) FROM event_config")).scalar_one()
     assert row_count == 1
 
 
@@ -378,7 +379,7 @@ def test_every_demo_activity_carries_a_point_value(seed_session: Session) -> Non
     for b in fx.BOOTHS:
         for t in b.tasks:
             assert 1 <= t.points <= 100
-            stored = seed_session.execute(
+            stored: Any = seed_session.execute(
                 text(
                     "SELECT points FROM tasks WHERE title = :t AND booth_id = "
                     "(SELECT id FROM booths WHERE slug = :s)"

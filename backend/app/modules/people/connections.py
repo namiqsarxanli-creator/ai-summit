@@ -44,7 +44,7 @@ from app.modules.competition.ledger import (
     lock_attendee_points,
 )
 from app.modules.contact_cards.service import contact_action_for, resolve_active_attendee
-from app.modules.people.compatibility import blocked_ids, normalise_company, suggestions
+from app.modules.people.compatibility import blocked_ids, normalise_company, suggested
 from app.modules.people.models import Connection, ConnectionScan
 from app.modules.points.models import PointsEntryType, PointsLog, PointsSource
 
@@ -80,8 +80,8 @@ def connected(db: Session, a: int, b: int) -> bool:
 
 def _recommended(db: Session, a: User, b: User) -> bool:
     """Use server recommendations in either direction when the pair connects."""
-    return any(user.id == b.id for user, _ in suggestions(db, a)) or any(
-        user.id == a.id for user, _ in suggestions(db, b)
+    return any(uid == b.id for uid, _ in suggested(db, a)) or any(
+        uid == a.id for uid, _ in suggested(db, b)
     )
 
 

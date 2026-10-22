@@ -52,7 +52,7 @@ TEST_PASSWORD_HASH = hash_password("m13-test-only-staff-password")  # noqa: S106
 def _insert_returning_id(sql: str, **params: Any) -> int:
     db = SessionLocal()
     try:
-        row = db.execute(text(sql), params).scalar_one()
+        row: Any = db.execute(text(sql), params).scalar_one()
         db.commit()
         return int(row)
     finally:
@@ -783,7 +783,7 @@ def test_aggregation_stays_fast_over_a_few_thousand_row_ledger(rig: Rig) -> None
         )
         db.commit()
 
-        plan = db.execute(
+        plan: Any = db.execute(
             text(
                 "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) "
                 "SELECT u.id, COALESCE(SUM(p.points), 0) AS total_points, "

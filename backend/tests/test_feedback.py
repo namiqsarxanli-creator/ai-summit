@@ -54,7 +54,7 @@ SEEDED_FEEDBACK_POINTS = 5  # app/seed/demo_fixtures.py's event_config default
 def _insert_returning_id(sql: str, **params: Any) -> int:
     db = SessionLocal()
     try:
-        row = db.execute(text(sql), params).scalar_one()
+        row: Any = db.execute(text(sql), params).scalar_one()
         db.commit()
         return int(row)
     finally:

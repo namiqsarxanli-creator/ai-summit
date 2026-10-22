@@ -20,6 +20,7 @@ emails and aggregate counts of everyone else.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -109,7 +110,7 @@ def _collect(db: Session) -> InventoryReport:
     demo_slugs = list(fixture_booths)
     demo_attendee_emails = [a.email for a in fx.ATTENDEES]
 
-    staff_rows = db.execute(
+    staff_rows: Sequence[Any] = db.execute(
         text(
             "SELECT s.id, s.email::text, s.full_name, s.role::text, s.is_active, b.slug, "
             "(SELECT count(*) FROM points_log p WHERE p.entered_by_staff_id = s.id) "
@@ -133,7 +134,7 @@ def _collect(db: Session) -> InventoryReport:
         demo_staff_ids.add(sid)
         demo_staff.append(DemoStaff(sid, email, name, role, active, booth_slug, same, int(awarded)))
 
-    booth_rows = db.execute(
+    booth_rows: Sequence[Any] = db.execute(
         text(
             "SELECT b.id, b.slug, b.name, b.description, b.location_label, b.is_active, "
             "(SELECT count(*) FROM tasks t WHERE t.booth_id = b.id), "
@@ -169,7 +170,7 @@ def _collect(db: Session) -> InventoryReport:
             )
         )
 
-    attendee_rows = db.execute(
+    attendee_rows: Sequence[Any] = db.execute(
         text(
             "SELECT u.id, u.email::text, u.status::text, "
             "(SELECT count(*) FROM points_log p WHERE p.user_id = u.id), "
@@ -185,7 +186,7 @@ def _collect(db: Session) -> InventoryReport:
         for uid, email, status, pts, fb in attendee_rows
     ]
 
-    other_staff_rows = db.execute(
+    other_staff_rows: Sequence[Any] = db.execute(
         text(
             "SELECT s.id, s.email::text, s.role::text, s.is_active, b.slug "
             "FROM staff_accounts s LEFT JOIN booths b ON b.id = s.booth_id "
@@ -195,12 +196,12 @@ def _collect(db: Session) -> InventoryReport:
     ).all()
     other_staff = [RealStaff(*row) for row in other_staff_rows]
 
-    other_booths = db.execute(
+    other_booths: Any = db.execute(
         text("SELECT count(*) FROM booths WHERE NOT (slug = ANY(CAST(:slugs AS text[])))"),
         {"slugs": demo_slugs},
     ).scalar_one()
     demo_attendee_ids = [a.id for a in demo_attendees]
-    other_attendees = db.execute(
+    other_attendees: Any = db.execute(
         text("SELECT count(*) FROM users WHERE NOT (id = ANY(CAST(:ids AS int[])))"),
         {"ids": demo_attendee_ids},
     ).scalar_one()

@@ -6,6 +6,8 @@ the demo seed runs at all is covered by test_real_bootstrap.py."""
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 from sqlalchemy import text
 
@@ -28,7 +30,7 @@ def test_seed_all_without_demo_attendees_creates_none(monkeypatch: pytest.Monkey
         result = seed_all(db, admin_password="a", staff_password="s", include_demo_attendees=False)
         assert result.attendees_created == 0
         assert result.contact_cards_created == 0
-        remaining = db.execute(
+        remaining: Any = db.execute(
             text("SELECT count(*) FROM users WHERE email LIKE '%@attendee.facemark.demo'")
         ).scalar_one()
         assert remaining == 0

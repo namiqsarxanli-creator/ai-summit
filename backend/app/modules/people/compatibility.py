@@ -16,8 +16,9 @@ This is people matching; the booth recommendations (matching/) are separate.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Final
+from typing import Final, Protocol
 
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
@@ -49,6 +50,33 @@ THRESHOLD: Final = 30
 SUGGESTIONS: Final = 5
 
 
+class Card(Protocol):
+    """The four interest-card answers a compatibility needs (a `User` is one)."""
+
+    @property
+    def card_sector(self) -> str | None: ...
+    @property
+    def card_topics(self) -> Sequence[str]: ...
+    @property
+    def card_seeking(self) -> Sequence[str]: ...
+    @property
+    def card_offering(self) -> Sequence[str]: ...
+
+
+@dataclass(frozen=True)
+class _Candidate:
+    """One other attendee as the ranking needs them: id, company and card only.
+    Loading these few columns instead of full `User` rows keeps a ranking of the
+    whole event cheap (it runs inside a mutual-scan transaction)."""
+
+    id: int
+    company: str | None
+    card_sector: str | None
+    card_topics: Sequence[str]
+    card_seeking: Sequence[str]
+    card_offering: Sequence[str]
+
+
 @dataclass(frozen=True)
 class Match:
     score: int
@@ -63,7 +91,7 @@ def normalise_company(value: str | None) -> str:
     return " ".join((value or "").casefold().split())
 
 
-def _complement(a: User, b: User) -> tuple[str, str] | None:
+def _complement(a: Card, b: Card) -> tuple[str, str] | None:
     for seeker, offerer in ((a, b), (b, a)):
         for want in sorted(seeker.card_seeking):
             offer = COMPLEMENT.get(want)
@@ -72,7 +100,7 @@ def _complement(a: User, b: User) -> tuple[str, str] | None:
     return None
 
 
-def compatibility(a: User, b: User, shared_masterclasses: int) -> Match:
+def compatibility(a: Card, b: Card, shared_masterclasses: int) -> Match:
     pair = _complement(a, b)
     topics = tuple(sorted(set(a.card_topics) & set(b.card_topics)))
     same_sector = a.card_sector is not None and a.card_sector == b.card_sector
@@ -122,20 +150,44 @@ def _masterclasses(db: Session) -> dict[int, set[int]]:
     return held
 
 
-def suggestions(db: Session, me: User) -> list[tuple[User, Match]]:
-    """Up to 5 people, best first (score, then id for a stable order)."""
+def suggested(db: Session, me: User) -> list[tuple[int, Match]]:
+    """Up to 5 people as (user id, match), best first (score, then id for a
+    stable order). Reads only the columns the ranking needs."""
     excluded = blocked_ids(db, me.id) | {me.id}
     company = normalise_company(me.company)
     held = _masterclasses(db)
     mine = held.get(me.id, set())
-    scored: list[tuple[User, Match]] = []
-    for other in db.execute(select(User).where(User.status == UserStatus.ACTIVE)).scalars():
-        if other.id in excluded:
+    scored: list[tuple[int, Match]] = []
+    rows = db.execute(
+        select(
+            User.id,
+            User.company,
+            User.card_sector,
+            User.card_topics,
+            User.card_seeking,
+            User.card_offering,
+        ).where(User.status == UserStatus.ACTIVE)
+    ).all()
+    for uid, other_company, sector, topics, seeking, offering in rows:
+        if uid in excluded:
             continue
-        if company and normalise_company(other.company) == company:
+        if company and normalise_company(other_company) == company:
             continue
-        match = compatibility(me, other, len(mine & held.get(other.id, set())))
+        other = _Candidate(uid, other_company, sector, topics or (), seeking or (), offering or ())
+        match = compatibility(me, other, len(mine & held.get(uid, set())))
         if match.score >= THRESHOLD:
-            scored.append((other, match))
-    scored.sort(key=lambda pair: (-pair[1].score, pair[0].id))
+            scored.append((uid, match))
+    scored.sort(key=lambda pair: (-pair[1].score, pair[0]))
     return scored[:SUGGESTIONS]
+
+
+def suggestions(db: Session, me: User) -> list[tuple[User, Match]]:
+    """Up to 5 people, best first, as full rows (for the People page)."""
+    top = suggested(db, me)
+    if not top:
+        return []
+    users = {
+        u.id: u
+        for u in db.execute(select(User).where(User.id.in_([uid for uid, _ in top]))).scalars()
+    }
+    return [(users[uid], match) for uid, match in top if uid in users]

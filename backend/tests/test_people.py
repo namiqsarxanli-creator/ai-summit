@@ -62,13 +62,13 @@ def test_the_score_follows_the_document_and_is_bounded() -> None:
         topics=["data", "erp", "hr", "design"],
         offering=["mentoring", "partnership"],
     )
-    m = compatibility(a, b, 2)  # type: ignore[arg-type]
+    m = compatibility(a, b, 2)
     # complement 40 ONCE (two matching pairs do not add up), topics capped at 30,
     # two shared masterclasses 15, same sector 15
     assert m.score == 100 and m.complement == ("mentor", "mentoring")
-    assert compatibility(_U(topics=["data"]), _U(topics=["data"]), 1).score == 20  # type: ignore[arg-type]
-    assert compatibility(_U(), _U(), 0).score == 0  # type: ignore[arg-type]
-    friendship = compatibility(_U(seeking=["friendship"]), _U(offering=["friendship_hobby"]), 0)  # type: ignore[arg-type]
+    assert compatibility(_U(topics=["data"]), _U(topics=["data"]), 1).score == 20
+    assert compatibility(_U(), _U(), 0).score == 0
+    friendship = compatibility(_U(seeking=["friendship"]), _U(offering=["friendship_hobby"]), 0)
     assert friendship.score == 40 and friendship.reasons == ("complement",)
 
 

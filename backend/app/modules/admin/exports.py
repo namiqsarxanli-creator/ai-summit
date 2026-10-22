@@ -204,12 +204,12 @@ def _iso(moment: datetime) -> str:
 @dataclass(frozen=True)
 class ExportSpec:
     columns: tuple[tuple[str, Kind], ...]
-    statement: Callable[[Any], Select[Any]]
+    statement: Callable[[Any], Select[*tuple[Any, ...]]]
     cells: Callable[[Any], tuple[object, ...]]
     description: str
 
 
-def _attendees_statement(f: AttendeeFilters) -> Select[Any]:
+def _attendees_statement(f: AttendeeFilters) -> Select[*tuple[Any, ...]]:
     stmt = select(
         User.id,
         User.first_name,
@@ -224,14 +224,14 @@ def _attendees_statement(f: AttendeeFilters) -> Select[Any]:
     return stmt.order_by(User.created_at.desc(), User.id.desc())
 
 
-def _points_statement(f: PointsFilters) -> Select[Any]:
+def _points_statement(f: PointsFilters) -> Select[*tuple[Any, ...]]:
     stmt = admin.points_statement()
     for clause in admin.points_clauses(f):
         stmt = stmt.where(clause)
     return stmt.order_by(PointsLog.created_at.desc(), PointsLog.id.desc())
 
 
-def _sponsor_statement(_: SponsorExportRequest) -> Select[Any]:
+def _sponsor_statement(_: SponsorExportRequest) -> Select[*tuple[Any, ...]]:
     # The two conditions are part of the query, not of any parameter.
     return (
         select(
@@ -410,7 +410,7 @@ def _audit(
 # --- the stream ---------------------------------------------------------------
 
 
-def _count(session: Session, stmt: Select[Any]) -> int:
+def _count(session: Session, stmt: Select[*tuple[Any, ...]]) -> int:
     return int(
         session.execute(
             select(func.count()).select_from(stmt.order_by(None).subquery())

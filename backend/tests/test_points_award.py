@@ -67,7 +67,7 @@ SCAN_REF_SECRET = get_settings().scan_ref_secret
 def _insert_returning_id(sql: str, **params: Any) -> int:
     db = SessionLocal()
     try:
-        row = db.execute(text(sql), params).scalar_one()
+        row: Any = db.execute(text(sql), params).scalar_one()
         db.commit()
         return int(row)
     finally:

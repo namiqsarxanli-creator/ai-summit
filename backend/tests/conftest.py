@@ -19,6 +19,8 @@ os.environ["APP_ORIGIN"] = "http://localhost:3000"
 # Tests change points/users with direct SQL and read them back at once: no
 # shared read caching (tests that cover the cache turn it on themselves).
 os.environ["LEADERBOARD_CACHE_SECONDS"] = "0"
+# Push every leaderboard change at once in tests; the coalescing has its own tests.
+os.environ["LEADERBOARD_PUSH_INTERVAL_SECONDS"] = "0"
 
 # ...and runs against its OWN database, never the running stack's (see
 # tests/suite_db.py): uniquely named per run and dropped only by this run.

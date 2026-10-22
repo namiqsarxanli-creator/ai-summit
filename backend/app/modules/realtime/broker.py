@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import threading
 from collections import defaultdict
 from dataclasses import dataclass
@@ -41,6 +42,10 @@ QUEUE_MAXSIZE = 8
 class RealtimeEvent:
     event: str
     data: dict[str, object]
+    # A broadcast's `data` encoded ONCE, at publish: every stream sends these
+    # same bytes instead of encoding the payload again on the event loop (500
+    # streams x one leaderboard push blocked the loop for ~1 s in a load test).
+    raw: str | None = None
 
 
 class EventBus:
@@ -114,7 +119,10 @@ class EventBus:
             if event == "dataset_reset":
                 self.leaderboard_version += 1
             queues = tuple(self._broadcast)
-        self._deliver(queues, RealtimeEvent(event, data))
+        if not queues:
+            return
+        raw = json.dumps(data, separators=(",", ":"), ensure_ascii=False, default=str)
+        self._deliver(queues, RealtimeEvent(event, data, raw))
 
     def _deliver(
         self, queues: tuple[asyncio.Queue[RealtimeEvent], ...], item: RealtimeEvent

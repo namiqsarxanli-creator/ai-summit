@@ -13,6 +13,7 @@ from __future__ import annotations
 import threading
 import time
 from collections.abc import Iterator
+from typing import Any
 
 import psycopg
 import pytest
@@ -127,7 +128,7 @@ def test_commits_on_success(db: Session, committed_interest_id: int) -> None:
     # visible within `db`'s own uncommitted transaction.
     fresh = SessionLocal()
     try:
-        name = fresh.execute(
+        name: Any = fresh.execute(
             text("SELECT name FROM interests WHERE id = :i"), {"i": committed_interest_id}
         ).scalar_one()
     finally:
@@ -150,7 +151,7 @@ def test_rolls_back_on_exception(db: Session, committed_interest_id: int) -> Non
     # A fresh session sees the ORIGINAL value — the update never committed.
     fresh = SessionLocal()
     try:
-        name = fresh.execute(
+        name: Any = fresh.execute(
             text("SELECT name FROM interests WHERE id = :i"), {"i": committed_interest_id}
         ).scalar_one()
     finally:
