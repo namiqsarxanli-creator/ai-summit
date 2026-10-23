@@ -102,12 +102,16 @@ def test_eve_and_ten_minutes_before_each_confirmed_item_once(rm: Mentors) -> Non
         (waiting, "eve"),
     }
     provider = FakeProvider(accepted())
-    assert run(rm, provider, datetime(2026, 11, 12, 13, 59, tzinfo=UTC)) == 0  # not due yet
-    assert run(rm, provider, datetime(2026, 11, 12, 14, 0, tzinfo=UTC)) == 2  # 18:00 in Baku
+    # Due at 18:00 in Baku (14:00 UTC); sending may begin 10 minutes earlier.
+    assert run(rm, provider, datetime(2026, 11, 12, 13, 49, tzinfo=UTC)) == 0  # not yet
+    assert run(rm, provider, datetime(2026, 11, 12, 13, 50, tzinfo=UTC)) == 2
     assert run(rm, provider, datetime(2026, 11, 12, 14, 1, tzinfo=UTC)) == 0  # sent once
-    assert run(rm, provider, baku("13:00")) == 1
+    assert run(rm, provider, baku("12:49")) == 0
+    assert run(rm, provider, baku("12:50")) == 1  # due 13:00, the session starts 13:10
     assert provider.messages[-1].subject == "13:10 · Careers in AI"
-    assert "10 dəqiqədən sonra" in provider.messages[-1].text
+    # It names the start time, so a reminder sent early is still true.
+    assert "Başlama vaxtı 13:10: Careers in AI" in provider.messages[-1].text
+    assert "dəqiqə" not in provider.messages[-1].text
     assert {r[1] for r in rows(rm)} == {"SENT"}
     assert len({m.idempotency_key for m in provider.messages}) == 3
 

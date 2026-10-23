@@ -38,6 +38,12 @@ from app.modules.reminders.models import ReminderDelivery
 logger = logging.getLogger("facemark.reminders")
 
 BEFORE: Final = timedelta(minutes=10)
+# A reminder is due 10 minutes before its item, but sending may begin this much
+# earlier: a whole masterclass block becomes due in the same minute, and at the
+# provider's pace (one per second in production) a burst started only at the
+# due time would still be going out when the sessions begin. The text names the
+# start time, never "in 10 minutes", so an early reminder stays true.
+EARLY: Final = timedelta(minutes=10)
 EVE_AT: Final = time(18, 0)  # 12 November, event time
 STALE_AFTER: Final = timedelta(minutes=15)  # a reminder this late is no longer useful
 LEASE: Final = timedelta(minutes=2)
@@ -105,11 +111,13 @@ def plan(db: Session, now: datetime) -> dict[str, int]:
             if row is not None:
                 if row.due_at != due:
                     row.due_at = due
-                    row.next_attempt_at = due
+                    row.next_attempt_at = due - EARLY
                     counts["retimed"] += 1
             elif (user.id, key) not in known:  # sent or cancelled before: never again
                 db.add(
-                    ReminderDelivery(user_id=user.id, item_key=key, due_at=due, next_attempt_at=due)
+                    ReminderDelivery(
+                        user_id=user.id, item_key=key, due_at=due, next_attempt_at=due - EARLY
+                    )
                 )
                 counts["created"] += 1
     for pair, row in existing.items():
@@ -179,9 +187,9 @@ def _render(item: dict[str, Any] | None, event: MasterclassEvent) -> tuple[str, 
     where = f" · {item['place']}" if item.get("place") else ""
     subject = f"{start} · {title}"
     body = (
-        f"10 dəqiqədən sonra: {title}{where} ({start}).\n"
-        f"Через 10 минут: {title}{where} ({start}).\n"
-        f"In 10 minutes: {title}{where} ({start})."
+        f"Başlama vaxtı {start}: {title}{where}.\n"
+        f"Начало в {start}: {title}{where}.\n"
+        f"Starts at {start}: {title}{where}."
     )
     return subject, body
 
