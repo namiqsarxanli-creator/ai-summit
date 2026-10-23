@@ -28,6 +28,9 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 ADMISSION_LIMIT = 12
 ADMISSION_WAIT_SECONDS = 15.0
 EXEMPT_PATHS = frozenset({"/api/realtime/stream", "/api/attendees/me/photo"})
+# What the operator's status page shows (app/core/error_log.py's neighbour):
+# requests inside now, waiting for a slot now, and turned away since the start.
+STATE: dict[str, int] = {"limit": ADMISSION_LIMIT, "inside": 0, "waiting": 0, "turned_away": 0}
 
 
 class AdmissionMiddleware:
@@ -51,15 +54,22 @@ class AdmissionMiddleware:
         if self._slots is None:
             self._slots = asyncio.Semaphore(self.limit)
         slots = self._slots
+        STATE["limit"] = self.limit
+        STATE["waiting"] += 1
         try:
             async with asyncio.timeout(self.wait_seconds):
                 await slots.acquire()
         except TimeoutError:
+            STATE["turned_away"] += 1
             await _busy(send)
             return
+        finally:
+            STATE["waiting"] -= 1
+        STATE["inside"] += 1
         try:
             await self.app(scope, receive, send)
         finally:
+            STATE["inside"] -= 1
             slots.release()
 
 

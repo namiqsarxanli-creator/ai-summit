@@ -97,6 +97,17 @@ def attendees(
     return admin.attendee_page(db, query)
 
 
+@router.get("/system-status")
+def system_status(admin_user: CurrentAdmin, response: Response) -> dict[str, Any]:
+    """READ-ONLY, administrators only: is each part working, and where did the
+    server fail (admin/system_status.py). No personal data."""
+    from app.modules.admin.system_status import report
+
+    _read(admin_user)
+    response.headers["Cache-Control"] = "no-store"
+    return report()
+
+
 @router.get("/booths")
 def booths(admin_user: CurrentAdmin, db: DbSession) -> list[dict[str, Any]]:
     _read(admin_user)

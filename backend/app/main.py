@@ -32,6 +32,7 @@ from sqlalchemy.exc import OperationalError
 from app.core.admission import AdmissionMiddleware
 from app.core.config import get_settings
 from app.core.csrf import OriginAssertionMiddleware
+from app.core.error_log import ErrorRecorderMiddleware
 from app.core.errors import DomainError, MaintenanceError, RateLimitedError, error_envelope
 from app.core.media import get_store
 from app.core.privacy import CardPrivacyHeadersMiddleware, install_log_masking
@@ -283,9 +284,11 @@ def create_app() -> FastAPI:
     app.add_middleware(CardPrivacyHeadersMiddleware)
     app.add_middleware(RealtimeStreamHeadersMiddleware)
     app.add_middleware(DatasetGenerationHeaderMiddleware)
-    # Outermost: a request waits for an admission slot BEFORE it takes a worker
+    # Outermost but one: a request waits for an admission slot BEFORE it takes a worker
     # thread or a database connection (app/core/admission.py).
     app.add_middleware(AdmissionMiddleware)
+    # Outside admission control, so its 503s are counted too (app/core/error_log.py).
+    app.add_middleware(ErrorRecorderMiddleware)
     app.include_router(api_router)
     app.include_router(attendees_router, prefix="/api")
     app.include_router(admin_router, prefix="/api", include_in_schema=not settings.is_production)

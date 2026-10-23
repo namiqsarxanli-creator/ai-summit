@@ -13,12 +13,13 @@ import { PlaygroundAdmin } from "@/components/admin/PlaygroundAdmin";
 import { CompetitionAdmin } from "@/components/admin/CompetitionAdmin";
 import { ConnectionHubAdmin } from "@/components/admin/ConnectionHubAdmin";
 import { MasterclassAdmin } from "@/components/admin/MasterclassAdmin";
+import { SystemStatus } from "@/components/admin/SystemStatus";
 import { Records, type RecordValue } from "@/components/admin/Records";
 
-type Section = "competition" | "connection-hub" | "playground" | "attendees" | "masterclasses" | "booths" | "interests" | "staff" | "tasks" | "presets" | "event-config" | "points-log" | "audit" | "otp-deliveries" | "demo-otps";
+type Section = "competition" | "connection-hub" | "playground" | "attendees" | "masterclasses" | "booths" | "interests" | "staff" | "tasks" | "presets" | "event-config" | "points-log" | "audit" | "otp-deliveries" | "system" | "demo-otps";
 
-const sections: Section[] = ["attendees", "competition", "connection-hub", "playground", "masterclasses", "booths", "interests", "staff", "tasks", "presets", "event-config", "points-log", "audit", "otp-deliveries", "demo-otps"];
-const titles: Record<Section, string> = { competition: "Beyond Now competition", "connection-hub": "Connection Hub", playground: "AI Playground", attendees: "Attendees", masterclasses: "Masterclass programme", booths: "Booths", interests: "Interests", staff: "Staff", tasks: "Tasks", presets: "Point presets (legacy)", "event-config": "Event settings", "points-log": "Points ledger", audit: "Audit log", "otp-deliveries": "Email delivery", "demo-otps": "Demo codes" };
+const sections: Section[] = ["attendees", "competition", "connection-hub", "playground", "masterclasses", "booths", "interests", "staff", "tasks", "presets", "event-config", "points-log", "audit", "otp-deliveries", "system", "demo-otps"];
+const titles: Record<Section, string> = { competition: "Beyond Now competition", "connection-hub": "Connection Hub", playground: "AI Playground", attendees: "Attendees", masterclasses: "Masterclass programme", booths: "Booths", interests: "Interests", staff: "Staff", tasks: "Tasks", presets: "Point presets (legacy)", "event-config": "Event settings", "points-log": "Points ledger", audit: "Audit log", "otp-deliveries": "Email delivery", system: "System status", "demo-otps": "Demo codes" };
 
 type DeliveryPage = {
   items: RecordValue[];
@@ -226,6 +227,8 @@ export default function AdminPage() {
           ? <MasterclassAdmin key={`${section}-${refreshKey}`} />
           : section === "audit"
           ? <AuditLog key={section} refreshKey={refreshKey} />
+          : section === "system"
+          ? <SystemStatus key={`${section}-${refreshKey}`} />
           : paged(section)
           ? <AdminList key={section} kind={section as "attendees" | "points-log"} refreshKey={refreshKey} />
           : <>
@@ -238,7 +241,7 @@ export default function AdminPage() {
       {section === "attendees" && <p className="text-sm text-(--fm-ink-soft)">{t("Attendee records are for inspection only.")}</p>}
       {section === "points-log" && <p className="text-sm text-(--fm-ink-soft)">{t("The ledger itself is never edited. An award can be reversed in full, with a reason: the reversal is a new entry linked to it.")}</p>}
       {section === "demo-otps" && <p className="text-sm text-(--fm-ink-soft)">{t("Recent codes are visible only in demo mode to signed-in administrators.")}</p>}
-      {section !== "attendees" && section !== "competition" && section !== "masterclasses" && section !== "playground" && section !== "points-log" && section !== "audit" && section !== "otp-deliveries" && section !== "demo-otps" && <fieldset disabled={busy} className="grid max-w-lg gap-3 rounded-2xl border border-(--fm-line) bg-white p-5 disabled:opacity-60">
+      {section !== "attendees" && section !== "competition" && section !== "masterclasses" && section !== "playground" && section !== "points-log" && section !== "audit" && section !== "otp-deliveries" && section !== "system" && section !== "demo-otps" && <fieldset disabled={busy} className="grid max-w-lg gap-3 rounded-2xl border border-(--fm-line) bg-white p-5 disabled:opacity-60">
         <h2 className="text-lg font-medium">{t("Manage")} {t(titles[section])}</h2>
         {section === "staff" && <>
           <Field label={t("Email" )} value={email} set={setEmail} /><Field label={t("Full name" )} value={name} set={setName} />

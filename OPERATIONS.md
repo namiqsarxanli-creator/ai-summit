@@ -398,6 +398,34 @@ writable`.
 migration revisions. There is deliberately no metrics endpoint. If you add one
 later, put it on an internal-only listener, not behind the public proxy.
 
+**The operator's status page** (`/admin` → *System status*, administrators
+only - the system's operator, never the organiser's Game Masters). It refreshes
+every 30 s and shows: the `ops-check` results above (without the worker, whose
+files live in its own container - the outbox checks show a stuck worker), the
+server load (requests inside / waiting / turned away with 503 since start), and
+every server error (5xx, or an exception that escaped) **by section of the
+site** - registration, masterclasses, Playground, networking, scanning, panels,
+screens… - counted over 15 min / 1 h / 24 h with the reason (`SERVER_BUSY`,
+`MAINTENANCE`, `INTERNAL_ERROR` or the exception class) and the latest 50 with
+their masked path (`/api/x/{id}`). Kept in the backend's memory
+(`app/core/error_log.py`): it starts empty after a restart (the page shows the
+uptime), and it cannot load when the server itself is down - the Telegram alert
+below covers that. For the stack trace of an `INTERNAL_ERROR`:
+`$DC logs --since 30m backend | grep -A30 "Unhandled"`.
+
+**Telegram alert to the operator** (optional, yours): create a bot with
+@BotFather, send it one message, read your chat id from
+`https://api.telegram.org/bot<TOKEN>/getUpdates`, then on the server:
+
+```bash
+install -m 600 /dev/null /etc/facemark-alert.env
+nano /etc/facemark-alert.env   # ALERT_TELEGRAM_BOT_TOKEN=...  ALERT_TELEGRAM_CHAT_ID=...
+```
+
+The cron `monitor.sh` (every 5 min) then messages that chat when the result
+changes (a new or different problem, and the recovery) and every hour while it
+is not OK. The token goes to curl on stdin, never on a command line.
+
 ### Alert conditions and what to do
 
 Machine-readable examples (probe URLs, thresholds, log patterns) are in

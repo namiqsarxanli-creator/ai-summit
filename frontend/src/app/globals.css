@@ -103,6 +103,10 @@ html { scroll-padding-bottom: calc(var(--fm-tabbar-h) + env(safe-area-inset-bott
 .fm-muted { color: var(--fm-muted); }
 /* A category at its maximum: a check mark next to the count. */
 .fm-done { color: var(--fm-ok); font-weight: 800; }
+/* The operator's status page: working / warning / not working. */
+.fm-badge-ok { border-color: var(--fm-ok-line); background: var(--fm-ok-soft); color: var(--fm-ok); }
+.fm-badge-warn { border-color: var(--fm-warn-line); background: var(--fm-warn-soft); color: var(--fm-warn); }
+.fm-badge-crit { border-color: var(--fm-red); background: var(--fm-red); color: #fff; }
 button.fm-link { min-height: var(--fm-tap); padding: 0; border: 0; background: none; cursor: pointer; }
 .fm-live { display: grid; gap: var(--fm-gap); grid-template-columns: minmax(0, 1fr); }
 .fm-live-clock { display: flex; flex-direction: column; gap: 4px; padding: 18px; border-radius: var(--fm-radius); background: var(--fm-red); color: #fff; }

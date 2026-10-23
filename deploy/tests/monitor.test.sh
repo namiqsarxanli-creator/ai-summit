@@ -49,6 +49,7 @@ SHIM
 cat > "$TMP/bin/curl" <<'SHIM'
 #!/usr/bin/env bash
 echo "curl $*" >> "$SHIM_CURL_LOG"
+case " $* " in *" -K - "*) cat >> "$SHIM_CURL_LOG.stdin" ;; esac
 case "$*" in
   *"/api/health/live"*) printf '%s' "${SHIM_LIVE_CODE:-200}" ;;
   *"/api/health/ready"*) printf '%s' "${SHIM_READY_CODE:-200}" ;;
@@ -95,6 +96,32 @@ scenario "PING_OK_URL is NOT requested on a warning" 1 "OVERALL: WARNING" PING_O
 grep -q 'monitor.invalid' "$SHIM_CURL_LOG" && bad "...but it was pinged" || ok "...and no ping was sent"
 scenario "PING_OK_URL is NOT requested on a critical" 2 "OVERALL: CRITICAL" PING_OK_URL=https://monitor.invalid/ping/abc SHIM_DOWN=worker
 grep -q 'monitor.invalid' "$SHIM_CURL_LOG" && bad "...but it was pinged" || ok "...and no ping was sent"
+
+# the operator's Telegram alert: on a change of result, never the token on argv
+export ALERT_ENV_FILE="$TMP/none.env"
+TG="ALERT_TELEGRAM_BOT_TOKEN=123:secret-token ALERT_TELEGRAM_CHAT_ID=42 ALERT_STATE_FILE=$TMP/alert.state"
+sent() { cat "$SHIM_CURL_LOG.stdin" 2>/dev/null | grep -c 'api.telegram.org'; }
+rm -f "$TMP/alert.state" "$SHIM_CURL_LOG.stdin"
+# shellcheck disable=SC2086
+scenario "first run OK: no alert" 0 "OVERALL: OK" $TG
+[ "$(sent)" = 0 ] && ok "...nothing sent" || bad "...an alert was sent"
+# shellcheck disable=SC2086
+scenario "a stopped worker alerts" 2 "OVERALL: CRITICAL" $TG SHIM_DOWN=worker
+[ "$(sent)" = 1 ] && ok "...one alert sent" || bad "...alerts sent: $(sent)"
+grep -q 'secret-token' "$SHIM_CURL_LOG" && bad "...the token was on curl's command line" || ok "...the token never on argv"
+grep -q 'container:worker' "$SHIM_CURL_LOG" && ok "...the message names the failing part" || bad "...the message does not name it"
+# shellcheck disable=SC2086
+scenario "the same problem again: no repeat within the hour" 2 "OVERALL: CRITICAL" $TG SHIM_DOWN=worker
+[ "$(sent)" = 1 ] && ok "...still one alert" || bad "...alerts sent: $(sent)"
+# shellcheck disable=SC2086
+scenario "the same problem after the repeat interval: reminded" 2 "OVERALL: CRITICAL" $TG SHIM_DOWN=worker ALERT_REPEAT_SECONDS=0
+[ "$(sent)" = 2 ] && ok "...reminded once" || bad "...alerts sent: $(sent)"
+# shellcheck disable=SC2086
+scenario "recovery is announced" 0 "OVERALL: OK" $TG
+[ "$(sent)" = 3 ] && ok "...recovery sent" || bad "...alerts sent: $(sent)"
+grep -q 'working again' "$SHIM_CURL_LOG" && ok "...as a recovery" || bad "...not as a recovery"
+scenario "no token: nothing is sent" 2 "OVERALL: CRITICAL" SHIM_DOWN=worker "ALERT_STATE_FILE=$TMP/alert2.state"
+[ "$(sent)" = 3 ] && ok "...nothing more sent" || bad "...alerts sent: $(sent)"
 
 echo
 echo "RESULT: $pass passed, $fail failed"
