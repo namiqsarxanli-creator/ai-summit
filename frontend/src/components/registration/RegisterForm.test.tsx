@@ -54,6 +54,7 @@ function fillValidForm() {
   fireEvent.change(screen.getByLabelText("Profession / role"), {
     target: { value: "Systems Engineer" },
   });
+  fireEvent.change(screen.getByLabelText("Company"), { target: { value: "Hopper Labs" } });
 }
 
 function registerCalls() {
@@ -126,7 +127,7 @@ describe("RegisterForm", () => {
       email: "grace@summit.example.org",
       phone: "+1-555-0142",
       profession: "Systems Engineer",
-      company: null, // left empty: no company is invented
+      company: "Hopper Labs", // required since 23 Oct 2026
       interest_card: { sector: null, topics: [], seeking: [], offering: [] }, // every card group is optional
       interest_slugs: [], // booth interests are chosen later, on the profile
       sponsor_consent: false,
@@ -199,7 +200,7 @@ describe("RegisterForm", () => {
     render(<RegisterForm />);
     await screen.findByTestId("interest-card");
     fillValidForm();
-    fireEvent.change(screen.getByLabelText("Company (optional)"), { target: { value: "  Kapital Bank " } });
+    fireEvent.change(screen.getByLabelText("Company"), { target: { value: "  Kapital Bank " } });
     const card = within(screen.getByTestId("interest-card"));
     fireEvent.click(within(card.getByRole("group", { name: "My field" })).getByLabelText("Banking and finance"));
     const topics = within(card.getByRole("group", { name: "Topics I'm interested in" }));

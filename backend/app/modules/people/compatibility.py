@@ -8,8 +8,9 @@ Deterministic: the same cards give the same score and the same reasons.
 * shared masterclasses (both CONFIRMED): one 10, two 15;
 * same sector: 15.
 
-Suggested only at 30 or more; never oneself, nobody with the same (non-empty,
-normalised) company, nobody blocked either way, only ACTIVE attendees. At most 5,
+Suggested only at 30 or more; never oneself, no colleague (`same_company`: the
+same normalised company name, or the same work e-mail domain), nobody blocked
+either way, only ACTIVE attendees. At most 5,
 and never padded with weaker people. A suggestion card carries no contact data.
 This is people matching; the booth recommendations (matching/) are separate.
 """
@@ -87,8 +88,68 @@ class Match:
     reasons: tuple[str, ...] = field(default=())
 
 
+# Legal-form words that do not tell two companies apart ("AIWorks MMC" is
+# "AIWorks"), compared after case folding and with punctuation removed.
+_LEGAL_FORMS: Final = frozenset(
+    {
+        "mmc", "asc", "qsc", "ats", "llc", "ltd", "limited", "inc", "corp", "co", "plc",
+        "jsc", "cjsc", "ojsc", "gmbh", "ag", "sa", "bv", "ooo", "ооо", "зао", "оао", "пао",
+        "şirkəti", "şirkət", "company",
+    }
+)  # fmt: skip
+# Answers that mean "no company": two students are not colleagues.
+_NO_COMPANY: Final = frozenset(
+    {
+        "", "tələbə", "telebe", "student", "студент", "студентка", "fərdi", "ferdi",
+        "freelancer", "freelance", "frilanser", "selfemployed", "фрилансер", "самозанятый",
+        "yoxdur", "yox", "none", "no", "na", "нет", "işsiz", "unemployed",
+    }
+)  # fmt: skip
+# Mailbox providers anyone can use: a shared domain there says nothing.
+_PUBLIC_MAIL: Final = frozenset(
+    {
+        "gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "live.com", "msn.com",
+        "yahoo.com", "ymail.com", "icloud.com", "me.com", "mac.com", "aol.com", "proton.me",
+        "protonmail.com", "pm.me", "gmx.com", "gmx.de", "gmx.net", "zoho.com", "yandex.com",
+        "yandex.ru", "ya.ru", "mail.ru", "inbox.ru", "bk.ru", "list.ru", "rambler.ru",
+        "mail.az", "box.az", "rambler.az", "hotmail.co.uk", "outlook.de", "web.de",
+    }
+)  # fmt: skip
+
+
 def normalise_company(value: str | None) -> str:
-    return " ".join((value or "").casefold().split())
+    """The comparable form of a company name: case folded, letters and digits
+    only, legal-form words dropped, spaces removed ("AI Works MMC" and "aiworks"
+    are one company). "" for no company, including the answers that mean none."""
+    words = "".join(ch if ch.isalnum() else " " for ch in (value or "").casefold()).split()
+    key = "".join(w for w in words if w not in _LEGAL_FORMS)
+    return "" if key in _NO_COMPANY else key
+
+
+# Reserved names (RFC 2606/6761) and the demo data's own: never anyone's employer.
+_RESERVED_DOMAINS: Final = frozenset({"example.com", "example.org", "example.net"})
+_RESERVED_SUFFIXES: Final = (".test", ".example", ".invalid", ".localhost", ".demo")
+
+
+def work_domain(email: str | None) -> str:
+    """The domain of a work address, "" for a public mailbox, a reserved name or
+    no address."""
+    domain = (email or "").rpartition("@")[2].strip().casefold()
+    if not domain or domain in _PUBLIC_MAIL or domain in _RESERVED_DOMAINS:
+        return ""
+    return "" if domain.endswith(_RESERVED_SUFFIXES) else domain
+
+
+def same_company(
+    company_a: str | None, email_a: str | None, company_b: str | None, email_b: str | None
+) -> bool:
+    """Colleagues: the same named company, or addresses at the same work domain.
+    Either is enough, so writing the company differently does not hide it."""
+    company = normalise_company(company_a)
+    if company and company == normalise_company(company_b):
+        return True
+    domain = work_domain(email_a)
+    return bool(domain) and domain == work_domain(email_b)
 
 
 def _complement(a: Card, b: Card) -> tuple[str, str] | None:
@@ -154,7 +215,6 @@ def suggested(db: Session, me: User) -> list[tuple[int, Match]]:
     """Up to 5 people as (user id, match), best first (score, then id for a
     stable order). Reads only the columns the ranking needs."""
     excluded = blocked_ids(db, me.id) | {me.id}
-    company = normalise_company(me.company)
     held = _masterclasses(db)
     mine = held.get(me.id, set())
     scored: list[tuple[int, Match]] = []
@@ -162,16 +222,17 @@ def suggested(db: Session, me: User) -> list[tuple[int, Match]]:
         select(
             User.id,
             User.company,
+            User.email,
             User.card_sector,
             User.card_topics,
             User.card_seeking,
             User.card_offering,
         ).where(User.status == UserStatus.ACTIVE)
     ).all()
-    for uid, other_company, sector, topics, seeking, offering in rows:
+    for uid, other_company, other_email, sector, topics, seeking, offering in rows:
         if uid in excluded:
             continue
-        if company and normalise_company(other_company) == company:
+        if same_company(me.company, me.email, other_company, other_email):
             continue
         other = _Candidate(uid, other_company, sector, topics or (), seeking or (), offering or ())
         match = compatibility(me, other, len(mine & held.get(uid, set())))

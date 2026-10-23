@@ -243,9 +243,11 @@ export function ProfileEditor({
         />
         <TextField
           id="edit_company"
-          label="Company (optional)"
+          label="Company"
           autoComplete="organization"
           maxLength={200}
+          hint="No company? Write Student or Self-employed."
+          required
           value={draft.company}
           onChange={update("company")}
           error={fieldErrors.company || undefined}

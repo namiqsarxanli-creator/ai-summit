@@ -139,9 +139,11 @@ export function RegisterForm() {
         />
         <TextField
           id="company"
-          label="Company (optional)"
+          label="Company"
           autoComplete="organization"
           maxLength={200}
+          hint="No company? Write Student or Self-employed."
+          required
           value={values.company}
           onChange={update("company")}
           error={fieldErrors.company}

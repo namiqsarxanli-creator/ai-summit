@@ -36,9 +36,14 @@ def _validate_linkedin_url(value: str) -> str:
 
 class CompanyAndCard(BaseModel):
     """What registration and profile editing share about the company and the
-    interest card - ONE contract, so the two forms cannot drift apart. Both are
-    optional: an attendee without a company, or who skips the card, registers
-    and edits normally."""
+    interest card - ONE contract, so the two forms cannot drift apart.
+
+    The company is REQUIRED whenever it is sent (owner's decision, 23 Oct 2026:
+    it is how colleagues are told apart); someone without one writes so
+    ("Tələbə", "Fərdi"), which never makes two people colleagues. Left out
+    entirely, a profile edit from a client that predates the field keeps what is
+    stored; registration always sends it (`RegisterRequest`). The card stays
+    optional."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -49,12 +54,16 @@ class CompanyAndCard(BaseModel):
     @field_validator("company")
     @classmethod
     def _clean_company(cls, v: str | None) -> str | None:
-        return clean_company(v)
+        cleaned = clean_company(v)
+        if cleaned is None:
+            raise ValueError("must not be blank")
+        return cleaned
 
 
 class RegisterRequest(CompanyAndCard):
     model_config = ConfigDict(extra="forbid")
 
+    company: str | None = Field(max_length=200)  # required here: no default
     first_name: str = Field(min_length=1, max_length=200)
     last_name: str = Field(min_length=1, max_length=200)
     email: EmailStr

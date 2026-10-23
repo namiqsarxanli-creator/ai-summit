@@ -92,6 +92,7 @@ def _register(client: TestClient, email: str, **extra: Any) -> Any:
             "email": email,
             "phone": "+994500000000",
             "profession": "Engineer",
+            "company": "Outbox Labs",
             "sponsor_consent": False,
             **extra,
         },
@@ -148,6 +149,7 @@ def test_a_rolled_back_registration_leaves_no_challenge_and_no_email(
         email=address,
         phone="+994500000000",
         profession="Engineer",
+        company="Outbox Labs",
         sponsor_consent=False,
     )
 

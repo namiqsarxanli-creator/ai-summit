@@ -39,7 +39,9 @@ export function companyAndCardErrors(
   saved?: InterestCard,
 ): Record<string, string> {
   const errors: Record<string, string> = {};
-  if (company.trim().length > MAX_COMPANY_LENGTH) errors.company = "Company name is too long.";
+  // Required (23 Oct 2026): it is how colleagues are told apart.
+  if (!company.trim()) errors.company = "Enter your company.";
+  else if (company.trim().length > MAX_COMPANY_LENGTH) errors.company = "Company name is too long.";
   const problem = cardProblem(card, saved);
   if (problem) errors.interest_card = problem;
   return errors;

@@ -183,7 +183,10 @@ def test_registration_and_profile_editing_share_one_contract() -> None:
         ),
     ):
         assert model.model_validate({**base, "company": "  Acme  "}).company == "Acme"
-        assert model.model_validate({**base, "company": "   "}).company is None
+        # Required whenever sent (owner, 23 Oct 2026): blank or null is refused.
+        for blank in ("   ", "", None):
+            with pytest.raises(ValidationError):
+                model.model_validate({**base, "company": blank})
         with pytest.raises(ValidationError):
             model.model_validate({**base, "company": long})
         with pytest.raises(ValidationError):
@@ -215,12 +218,17 @@ def test_registration_stores_the_company_and_card_and_keeps_the_role_separate(
     assert profile["interest_card"] == FULL_CARD
 
 
-def test_registration_without_a_company_or_card_still_works(
+def test_registration_requires_a_company_but_not_a_card(
     client: TestClient, unique_email: str, otp_log: pytest.LogCaptureFixture
 ) -> None:
-    assert client.post(REGISTER, json=register_payload(unique_email)).status_code == 200
+    body = register_payload(unique_email)
+    for missing in ({k: v for k, v in body.items() if k != "company"}, {**body, "company": "  "}):
+        refused = client.post(REGISTER, json=missing)
+        assert refused.status_code == 422
+        assert "company" in str(refused.json())
+    assert client.post(REGISTER, json=body).status_code == 200
     row = _stored(unique_email)
-    assert row.company is None
+    assert row.company == body["company"]
     assert (row.card_sector, row.card_topics, row.card_seeking, row.card_offering) == (
         None,
         [],
@@ -286,11 +294,13 @@ def test_editing_saves_the_card_and_bumps_the_version(attendee: Attendee, emails
     assert after["company"] == "AIWorks"
     assert after["interest_card"] == FULL_CARD
 
-    # Remove choices and the company again: an empty card is a valid card.
+    # The company cannot be emptied again (it is required); an empty card is valid.
+    blank = client.put(PROFILE, json=profile_body(after, company="", interest_card=EMPTY_CARD))
+    assert blank.status_code == 422
     cleared = client.put(
-        PROFILE, json=profile_body(after, company="", interest_card=EMPTY_CARD)
+        PROFILE, json=profile_body(after, company="AIWorks", interest_card=EMPTY_CARD)
     ).json()
-    assert cleared["company"] is None
+    assert cleared["company"] == "AIWorks"
     assert cleared["interest_card"] == EMPTY_CARD
     assert cleared["version"] == after["version"] + 1
 

@@ -4,8 +4,9 @@ skanı: match 3 bal, digər tanışlıq 1 bal; ən yüksək 4 tanışlıq sayıl
 * Each person scans the other's live card QR; a scan of oneself, of a revoked or
   inactive card, or of a blocked person is refused. When both directions exist
   the pair is CONNECTED - once. Its kind is MATCH if either appears in the other's top-five
-  recommendations at that moment, OTHER otherwise; whether they share a (non-empty)
-  company is recorded at the same moment. Both are frozen there.
+  recommendations at that moment, OTHER otherwise; whether they are colleagues
+  (`compatibility.same_company`: the same company name or work e-mail domain) is
+  recorded at the same moment. Both are frozen there.
 * Points: MATCH 3, OTHER 1, same company 0. Only the four best connections count
   (at most 12). A better fifth replaces the weakest counted one: the new one is
   paid and the weakest counted entry gets a REVERSAL (append-only; never edited,
@@ -44,7 +45,7 @@ from app.modules.competition.ledger import (
     lock_attendee_points,
 )
 from app.modules.contact_cards.service import contact_action_for, resolve_active_attendee
-from app.modules.people.compatibility import blocked_ids, normalise_company, suggested
+from app.modules.people.compatibility import blocked_ids, same_company, suggested
 from app.modules.people.models import Connection, ConnectionScan
 from app.modules.points.models import PointsEntryType, PointsLog, PointsSource
 
@@ -231,12 +232,11 @@ def scan(db: Session, me: User, card_token: str, now: datetime) -> dict[str, Any
     outcomes: dict[int, str] = {}
     created = row is None
     if row is None:
-        company = normalise_company(me.company)
         row = Connection(
             user_low_id=low,
             user_high_id=high,
             kind="MATCH" if _recommended(db, me, other) else "OTHER",
-            same_company=bool(company) and company == normalise_company(other.company),
+            same_company=same_company(me.company, me.email, other.company, other.email),
             established_at=now,
         )
         db.add(row)

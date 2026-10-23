@@ -120,6 +120,7 @@ def register_payload(email: str, **overrides: Any) -> dict[str, Any]:
         "email": email,
         "phone": "+1-555-0142",
         "profession": "Systems Engineer",
+        "company": "Hopper Labs",
         "linkedin_url": "https://www.linkedin.com/in/grace-hopper-demo",
         "interest_slugs": ["generative-ai", "data-analytics"],
         "sponsor_consent": False,

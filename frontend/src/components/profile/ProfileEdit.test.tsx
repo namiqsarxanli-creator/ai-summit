@@ -23,7 +23,7 @@ const PROFILE: AttendeeProfile = {
   sponsor_consent_at: null,
   sponsor_consent_version: null,
   interests: [{ slug: "generative-ai", name: "Generative AI" }],
-  company: null,
+  company: "Analytical Engines",
   interest_card: { sector: null, topics: [], seeking: [], offering: [] },
   version: 1,
   photo: null,
@@ -180,7 +180,7 @@ describe("editing the profile", () => {
       profession: "Systems Engineer",
       linkedin_url: null,
       interest_slugs: ["generative-ai"], // the saved ones, unchanged
-      company: null,
+      company: "Analytical Engines",
       interest_card: { sector: null, topics: [], seeking: [], offering: [] },
       expected_version: 1,
     });
@@ -628,8 +628,8 @@ describe("the company and the interest card", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Edit profile" }));
     const form = await screen.findByRole("form", { name: "Edit profile" });
-    expect(within(form).getByLabelText("Company (optional)")).toHaveValue("AIWorks");
-    fireEvent.change(within(form).getByLabelText("Company (optional)"), { target: { value: "Facemark" } });
+    expect(within(form).getByLabelText("Company")).toHaveValue("AIWorks");
+    fireEvent.change(within(form).getByLabelText("Company"), { target: { value: "Facemark" } });
     const topics = within(within(form).getByRole("group", { name: "Topics I'm interested in" }));
     expect(topics.getByLabelText("Data")).toBeChecked();
     fireEvent.click(topics.getByLabelText("Data")); // remove
@@ -668,7 +668,7 @@ describe("the company and the interest card", () => {
     const many = ["generative-ai", "data-analytics", "robotics"].map((slug) => ({ slug, name: slug }));
     const api = server({ profile: { ...PROFILE, interests: [...many, { slug: "extra", name: "Extra" }] } });
     const form = await openEditor();
-    fireEvent.change(within(form).getByLabelText("Company (optional)"), { target: { value: "Acme" } });
+    fireEvent.change(within(form).getByLabelText("Company"), { target: { value: "Acme" } });
     fireEvent.click(within(form).getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(api.puts()).toHaveLength(1));
     expect((api.puts()[0]?.body as { interest_slugs: string[] }).interest_slugs).toHaveLength(4);

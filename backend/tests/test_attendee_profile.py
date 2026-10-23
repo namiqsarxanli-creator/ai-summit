@@ -110,9 +110,9 @@ def test_profile_returns_registration_data_interests_and_consent(
         "sponsor_consent_version": "registration-v1",
         "version": 1,
         "photo": None,
-        # Added with the interest card: both optional, empty for a person who
-        # registered without them (never invented).
-        "company": None,
+        # Added with the interest card. The company is required at registration
+        # (23 Oct 2026); the card stays optional, empty when skipped.
+        "company": "Hopper Labs",
         "interest_card": {"sector": None, "topics": [], "seeking": [], "offering": []},
     }
     assert body["sponsor_consent_at"] is not None

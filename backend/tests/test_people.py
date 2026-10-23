@@ -13,7 +13,12 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.modules.people import routers as people_routers
-from app.modules.people.compatibility import compatibility
+from app.modules.people.compatibility import (
+    compatibility,
+    normalise_company,
+    same_company,
+    work_domain,
+)
 from app.modules.staff.models import StaffRole
 from tests.test_competition import Comp, baku
 from tests.test_competition import comp as comp  # noqa: F401 - the fixture
@@ -86,6 +91,42 @@ def test_suggestions_skip_self_same_company_blocked_and_weak_and_never_pad(peopl
     assert [p["user_id"] for p in found] == [strong]
     assert found[0]["score"] == 50 and found[0]["reasons"] == ["complement", "topics"]
     assert "email" not in str(found) and "phone" not in str(found) and "linkedin" not in str(found)
+
+
+def test_colleagues_are_found_by_the_company_written_any_way_or_the_work_domain() -> None:
+    for a, b in (
+        ("AIWorks", "AI Works MMC"),
+        ("aiworks", "  A.I.-Works, LLC "),
+        ("Kapital Bank ASC", "kapitalbank"),
+        ("ООО Ромашка", "Ромашка"),
+    ):
+        assert same_company(a, "x@gmail.com", b, "y@gmail.com"), (a, b)
+    # "No company" answers never make two people colleagues.
+    for none in ("Tələbə", "student", "Fərdi", "freelancer", "-", "", None):
+        assert normalise_company(none) == ""
+        assert not same_company(none, "a@gmail.com", none, "b@gmail.com")
+    assert not same_company("Acme", "a@mail.ru", "Other", "b@mail.ru")
+    # A shared work domain is enough, whatever is written as the company.
+    assert same_company("Acme", "a@aiworks.az", "Tələbə", "b@AIWORKS.az")
+    # Public mailboxes and reserved or demo names say nothing.
+    for domain in ("gmail.com", "mail.ru", "box.az", "example.com", "x.test", "facemark.demo"):
+        assert work_domain(f"a@{domain}") == ""
+    assert not same_company("Acme", "a@sub.aiworks.az", "Other", "b@aiworks.az")
+
+
+def test_a_work_domain_alone_keeps_colleagues_out_of_suggestions(people: Comp) -> None:
+    me, colleague, other = people.users(3)
+    card(people, me, email=f"me-{me}@kapital.az", company="Kapital", card_seeking=["mentor"])
+    card(
+        people,
+        colleague,
+        email=f"c-{colleague}@kapital.az",
+        company="KB",
+        card_offering=["mentoring"],
+    )
+    card(people, other, company="Other", card_offering=["mentoring"])
+    found = people.client(me).get(PEOPLE).json()["people"]
+    assert [p["user_id"] for p in found] == [other]
 
 
 def test_a_shared_confirmed_masterclass_raises_the_score(people: Comp) -> None:

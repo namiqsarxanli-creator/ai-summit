@@ -150,7 +150,7 @@ describe("validateProfile (the rules registration has)", () => {
       interest_card: { sector: null, topics: [], seeking: [], offering: [] },
     });
     expect(Object.keys(errors).sort()).toEqual(
-      ["first_name", "last_name", "linkedin_url", "phone", "profession"],
+      ["company", "first_name", "last_name", "linkedin_url", "phone", "profession"],
     );
   });
 

@@ -2,6 +2,8 @@
 export const cardTranslations: Record<string, { az: string; ru: string }> = {
   "Company (optional)": { az: "Şirkət (istəyə bağlı)", ru: "Компания (необязательно)" },
   "Company": { az: "Şirkət", ru: "Компания" },
+  "Enter your company.": { az: "Şirkətinizi daxil edin.", ru: "Укажите компанию." },
+  "No company? Write Student or Self-employed.": { az: "Şirkətiniz yoxdursa, Tələbə və ya Fərdi yazın.", ru: "Нет компании? Напишите Студент или Самозанятый." },
   "Company name is too long.": { az: "Şirkət adı çox uzundur.", ru: "Название компании слишком длинное." },
   "Interest card": { az: "Maraq kartı", ru: "Карточка интересов" },
   "Optional. Your topics shape your booth recommendations, and your answers help suggest people to meet. The card is not shown on your contact card.": {
