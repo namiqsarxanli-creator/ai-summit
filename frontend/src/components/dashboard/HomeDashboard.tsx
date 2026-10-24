@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useLanguage } from "@/components/ui/LanguageProvider";
 import { HomeIcon } from "@/components/ui/HomeIcons";
-import { useEffect, useState } from "react";
+import { type MouseEvent, useEffect, useState } from "react";
 
 import { ScoreSummary } from "@/components/dashboard/ScoreSummary";
 import { RecommendationCard } from "@/components/matching/RecommendationCard";
@@ -11,8 +11,10 @@ import { AttendeeTabBar } from "@/components/nav/AttendeeTabBar";
 import type { ApiResult } from "@/lib/api";
 import { messageFor } from "@/lib/errors";
 import { fetchRecommendations, isGeneralListing, type Recommendation } from "@/lib/matching";
+import { rememberScroll, restoreScroll } from "@/lib/scrollMemory";
 
 const TOP_N = 3;
+const SCROLL_KEY = "home";
 
 // The Beyond Now programme surfaces, in the order an attendee uses them. Styled
 // after the event's posters: numbered like their zones, the programme as the dark
@@ -64,6 +66,16 @@ export function HomeDashboard() {
     };
   }, []);
 
+  // Back from a section opened here, the visitor returns to where they were
+  // (the dashboard loads after the page opens, too late for the browser's own
+  // restore). Tab-bar links are not remembered: "Home" from elsewhere opens at the top.
+  const loaded = state.kind === "ok";
+  useEffect(() => (loaded ? restoreScroll(SCROLL_KEY) : undefined), [loaded]);
+  const remember = (e: MouseEvent<HTMLDivElement>) => {
+    const target = e.target as Element;
+    if (target.closest("a") && !target.closest(".fm-tabbar")) rememberScroll(SCROLL_KEY);
+  };
+
   if (state.kind === "loading") {
     return <p role="status" className="fm-note">{t("Loading your dashboard…")}</p>;
   }
@@ -89,7 +101,7 @@ export function HomeDashboard() {
   const general = isGeneralListing(recommendations);
 
   return (
-    <div className="fm-stack">
+    <div className="fm-stack" onClickCapture={remember}>
       <ScoreSummary />
 
       <div className="fm-actions" aria-label={t("Quick actions")}>
