@@ -33,7 +33,7 @@ export const profileTranslations: Record<string, { az: string; ru: string }> = {
   "Photo updated.": { az: "Şəkil yeniləndi.", ru: "Фото обновлено." },
   "Photo removed.": { az: "Şəkil silindi.", ru: "Фото удалено." },
   "Preview — not uploaded yet": { az: "Önbaxış — hələ yüklənməyib", ru: "Предпросмотр — ещё не загружено" },
-  "Shown on the leaderboard and your card. JPEG, PNG or WebP, up to 8 MB.": { az: "Reytinqdə və kartınızda görünür. JPEG, PNG və ya WebP, 8 MB-a qədər.", ru: "Видно в рейтинге и на вашей карточке. JPEG, PNG или WebP, до 8 МБ." },
+  "Your photo is shown on the leaderboard and your card.": { az: "Şəkliniz reytinqdə və kartınızda görünür.", ru: "Ваше фото видно в рейтинге и на вашей карточке." },
   "Choose a JPEG, PNG or WebP picture.": { az: "JPEG, PNG və ya WebP şəkli seçin.", ru: "Выберите изображение JPEG, PNG или WebP." },
   "That file is empty. Choose another picture.": { az: "Fayl boşdur. Başqa şəkil seçin.", ru: "Файл пустой. Выберите другое изображение." },
   "That photo is too large. Choose a smaller picture.": { az: "Şəkil çox böyükdür. Daha kiçik şəkil seçin.", ru: "Фото слишком большое. Выберите изображение поменьше." },

@@ -409,7 +409,7 @@ describe("the profile photo", () => {
     render(<ProfileView />);
     expect(
       await screen.findByText(
-        "Shown on the leaderboard and your card. JPEG, PNG or WebP, up to 8 MB.",
+        "Your photo is shown on the leaderboard and your card.",
       ),
     ).toBeInTheDocument();
   });

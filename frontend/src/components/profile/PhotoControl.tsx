@@ -172,7 +172,7 @@ export function PhotoControl({
         <img src={preview} alt="" className="hidden" onError={() => setUnreadable(true)} />
       )}
 
-      <p className="fm-small">{t("Shown on the leaderboard and your card. JPEG, PNG or WebP, up to 8 MB.")}</p>
+      <p className="fm-small">{t("Your photo is shown on the leaderboard and your card.")}</p>
 
       {unreadable && (
         <p role="alert" className="fm-alert fm-alert-error">
