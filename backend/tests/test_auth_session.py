@@ -608,6 +608,9 @@ def test_the_mutating_route_inventory_is_what_m16_expects() -> None:
         ("POST", "/api/staff/auth/password"),
         ("POST", "/api/staff/auth/password-reset/confirm"),
         ("POST", "/api/staff/auth/password-reset/request"),
+        # Points corrections in the organiser panel (25 Oct 2026): an administrator or
+        # a Game Master, the same reversal and connection review as the admin console.
+        ("POST", "/api/staff/connections/reconcile"),
         # The final result (migration 0023): Game Master or administrator only.
         ("POST", "/api/staff/final"),
         ("POST", "/api/staff/final/{result_id}/discard"),
@@ -623,6 +626,7 @@ def test_the_mutating_route_inventory_is_what_m16_expects() -> None:
         ("POST", "/api/staff/offline-scans/{scan_id}/reject"),
         ("POST", "/api/staff/playground/bookings/{booking_id}/admit"),
         ("POST", "/api/staff/playground/slots/{slot_id}/complete"),
+        ("POST", "/api/staff/points-log/{entry_id}/reverse"),
         ("POST", "/api/staff/points/award"),
         ("POST", "/api/staff/qmeter/award"),
         ("POST", "/api/staff/qmeter/identify"),

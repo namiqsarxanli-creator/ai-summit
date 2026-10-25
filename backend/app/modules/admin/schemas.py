@@ -218,6 +218,22 @@ class AttendeeListQuery(_ListQuery, AttendeeFilters):
     pass
 
 
+# Every `points_log.source` (points/models.py PointsSource): the legacy booth
+# sources and the Beyond Now competition ones. A test keeps the two equal.
+LedgerSource = Literal[
+    "TASK",
+    "FEEDBACK",
+    "PROFILE",
+    "PANEL",
+    "QMETER",
+    "MASTERCLASS",
+    "PLAYGROUND",
+    "CONNECTION",
+    "MENTOR",
+    "FOUNDER",
+]
+
+
 class PointsFilters(BaseModel):
     """The ledger filters; shared by the list and the CSV export."""
 
@@ -227,7 +243,7 @@ class PointsFilters(BaseModel):
     booth_id: int | None = Field(default=None, ge=1)
     task_id: int | None = Field(default=None, ge=1)
     staff_id: int | None = Field(default=None, ge=1)
-    source: Literal["TASK", "FEEDBACK"] | None = None
+    source: LedgerSource | None = None
     entry_type: Literal["AWARD", "REVERSAL"] | None = None
     created_from: AwareDatetime | None = None  # inclusive
     created_to: AwareDatetime | None = None  # exclusive
@@ -334,7 +350,7 @@ class PointsLogRow(BaseModel):
     attendee_name: str
     booth_id: int | None
     booth_name: str | None
-    source: Literal["TASK", "FEEDBACK"]
+    source: LedgerSource
     entry_type: Literal["AWARD", "REVERSAL"]
     points: int
     task_id: int | None

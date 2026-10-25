@@ -15,6 +15,7 @@ import { useLanguage } from "@/components/ui/LanguageProvider";
 import { messageFor } from "@/lib/errors";
 import {
   REASON_MAX,
+  type LedgerBase,
   type LedgerEntry,
   type ReversalResult,
   newIdempotencyKey,
@@ -29,7 +30,7 @@ const button = "min-h-11 rounded-xl border border-(--fm-line-strong) bg-(--fm-ti
 // useful next step is to go back and look at the ledger again.
 const ENTRY_GONE = new Set(["POINTS_ALREADY_REVERSED", "POINTS_NOT_REVERSIBLE", "POINTS_ENTRY_NOT_FOUND"]);
 
-export function PointsReversal({ entry, onClose }: { entry: LedgerEntry; onClose: (changed: boolean) => void }) {
+export function PointsReversal({ entry, onClose, base = "/api/admin" }: { entry: LedgerEntry; onClose: (changed: boolean) => void; base?: LedgerBase }) {
   const { t, language } = useLanguage();
   const [reason, setReason] = useState("");
   const [problem, setProblem] = useState("");
@@ -49,7 +50,7 @@ export function PointsReversal({ entry, onClose }: { entry: LedgerEntry; onClose
     inFlight.current = true;
     setBusy(true);
     setErrorCode(null);
-    const answer = await reverseEntry(entry.id, normalized, attempt.current.key);
+    const answer = await reverseEntry(entry.id, normalized, attempt.current.key, base);
     inFlight.current = false;
     setBusy(false);
     if (answer.ok) setResult(answer.data);
@@ -103,7 +104,9 @@ export function PointsReversal({ entry, onClose }: { entry: LedgerEntry; onClose
         <li>{t("This cannot be undone here: a reversal cannot itself be reversed. A mistaken reversal is corrected by awarding the points again.")}</li>
         <li className="font-semibold">{t(entry.source === "FEEDBACK"
           ? "This does NOT let this attendee earn the feedback reward at this booth again."
-          : "This does NOT make the activity available to this attendee again if it can be earned only once. Activities that allow repeats can still be earned again.")}</li>
+          : entry.source === "TASK"
+          ? "This does NOT make the activity available to this attendee again if it can be earned only once. Activities that allow repeats can still be earned again."
+          : "This does NOT let this attendee earn the same competition activity again (the same panel, masterclass, booth or connection).")}</li>
       </ul>
     </div>
 

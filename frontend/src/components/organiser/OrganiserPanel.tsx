@@ -102,7 +102,7 @@ export function OrganiserPanel() {
         {current === "corrections" && (
           <>
             <p className="fm-small">{t("The ledger itself is never edited. An award can be reversed in full, with a reason: the reversal is a new entry linked to it.")}</p>
-            <AdminList kind="points-log" refreshKey={0} />
+            <AdminList kind="points-log" refreshKey={0} base="/api/staff" />
             <UnpaidConnections />
           </>
         )}

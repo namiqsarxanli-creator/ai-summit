@@ -49,12 +49,12 @@ export function UnpaidConnections() {
   const inFlight = useRef(false);
 
   const load = useCallback(async () => {
-    const r = await apiGet<Review>("/api/admin/connections/unpaid");
+    const r = await apiGet<Review>("/api/staff/connections/unpaid");
     setState(r.ok ? { kind: "ok", review: r.data } : { kind: "error", text: messageFor(r.error.code) });
   }, []);
   useEffect(() => {
     let active = true;
-    void apiGet<Review>("/api/admin/connections/unpaid").then((r) => {
+    void apiGet<Review>("/api/staff/connections/unpaid").then((r) => {
       if (active) setState(r.ok ? { kind: "ok", review: r.data } : { kind: "error", text: messageFor(r.error.code) });
     });
     return () => { active = false; };
@@ -64,7 +64,7 @@ export function UnpaidConnections() {
     if (inFlight.current) return;
     inFlight.current = true;
     setBusy(true); setError(""); setResults(null);
-    const r = await apiPost<{ results: Result[]; final_review_needed?: boolean }>("/api/admin/connections/reconcile", {
+    const r = await apiPost<{ results: Result[]; final_review_needed?: boolean }>("/api/staff/connections/reconcile", {
       items: items.map((i) => ({ connection_id: i.connection_id, user_id: i.user_id })),
       reason: reason.trim(),
       confirm: true,

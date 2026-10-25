@@ -50,8 +50,8 @@ function server(workspace: () => Response) {
     if (url === "/api/staff/me") return json(200, { full_name: "Leyla Game", role: "VOLUNTEER", booth_name: null, queue_owner: "a".repeat(64), dataset_generation: 1 });
     if (url === "/api/staff/me/scopes") return json(200, { scopes: [{ scope: "GAME_MASTER", target_id: null }] });
     if (url === "/api/masterclasses") return json(200, { server_time: "x", events: [] });
-    if (url.startsWith("/api/admin/points-log")) return json(200, { items: [], next_cursor: null, limit: 50 });
-    if (url.startsWith("/api/admin/connections/unpaid")) return json(200, { items: [], counts: {}, applicable: "eligible" });
+    if (url.startsWith("/api/staff/points-log")) return json(200, { items: [], next_cursor: null, limit: 50 });
+    if (url.startsWith("/api/staff/connections/unpaid")) return json(200, { items: [], counts: {}, applicable: "eligible" });
     if (url === "/api/admin/readiness") return json(200, { ready: false, checks: [{ key: "competition_close", status: "missing", detail: "NOT SET - nothing can be earned" }] });
     return json(200, { timezone: "Asia/Baku", sessions: [] });
   }));
@@ -108,6 +108,18 @@ describe("OrganiserPanel", () => {
     expect(screen.getByText(/not connected to the Qmeter service/)).toBeInTheDocument();
   });
 
+  it("lets a Game Master correct points from the organiser endpoints, without the CSV exports", async () => {
+    const calls = server(() => json(200, { ...GM, sections: { ...GM.sections, corrections: true } }));
+    render(<OrganiserPanel />);
+    await screen.findByRole("navigation", { name: "Organiser sections" });
+    fireEvent.click(nav().getByRole("button", { name: "Points corrections" }));
+    expect(await screen.findByText(/The ledger itself is never edited/)).toBeInTheDocument();
+    await vi.waitFor(() => expect(calls.some((u) => u.startsWith("/api/staff/points-log"))).toBe(true));
+    await vi.waitFor(() => expect(calls.some((u) => u.startsWith("/api/staff/connections/unpaid"))).toBe(true));
+    expect(calls.some((u) => u.startsWith("/api/admin/"))).toBe(false);
+    expect(screen.queryByRole("button", { name: /Export CSV/ })).toBeNull();
+  });
+
   it("gives an administrator the points ledger and the panel codes, and no Qmeter", async () => {
     const calls = server(() => json(200, ADMIN));
     render(<OrganiserPanel />);
@@ -115,7 +127,7 @@ describe("OrganiserPanel", () => {
     expect(nav().queryByRole("button", { name: "Qmeter" })).toBeNull();
     fireEvent.click(nav().getByRole("button", { name: "Points corrections" }));
     expect(await screen.findByText(/The ledger itself is never edited/)).toBeInTheDocument();
-    await vi.waitFor(() => expect(calls.some((u) => u.startsWith("/api/admin/points-log"))).toBe(true));
+    await vi.waitFor(() => expect(calls.some((u) => u.startsWith("/api/staff/points-log"))).toBe(true));
 
     fireEvent.click(nav().getByRole("button", { name: "Venue screens" }));
     const live = await screen.findAllByRole("link", { name: "Open screen" });

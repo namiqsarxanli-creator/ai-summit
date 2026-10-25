@@ -306,6 +306,11 @@ def test_staff_registration_endpoint_does_not_exist() -> None:
         "/api/staff/offline-scans/{scan_id}/approve",
         "/api/staff/offline-scans/{scan_id}/reject",
         "/api/staff/booth/report",
+        # Points corrections in the organiser panel: an administrator or a Game Master.
+        "/api/staff/points-log",
+        "/api/staff/points-log/{entry_id}/reverse",
+        "/api/staff/connections/unpaid",
+        "/api/staff/connections/reconcile",
     }
 
 

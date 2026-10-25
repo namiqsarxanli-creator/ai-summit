@@ -16,7 +16,7 @@ export type LedgerEntry = {
   user_id: number;
   attendee_name: string;
   booth_name: string | null;
-  source: "TASK" | "FEEDBACK";
+  source: "TASK" | "FEEDBACK" | "PROFILE" | "PANEL" | "QMETER" | "MASTERCLASS" | "PLAYGROUND" | "CONNECTION" | "MENTOR" | "FOUNDER";
   entry_type: "AWARD" | "REVERSAL";
   points: number;
   activity: string;
@@ -35,7 +35,9 @@ export type ReversalResult = {
 
 // Only an AWARD that nothing has reversed yet. (A REVERSAL cannot be reversed.)
 export function canReverse(row: Record<string, unknown>): boolean {
-  return row["entry_type"] === "AWARD" && row["reversed_by_entry_id"] === null && typeof row["id"] === "number";
+  // The Founder bonus follows its four zones: the server refuses to reverse it.
+  return row["entry_type"] === "AWARD" && row["reversed_by_entry_id"] === null && typeof row["id"] === "number"
+    && row["source"] !== "FOUNDER";
 }
 
 // What the server will store: whitespace collapsed, like its own normalisation.
@@ -54,8 +56,17 @@ export function reasonProblem(text: string): string {
 
 export type ReverseResult = { ok: true; data: ReversalResult } | { ok: false; error: ApiError };
 
-export function reverseEntry(entryId: number, reason: string, idempotencyKey: string): Promise<ReverseResult> {
-  return apiPost<ReversalResult>(`/api/admin/points-log/${entryId}/reverse`, {
+// `base`: "/api/admin" from the admin console, "/api/staff" from the organiser
+// panel (an administrator or a Game Master; the server checks which).
+export type LedgerBase = "/api/admin" | "/api/staff";
+
+export function reverseEntry(
+  entryId: number,
+  reason: string,
+  idempotencyKey: string,
+  base: LedgerBase = "/api/admin",
+): Promise<ReverseResult> {
+  return apiPost<ReversalResult>(`${base}/points-log/${entryId}/reverse`, {
     reason,
     idempotency_key: idempotencyKey,
   });

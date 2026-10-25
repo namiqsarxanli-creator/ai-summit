@@ -386,6 +386,12 @@ def test_qmeter_needs_a_game_master_an_exact_match_and_pays_once(comp: Comp) -> 
     assert found.status_code == 200 and found.json()["user_id"] == uid
     assert found.json()["phone"] == "•••2233"
     body = {"user_id": uid, "panel_id": comp.panel1, "reason": "Question 14 in Qmeter"}
+    # Only after the panel (10:00-11:30): during it the Game Master is refused.
+    comp.clock.now = baku("11:00")
+    during = gm.post("/api/staff/qmeter/award", json=body)
+    assert during.status_code >= 400 and "panel_not_ended" in during.text
+    assert comp.points(uid, "QMETER") == 0
+    comp.clock.now = baku("11:40")
     assert gm.post("/api/staff/qmeter/award", json=body).json() == {
         "outcome": "awarded",
         "points": 2,
@@ -1018,7 +1024,7 @@ def test_only_administrators_and_game_masters_open_the_organiser_workspace(comp:
         "overview": True,
         "scanning": True,
         "qmeter": True,
-        "corrections": False,  # reversals stay administrator-only
+        "corrections": True,  # a Game Master corrects points on the day (25 Oct 2026)
         "final": True,
         "screens": True,
     }

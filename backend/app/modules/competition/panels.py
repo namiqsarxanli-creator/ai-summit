@@ -15,7 +15,8 @@ needed - entering late or only at the end earns nothing.
 
 QMETER (2 per panel, at most 4): a Game Master checks the question in Qmeter and
 records it for the exactly identified attendee (name AND phone must match one
-ACTIVE person; never a name alone). The reason is audited.
+ACTIVE person; never a name alone), once the panel has ENDED and before the
+close. The reason is audited.
 """
 
 from __future__ import annotations
@@ -265,8 +266,10 @@ def record_qmeter(
     panel = db.get(Panel, panel_id)
     if panel is None:
         raise PanelScanError("unknown_panel")
-    if now < panel.starts_at:
-        raise PanelScanError("panel_not_started")
+    # PDF "Kim, nəyi, nə vaxt skan edir": Qmeter is checked AFTER the panel, until
+    # 17:30 (the ledger refuses after the close). Owner's decision, 25 Oct 2026.
+    if now < panel.ends_at:
+        raise PanelScanError("panel_not_ended")
     user = db.get(User, user_id)
     if user is None or user.status != UserStatus.ACTIVE:
         raise AttendeeMatchError("No such attendee.")

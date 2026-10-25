@@ -214,7 +214,7 @@ export const FIELD_LABELS: Record<string, string> = {
 // Words some fields hold (fixed sets), as UI texts.
 export const VALUE_LABELS: Record<string, Record<string, string>> = {
   role: { ADMIN: "Administrator", BOOTH_STAFF: "Booth staff" },
-  source: { TASK: "Task award", FEEDBACK: "Feedback reward" },
+  source: { TASK: "Task award", FEEDBACK: "Feedback reward", PROFILE: "Profile and interest card", PANEL: "Panel", QMETER: "Qmeter question", MASTERCLASS: "Masterclass", PLAYGROUND: "AI Playground session", CONNECTION: "Connection", MENTOR: "Meet the Mentor", FOUNDER: "Founder bonus" },
   initiated_by: { self: "The staff member", admin: "An administrator" },
 };
 

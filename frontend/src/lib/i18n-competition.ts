@@ -113,4 +113,10 @@ export const competitionTranslations: Record<string, { az: string; ru: string }>
   "Attendee ID": { az: "İştirakçı ID", ru: "ID участника" },
   "Reason (empty = takes part)": { az: "Səbəb (boş = iştirak edir)", ru: "Причина (пусто = участвует)" },
   "Save": { az: "Saxla", ru: "Сохранить" },
+  "Qmeter question": { az: "Qmeter sualı", ru: "Вопрос в Qmeter" },
+  "AI Playground session": { az: "AI Playground sessiyası", ru: "Сессия AI Playground" },
+  "Connection": { az: "Tanışlıq", ru: "Знакомство" },
+  "Founder bonus": { az: "Founder bonusu", ru: "Бонус Founder" },
+  "Qmeter points are recorded after the panel ends.": { az: "Qmeter balı panel bitəndən sonra yazılır.", ru: "Баллы Qmeter записываются после окончания панели." },
+  "This does NOT let this attendee earn the same competition activity again (the same panel, masterclass, booth or connection).": { az: "Bu, iştirakçıya eyni yarış fəaliyyətindən (eyni panel, masterklas, stend və ya tanışlıq) yenidən xal qazandırmır.", ru: "Это НЕ позволит участнику снова заработать баллы за то же действие соревнования (ту же панель, мастер-класс, стенд или знакомство)." },
 };

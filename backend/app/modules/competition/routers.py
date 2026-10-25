@@ -27,7 +27,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Annotated, Any, Literal, cast
 
-from fastapi import APIRouter, Path, Response
+from fastapi import APIRouter, Path, Query, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -38,6 +38,7 @@ from app.core.sessions import resolve_staff_session
 from app.db.session import DbSession, mutating_transaction
 from app.modules.admin import service as admin
 from app.modules.admin.routers import _read
+from app.modules.admin.schemas import PointsLogPage, PointsLogQuery
 from app.modules.admin.service import AdminInvalid, AdminResult, required
 from app.modules.attendees.models import User
 from app.modules.attendees.profile import lock_attendee
@@ -46,8 +47,11 @@ from app.modules.competition.models import SCOPES, Panel, StaffScope
 from app.modules.competition.rules import CATEGORIES
 from app.modules.masterclasses.models import Masterclass, MasterclassEvent
 from app.modules.mentors.models import MentorSession
+from app.modules.points import reversal
 from app.modules.points.models import PointsLog
+from app.modules.points.schemas import ReversalRequest, ReversalResponse
 from app.modules.points.service import maintenance_fast_path_check
+from app.modules.realtime.service import publish_award_signals
 from app.modules.staff.models import StaffAccount
 
 router = APIRouter(tags=["competition"])
@@ -197,6 +201,47 @@ def my_scopes(staff: CurrentStaff, db: DbSession, response: Response) -> dict[st
 def organiser_workspace(staff: CurrentStaff, db: DbSession, response: Response) -> dict[str, Any]:
     response.headers["Cache-Control"] = "no-store"
     return organiser.workspace(db, staff)
+
+
+# --- points corrections in the organiser panel: an administrator or a Game Master ---------
+
+
+@router.get("/staff/points-log", response_model=PointsLogPage)
+def organiser_points_log(
+    token: SessionToken,
+    db: DbSession,
+    response: Response,
+    query: Annotated[PointsLogQuery, Query()],
+) -> PointsLogPage:
+    """The ledger as the admin console lists it (read-only), for the organiser."""
+    organiser.authenticate_organiser(db, token)
+    response.headers["Cache-Control"] = "no-store"
+    return admin.points_page(db, query)
+
+
+@router.post("/staff/points-log/{entry_id}/reverse", response_model=ReversalResponse)
+def organiser_reverse_points_entry(
+    entry_id: Annotated[int, Path(ge=1, le=2**53)],
+    payload: ReversalRequest,
+    token: SessionToken,
+    db: DbSession,
+) -> ReversalResponse:
+    """Cancels ONE award in full with a reason - exactly the admin console's
+    reversal (points/reversal.py: idempotent, audited, the original kept), made
+    by an administrator or a Game Master."""
+    maintenance_fast_path_check(db)
+    with mutating_transaction(db) as tx:
+        outcome = reversal.reverse_entry(
+            tx,
+            raw_session_token=token,
+            entry_id=entry_id,
+            request=payload,
+            now=datetime.now(UTC),
+            authenticate=organiser.authenticate_organiser,
+        )
+    if outcome.reversed_user_id is not None:  # never for a replay
+        publish_award_signals(outcome.reversed_user_id)
+    return outcome.response
 
 
 @router.post("/staff/masterclasses/{masterclass_id}/door")

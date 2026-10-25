@@ -20,7 +20,7 @@ import { ExportBar } from "./ExportBar";
 import { FILTERS, listQuery, problem, sameFilters, type ListKind, type Values } from "./listFilters";
 import { Records, type RecordValue } from "./Records";
 import { PointsReversal } from "./PointsReversal";
-import { canReverse, type LedgerEntry } from "@/lib/reversal";
+import { canReverse, type LedgerBase, type LedgerEntry } from "@/lib/reversal";
 
 export type { ListKind };
 
@@ -47,7 +47,10 @@ function readable(items: RecordValue[]): RecordValue[] {
 const EMPTY: Values = {};
 const input = "min-h-11 w-full rounded-xl border border-(--fm-line-strong) bg-white p-3 text-(--fm-ink)";
 
-export function AdminList({ kind, refreshKey }: { kind: ListKind; refreshKey: number }) {
+// `base`: the admin console reads `/api/admin`; the organiser panel reads the
+// points ledger from `/api/staff` (an administrator or a Game Master), without
+// the CSV exports, which stay in the admin console.
+export function AdminList({ kind, refreshKey, base = "/api/admin" }: { kind: ListKind; refreshKey: number; base?: LedgerBase }) {
   const { t } = useLanguage();
   const [draft, setDraft] = useState<Values>(EMPTY);
   const [applied, setApplied] = useState<Values>(EMPTY);
@@ -66,7 +69,7 @@ export function AdminList({ kind, refreshKey }: { kind: ListKind; refreshKey: nu
 
   useEffect(() => {
     let current = true;
-    void apiGet<Page>(`/api/admin/${kind}${listQuery(kind, applied, cursor)}`).then((result) => {
+    void apiGet<Page>(`${base}/${kind}${listQuery(kind, applied, cursor)}`).then((result) => {
       if (!current) return; // a newer load has started: this answer is stale
       setAnswer({
         key: requestKey,
@@ -99,7 +102,7 @@ export function AdminList({ kind, refreshKey }: { kind: ListKind; refreshKey: nu
   const busy = load.status === "loading";
 
   if (reversing !== null) {
-    return <PointsReversal entry={reversing} onClose={(changed) => { setReversing(null); if (changed) setRetry((n) => n + 1); }} />;
+    return <PointsReversal entry={reversing} base={base} onClose={(changed) => { setReversing(null); if (changed) setRetry((n) => n + 1); }} />;
   }
 
   return <div className="grid gap-4">
@@ -121,7 +124,7 @@ export function AdminList({ kind, refreshKey }: { kind: ListKind; refreshKey: nu
       </div>
     </form>
 
-    <ExportBar kind={kind} applied={applied} pending={!sameFilters(kind, draft, applied)} />
+    {base === "/api/admin" && <ExportBar kind={kind} applied={applied} pending={!sameFilters(kind, draft, applied)} />}
 
     {busy && <p role="status" className="text-sm text-(--fm-ink-soft)">{t("Loading records…")}</p>}
     {load.status === "error" && <div className="grid gap-2">

@@ -83,6 +83,7 @@ const REASONS: Record<string, string> = {
   outside_window: "This scan is outside its time window.",
   unknown_panel: "Unknown panel.",
   panel_not_started: "This panel has not started yet.",
+  panel_not_ended: "Qmeter points are recorded after the panel ends.",
   unknown_masterclass: "Unknown masterclass.",
   booked_elsewhere: "This person holds a place in another masterclass of this block.",
   seats_held_until_plus_five: "Seats are held for their reservations until 5 minutes after the start.",

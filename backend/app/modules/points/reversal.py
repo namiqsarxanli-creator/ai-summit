@@ -1,8 +1,11 @@
-"""Reversing an AWARD in full - an administrator's correction of the ledger.
+"""Reversing an AWARD in full - an administrator's or a Game Master's correction
+of the ledger.
 
 What it does, in ONE fenced transaction (the caller's `mutating_transaction`):
 
-1. authenticates an ADMINISTRATOR (booth staff and attendees are refused);
+1. authenticates an ADMINISTRATOR, or a GAME_MASTER when called from the
+   organiser panel's endpoint (booth staff, other volunteers and attendees are
+   refused);
 2. looks the request's idempotency key up (a repeat replays the first answer);
 3. locks the original entry `FOR UPDATE` and checks it is an AWARD that has no
    reversal yet;
@@ -44,6 +47,7 @@ in the audit row. It is never logged.
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -155,10 +159,13 @@ def reverse_entry(
     entry_id: int,
     request: ReversalRequest,
     now: datetime,
+    authenticate: Callable[[Session, str | None], StaffAccount] | None = None,
 ) -> ReversalOutcome:
     """Called inside the caller's `mutating_transaction`; it commits on a
-    normal return and rolls back on any exception."""
-    actor: StaffAccount = admin_service.authenticate_admin(db, raw_session_token)
+    normal return and rolls back on any exception. `authenticate` decides who
+    may reverse: an administrator by default; the organiser panel passes the
+    organiser check (an administrator or a Game Master)."""
+    actor: StaffAccount = (authenticate or admin_service.authenticate_admin)(db, raw_session_token)
     fingerprint = compute_reversal_fingerprint(entry_id=entry_id, reason=request.reason)
 
     # A repeat of a completed request replays it, whatever the entry looks like now.

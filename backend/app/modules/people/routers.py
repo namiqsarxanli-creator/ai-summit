@@ -256,3 +256,30 @@ def reconcile_connections(
     payload: ReconcileRequest, token: SessionToken, db: DbSession
 ) -> dict[str, Any]:
     return _admin_write(db, token, lambda tx, actor: _reconcile(tx, actor, payload))
+
+
+# The same review for the organiser panel: an administrator or a Game Master
+# (FACEMARK decides disputed connections on the day; PDF "Game Master").
+
+
+@router.get("/staff/connections/unpaid")
+def organiser_unpaid_connections(
+    token: SessionToken, db: DbSession, response: Response
+) -> dict[str, Any]:
+    """READ-ONLY: every unpaid side of a connection and why."""
+    from app.modules.competition.organiser import authenticate_organiser
+
+    authenticate_organiser(db, token)
+    response.headers["Cache-Control"] = "no-store"
+    return reconcile.review(db)
+
+
+@router.post("/staff/connections/reconcile")
+def organiser_reconcile_connections(
+    payload: ReconcileRequest, token: SessionToken, db: DbSession
+) -> dict[str, Any]:
+    from app.modules.competition import organiser
+
+    maintenance_fast_path_check(db)
+    with mutating_transaction(db) as tx:
+        return organiser.execute(tx, token, lambda tx_, actor: _reconcile(tx_, actor, payload))

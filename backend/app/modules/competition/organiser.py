@@ -22,6 +22,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.errors import StaffNotAuthorizedError
+from app.core.ratelimit import limiter
+from app.core.sessions import resolve_staff_session
+from app.modules.admin.models import AdminAudit
+from app.modules.admin.service import ADMIN_PER_ACCOUNT, AdminOperation
 from app.modules.competition.models import StaffScope
 from app.modules.competition.scopes import has_scope
 from app.modules.staff.models import StaffAccount, StaffRole
@@ -45,6 +49,35 @@ def is_organiser(db: Session, staff: StaffAccount) -> bool:
     )
 
 
+def authenticate_organiser(db: Session, token: str | None) -> StaffAccount:
+    """An administrator or a live Game Master - the people who correct points on
+    the day (PDF: "Game Master ... hər zonada mübahisəli halı o həll edir").
+    The same per-account pace as the admin console."""
+    staff = resolve_staff_session(db, token)
+    if not is_organiser(db, staff):
+        raise StaffNotAuthorizedError("This action is for an administrator or a Game Master.")
+    limiter.check([(ADMIN_PER_ACCOUNT, str(staff.id))])
+    return staff
+
+
+def execute(db: Session, token: str | None, operation: AdminOperation) -> dict[str, Any]:
+    """`admin.execute` for an organiser: the same audit row, in the same commit."""
+    actor = authenticate_organiser(db, token)
+    action, target_type, before, after, response = operation(db, actor)
+    db.add(
+        AdminAudit(
+            staff_account_id=actor.id,
+            action=action,
+            target_type=target_type,
+            target_id=str(response["id"]) if "id" in response else None,
+            before_value=before,
+            after_value=after,
+        )
+    )
+    db.flush()
+    return response
+
+
 def workspace(db: Session, staff: StaffAccount) -> dict[str, Any]:
     """What this account may do in the workspace. Refused for a non-organiser."""
     if not is_organiser(db, staff):
@@ -64,7 +97,7 @@ def workspace(db: Session, staff: StaffAccount) -> dict[str, Any]:
             # (a door, a mentor group); an organiser without one sees that.
             "scanning": True,
             "qmeter": game_master,  # POST /api/staff/qmeter/*: GAME_MASTER
-            "corrections": admin,  # POST /api/admin/points-log/{id}/reverse: ADMIN
+            "corrections": admin or game_master,  # /api/staff/points-log, /api/staff/connections
             "final": admin or game_master,  # final.require_reviewer
             "screens": True,  # public screens; panel codes need ADMIN (below)
         },

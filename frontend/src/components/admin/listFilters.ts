@@ -29,7 +29,7 @@ export const FILTERS: Record<ListKind, FilterDef[]> = {
     { key: "booth_id", label: "Booth ID", type: "number" },
     { key: "task_id", label: "Activity ID", type: "number" },
     { key: "staff_id", label: "Staff ID", type: "number" },
-    { key: "source", label: "Source", type: "select", options: [["TASK", "Task award"], ["FEEDBACK", "Feedback reward"]] },
+    { key: "source", label: "Source", type: "select", options: [["TASK", "Task award"], ["FEEDBACK", "Feedback reward"], ["PROFILE", "Profile and interest card"], ["PANEL", "Panel"], ["QMETER", "Qmeter question"], ["MASTERCLASS", "Masterclass"], ["PLAYGROUND", "AI Playground session"], ["CONNECTION", "Connection"], ["MENTOR", "Meet the Mentor"], ["FOUNDER", "Founder bonus"]] },
     { key: "entry_type", label: "Entry type", type: "select", options: [["AWARD", "Award entry"], ["REVERSAL", "Reversal entry"]] },
     { key: "created_from", label: "From date", type: "date", boundary: "start" },
     { key: "created_to", label: "Until date", type: "date", boundary: "end" },
