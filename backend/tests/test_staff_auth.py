@@ -333,8 +333,8 @@ def test_lockout_arms_at_ten_failures_and_blocks_the_next_attempt_without_checki
     staff_account: Callable[..., tuple[str, int]],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The rate limiter's own STAFF_LOGIN_PER_EMAIL bucket is also 10
-    per 15 minutes — widened here so this test observes ONLY the
+    """The rate limiter's own STAFF_LOGIN_PER_EMAIL bucket (60 per 15
+    minutes) is widened here so this test observes ONLY the
     persistent, DB-backed lockout (§21.8), not the separate limiter."""
     from app.modules.staff import routers as staff_routers
 
@@ -934,3 +934,25 @@ def test_the_seeded_demo_admin_account_logs_in_but_cannot_reach_presets() -> Non
         "(SELECT id FROM staff_accounts WHERE email = :e)",
         e=SEEDED_ADMIN_EMAIL,
     )
+
+
+def test_a_shared_account_signs_in_on_many_phones_at_once(
+    test_booth: Callable[..., int], staff_account: Callable[..., tuple[str, int]]
+) -> None:
+    """A team on one account: 30 sign-ins in a row all succeed, and each phone
+    keeps its own session (none signs the others out)."""
+    from app.core.ratelimit import STAFF_LOGIN_PER_EMAIL
+
+    assert STAFF_LOGIN_PER_EMAIL.limit >= 30
+    email, _ = staff_account(booth_id=test_booth())
+    phones = [make_client() for _ in range(30)]
+    try:
+        for phone in phones:
+            assert (
+                phone.post(LOGIN, json={"email": email, "password": TEST_PASSWORD}).status_code
+                == 204
+            )
+        assert all(p.get("/api/staff/me").status_code == 200 for p in phones)
+    finally:
+        for phone in phones:
+            phone.close()

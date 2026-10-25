@@ -54,8 +54,10 @@ SCAN_RESOLVE_PER_STAFF = RateLimit("scan_resolve:staff", 120, 60)
 # password" by hammering one bucket differently. This is BESIDES the
 # persistent failed_login_count/locked_until brute-force gate (§21.8):
 # two independent defenses, mirroring OTP's own attempt-cap +
-# rate-limit pair.
-STAFF_LOGIN_PER_EMAIL = RateLimit("staff_login:email", 10, 15 * 60)
+# rate-limit pair. 60 (was 10; owner's decision, 25 Oct 2026): one staff account
+# may be shared by a team that signs in on many phones at once, and every sign-in
+# counts here. Guessing stays bounded by the lockout (10 wrong passwords).
+STAFF_LOGIN_PER_EMAIL = RateLimit("staff_login:email", 60, 15 * 60)
 STAFF_LOGIN_PER_IP = RateLimit("staff_login:ip", 600, 15 * 60)
 
 
