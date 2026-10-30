@@ -10,7 +10,7 @@ import { RecommendationCard } from "@/components/matching/RecommendationCard";
 import { AttendeeTabBar } from "@/components/nav/AttendeeTabBar";
 import type { ApiResult } from "@/lib/api";
 import { messageFor } from "@/lib/errors";
-import { fetchRecommendations, isGeneralListing, type Recommendation } from "@/lib/matching";
+import { fetchBoothListing, isGeneralListing, type Recommendation } from "@/lib/matching";
 import { rememberScroll, restoreScroll } from "@/lib/scrollMemory";
 
 const TOP_N = 3;
@@ -58,7 +58,7 @@ export function HomeDashboard() {
 
   useEffect(() => {
     let cancelled = false;
-    fetchRecommendations().then((result) => {
+    fetchBoothListing().then((result) => {
       if (!cancelled) setState(stateFrom(result));
     });
     return () => {

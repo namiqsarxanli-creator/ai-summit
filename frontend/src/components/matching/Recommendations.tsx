@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
 import { AttendeeTabBar } from "@/components/nav/AttendeeTabBar";
 import type { ApiResult } from "@/lib/api";
 import { messageFor } from "@/lib/errors";
-import { fetchRecommendations, isGeneralListing, type Recommendation } from "@/lib/matching";
+import { fetchBoothListing, isGeneralListing, type Recommendation } from "@/lib/matching";
 
 import { RecommendationCard } from "./RecommendationCard";
 
@@ -36,7 +36,7 @@ export function Recommendations() {
 
   useEffect(() => {
     let cancelled = false;
-    fetchRecommendations().then((result) => {
+    fetchBoothListing().then((result) => {
       if (!cancelled) setState(stateFrom(result));
     });
     return () => {
