@@ -377,6 +377,7 @@ body:has(.fm-home) .fm-language-switcher { position: absolute; top: 0; left: 50%
 .fm-booth-tile .fm-eyebrow { margin: 0 0 2px; }
 .fm-booth-tile .fm-booth-name { margin: 0; font-size: 22px; font-weight: 800; line-height: 1.2; }
 .fm-booth-tile .fm-booth-name a { color: var(--fm-red); text-decoration: none; }
+.fm-booth-game { margin: 4px 0 0; color: var(--fm-ink); font-size: 16px; font-weight: 700; }
 .fm-booth-play { align-self: flex-start; }
 /* A booth's own one-sentence card: on the Booths page, and highlighted on the Playground page. */
 .fm-booth-blurb { margin: 0; color: var(--fm-ink); font-size: 15px; line-height: 1.55; }

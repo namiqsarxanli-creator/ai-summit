@@ -16,17 +16,17 @@ import { BoothArt } from "./BoothArt";
 export function RecommendationCard({ recommendation, askForTopics = false }: { recommendation: Recommendation; askForTopics?: boolean }) {
   const { booth, match } = recommendation;
   const { t, language } = useLanguage();
-  // "Company — Game": the company as the eyebrow, the game as the title.
+  // "Company — Game": the booth (company) as the title, its game beneath it.
   const [company, game] = splitName(t(booth.name));
   return (
     <li className="fm-booth-tile">
       <BoothArt />
       <div className="fm-booth-tile-head">
         <div className="fm-grow">
-          {company && <p className="fm-eyebrow">{company}</p>}
           <h3 className="fm-booth-name">
-            <Link href={`/booths/${encodeURIComponent(booth.slug)}`}>{game}</Link>
+            <Link href={`/booths/${encodeURIComponent(booth.slug)}`}>{company ?? game}</Link>
           </h3>
+          {company && <p className="fm-booth-game">{game}</p>}
           {booth.location_label && <p className="fm-small">{t(booth.location_label)}</p>}
         </div>
         {match && <ScoreBadge score={match.score} />}
