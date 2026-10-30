@@ -277,7 +277,12 @@ export function PlaygroundProgram() {
           </label>
           {(() => {
             const about = slots.find((s) => String(s.booth_id) === chosen)?.booth_description;
-            return about ? <p className="fm-text-soft" data-testid="booth-about">{t(about)}</p> : null;
+            return about ? (
+              <div className="fm-booth-about" data-testid="booth-about">
+                <p className="fm-eyebrow">{t("What awaits you at this booth")}</p>
+                <p className="fm-booth-about-text">{t(about)}</p>
+              </div>
+            ) : null;
           })()}
           <ul className="fm-list">
             {/* Ended sessions (the server closed even the queue) leave the list. */}

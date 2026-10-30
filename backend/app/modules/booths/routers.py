@@ -25,7 +25,9 @@ router = APIRouter(prefix="/booths", tags=["booths"])
 @router.get("", response_model=list[BoothOut])
 def list_booths(db: DbSession) -> list[BoothOut]:
     return [
-        BoothOut(slug=b.slug, name=b.name, location_label=b.location_label)
+        BoothOut(
+            slug=b.slug, name=b.name, location_label=b.location_label, description=b.description
+        )
         for b in list_active_booths(db)
     ]
 

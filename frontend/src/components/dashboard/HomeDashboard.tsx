@@ -158,7 +158,7 @@ export function HomeDashboard() {
             )}
             <ul className="fm-list">
               {top.map((r) => (
-                <RecommendationCard key={r.booth.slug} recommendation={r} />
+                <RecommendationCard key={r.booth.slug} recommendation={r} askForTopics={hasTopics === false} />
               ))}
             </ul>
           </>

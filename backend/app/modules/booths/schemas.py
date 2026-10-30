@@ -15,11 +15,14 @@ class _Strict(BaseModel):
 
 class BoothOut(_Strict):
     """`GET /api/booths` list entry and the `booth` object inside a
-    recommendation (§11.7's exact shape: slug, name, location_label)."""
+    recommendation (§11.7's shape: slug, name, location_label), plus the booth's
+    one-sentence card (`description`, 30 Oct 2026: the Booths page shows what
+    each booth does, not only its name)."""
 
     slug: str
     name: str
     location_label: str | None
+    description: str | None
 
 
 class BoothTask(_Strict):

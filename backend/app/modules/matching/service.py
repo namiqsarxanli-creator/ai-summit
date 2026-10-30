@@ -98,7 +98,12 @@ def _interest_refs(db: Session, interest_ids: frozenset[int]) -> dict[int, core.
 
 
 def _booth_out(booth: Booth) -> BoothOut:
-    return BoothOut(slug=booth.slug, name=booth.name, location_label=booth.location_label)
+    return BoothOut(
+        slug=booth.slug,
+        name=booth.name,
+        location_label=booth.location_label,
+        description=booth.description,
+    )
 
 
 @dataclass(frozen=True)

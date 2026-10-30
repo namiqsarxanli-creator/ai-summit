@@ -368,6 +368,10 @@ body:has(.fm-home) .fm-language-switcher { position: absolute; top: 0; left: 50%
 
 /* Booths */
 .fm-booth-card { position: relative; overflow: hidden; display: flex; flex-direction: column; gap: 12px; min-width: 0; padding: 112px 18px 18px; border: 1px solid #eee0da; border-radius: 20px; background: var(--fm-surface); box-shadow: 0 5px 17px #48182009; }
+/* A booth's own one-sentence card: on the Booths page, and highlighted on the Playground page. */
+.fm-booth-blurb { margin: 0; color: var(--fm-ink); font-size: 15px; line-height: 1.55; }
+.fm-booth-about { display: grid; gap: 6px; padding: 16px 18px; border: 1px solid #f0c9c4; border-left: 6px solid var(--fm-red); border-radius: 16px; background: linear-gradient(135deg, #fff4f2, #fff); box-shadow: 0 6px 18px #a7192314; }
+.fm-booth-about-text { margin: 0; color: var(--fm-ink); font-size: 17px; font-weight: 650; line-height: 1.5; }
 .fm-booth-card::before { content: ''; position: absolute; inset: 0 0 auto; height: 96px; background: linear-gradient(90deg,#a71923 0%,#a7192388 38%,#a7192300),url('/summit-hero-clean.png') 80% 45% / 450px auto no-repeat; }
 .fm-booth-name { color: var(--fm-red-ink); font-size: 19px; font-weight: 800; line-height: 1.2; letter-spacing: -.02em; }
 .fm-booth-name a { color: inherit; text-decoration: none; display: inline-flex; align-items: center; min-height: var(--fm-tap); }

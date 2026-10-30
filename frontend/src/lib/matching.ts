@@ -5,7 +5,8 @@
 
 import { apiGet, type ApiResult } from "@/lib/api";
 
-export type Booth = { slug: string; name: string; location_label: string | null };
+// `description`: the booth's one-sentence card (optional: an older server sends none).
+export type Booth = { slug: string; name: string; location_label: string | null; description?: string | null };
 
 export type MatchedInterest = { slug: string; name: string };
 

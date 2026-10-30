@@ -239,4 +239,5 @@ export const playgroundTranslations: Record<string,{az:string;ru:string}> = {
   "Arrival confirmed.": { az: "Gəliş təsdiqləndi.", ru: "Прибытие подтверждено." },
   "More than 3 minutes late: the reserved place went to the queue. The attendee can join the queue again.": { az: "3 dəqiqədən çox gecikmə: bron edilmiş yer növbəyə keçdi. İştirakçı yenidən növbəyə yazıla bilər.", ru: "Опоздание более 3 минут: забронированное место перешло к очереди. Участник может снова встать в очередь." },
   "Nobody has booked or queued for this session yet.": { az: "Bu sessiyaya hələ heç kim bron etməyib və növbəyə yazılmayıb.", ru: "На эту сессию пока никто не записался и не встал в очередь." },
+  "What awaits you at this booth": { az: "Stenddə sizi nə gözləyir", ru: "Что ждёт вас на стенде" },
 };

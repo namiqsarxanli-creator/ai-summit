@@ -95,7 +95,7 @@ export function Recommendations() {
       </p>}
       <ul className="fm-list">
         {recommendations.map((r) => (
-          <RecommendationCard key={r.booth.slug} recommendation={r} />
+          <RecommendationCard key={r.booth.slug} recommendation={r} askForTopics={hasTopics === false} />
         ))}
       </ul>
       <AttendeeTabBar active="booths" />

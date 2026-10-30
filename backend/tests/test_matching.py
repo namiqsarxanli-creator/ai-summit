@@ -333,8 +333,13 @@ def test_booth_list_matches_the_seeded_catalogue(client: TestClient) -> None:
     body = response.json()
     assert [b["slug"] for b in body] == [b.slug for b in fx.BOOTHS]
     aiworks = body[0]
-    assert set(aiworks) == {"slug", "name", "location_label"}
-    assert aiworks == {"slug": "aiworks", "name": "AIWorks", "location_label": "Hall B · 14"}
+    assert set(aiworks) == {"slug", "name", "location_label", "description"}
+    assert {k: aiworks[k] for k in ("slug", "name", "location_label")} == {
+        "slug": "aiworks",
+        "name": "AIWorks",
+        "location_label": "Hall B · 14",
+    }
+    assert aiworks["description"] == next(b.description for b in fx.BOOTHS if b.slug == "aiworks")
 
 
 def test_booth_detail_includes_description_and_no_internal_fields(client: TestClient) -> None:
@@ -464,7 +469,7 @@ def test_recommendation_response_leaks_no_internal_ids(
     body = response.json()
     assert body  # AIWorks matches, so this is non-empty
     for r in body:
-        assert set(r["booth"]) == {"slug", "name", "location_label"}
+        assert set(r["booth"]) == {"slug", "name", "location_label", "description"}
         if r["match"] is not None:
             assert r["match"]["algorithm_version"] == "weighted-v1"
 

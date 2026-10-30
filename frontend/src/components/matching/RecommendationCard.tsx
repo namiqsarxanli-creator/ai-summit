@@ -8,7 +8,10 @@ import type { Recommendation } from "@/lib/matching";
 // Renders exactly what the server sent for one booth: no score is ever
 // computed here (§24.5, §24.9). `match: null` renders a neutral prompt,
 // never a fabricated 0%.
-export function RecommendationCard({ recommendation }: { recommendation: Recommendation }) {
+// `askForTopics`: say "select your interests" on a booth without a match only when
+// the attendee has really picked no topics (otherwise the booth simply has no
+// interest profile yet, and the prompt would be wrong).
+export function RecommendationCard({ recommendation, askForTopics = false }: { recommendation: Recommendation; askForTopics?: boolean }) {
   const { booth, match } = recommendation;
   const { t, language } = useLanguage();
   return (
@@ -22,6 +25,7 @@ export function RecommendationCard({ recommendation }: { recommendation: Recomme
         </div>
         {match && <ScoreBadge score={match.score} />}
       </div>
+      {booth.description && <p className="fm-booth-blurb">{t(booth.description)}</p>}
 
       {match ? (
         <>
@@ -36,11 +40,11 @@ export function RecommendationCard({ recommendation }: { recommendation: Recomme
           )}
           <p className="fm-text-soft">{language === "en" ? match.explanation : localizeExplanation(match.explanation, match.matched_interests.map((interest) => t(interest.name)), t)}</p>
         </>
-      ) : (
+      ) : askForTopics ? (
         <p className="fm-small">
           {t("Select your interests to see how well this booth matches you.")}
         </p>
-      )}
+      ) : null}
     </li>
   );
 }
