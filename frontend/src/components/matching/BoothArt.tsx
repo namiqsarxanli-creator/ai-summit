@@ -3,19 +3,19 @@
 import { useLanguage } from "@/components/ui/LanguageProvider";
 
 // A booth's banner on the Booths page, in the summit's own poster style (the
-// @aisummitbaku posts): cream paper, the red-and-white checkered peaks, a red
-// ribbon, a round badge with the booth's game mark, a checkered strip. Each
-// booth shows its own part of the summit picture and its own mark, so they are
-// told apart at a glance; any other booth gets a part chosen from its slug.
+// @aisummitbaku posts): the summit's sky with its red-and-white checkered peaks
+// (/booth-sky.jpg, from the summit's own poster), a red ribbon, a round badge
+// with the booth's game mark, a checkered strip. Each booth shows its own part
+// of the sky and its own mark; any other booth gets a part chosen from its slug.
 
 type Art = { at: string; icon: keyof typeof ICONS };
 
 const BOOTHS: Record<string, Art> = {
-  aiworks: { at: "72% 48%", icon: "wheel" }, // Spin & Play: the robot
-  "facemark-brand-workshop": { at: "0% 62%", icon: "palette" },
-  "spark-ai-b2b-os": { at: "100% 40%", icon: "target" },
-  "faridteaches-ai-diagnose-lab": { at: "28% 78%", icon: "lens" },
-  "handex-can-you-guess": { at: "45% 58%", icon: "brush" },
+  aiworks: { at: "50% 30%", icon: "wheel" },
+  "facemark-brand-workshop": { at: "0% 70%", icon: "palette" },
+  "spark-ai-b2b-os": { at: "100% 45%", icon: "target" },
+  "faridteaches-ai-diagnose-lab": { at: "25% 100%", icon: "lens" },
+  "handex-can-you-guess": { at: "75% 5%", icon: "brush" },
 };
 
 const SPOTS = ["15% 30%", "90% 25%", "40% 70%", "65% 5%", "0% 55%"];
