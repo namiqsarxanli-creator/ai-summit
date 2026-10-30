@@ -518,3 +518,15 @@ def test_a_demo_reset_clears_bookings_and_keeps_retained_booth_schedules(
     assert pg.rig.scalar("SELECT count(*) FROM playground_slots WHERE booth_id=:b", b=kept) == 36
     assert pg.rig.scalar("SELECT count(*) FROM playground_slots WHERE booth_id=:b", b=extra) == 0
     assert pg.rig.scalar("SELECT count(*) FROM booths WHERE id=:b", b=extra) == 0
+
+
+def test_each_slot_carries_its_booths_one_sentence_card(pg: PlaygroundProgram) -> None:
+    booth = int(pg.rig.scalar("SELECT id FROM booths ORDER BY id LIMIT 1"))
+    pg.rig.sql(
+        "UPDATE booths SET description = 'Spin the wheel and try your luck!' WHERE id = :b", b=booth
+    )
+    (uid,) = pg.users(1)
+    slots = pg.client(uid).get("/api/playground").json()["slots"]
+    assert slots and {s["booth_description"] for s in slots} == {
+        "Spin the wheel and try your luck!"
+    }

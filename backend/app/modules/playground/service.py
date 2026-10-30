@@ -445,7 +445,7 @@ def prepare(db: Session, event_id: int, booth_id: int) -> dict[str, Any]:
 def programme(db: Session, uid: int | None = None, booth_id: int | None = None) -> dict[str, Any]:
     stamp = now()
     query = (
-        select(Slot, Booth.name, MasterclassEvent.timezone)
+        select(Slot, Booth.name, Booth.description, MasterclassEvent.timezone)
         .join(Booth)
         .join(MasterclassEvent, Slot.event_id == MasterclassEvent.id)
         .where(Booth.is_active)
@@ -454,7 +454,7 @@ def programme(db: Session, uid: int | None = None, booth_id: int | None = None) 
     if booth_id is not None:
         query = query.where(Slot.booth_id == booth_id)
     slot_rows = list(db.execute(query))
-    ids = [slot.id for slot, _, _ in slot_rows]
+    ids = [slot.id for slot, _, _, _ in slot_rows]
     own_query = (
         select(Booking)
         .where(Booking.slot_id.in_(ids), or_(Booking.user_id == uid, Booking.inviter_id == uid))
@@ -489,7 +489,7 @@ def programme(db: Session, uid: int | None = None, booth_id: int | None = None) 
         else {}
     )
     items = []
-    for slot, name, zone in slot_rows:
+    for slot, name, description, zone in slot_rows:
         members = [b for b in bookings if b.slot_id == slot.id]
         current = [b for b in members if b.user_id == uid] if uid else []
         own = current[-1] if current else None
@@ -512,6 +512,8 @@ def programme(db: Session, uid: int | None = None, booth_id: int | None = None) 
                 "event_id": slot.event_id,
                 "booth_id": slot.booth_id,
                 "booth": name,
+                # The booth's one-sentence card (PDF: "stend kartında göstərilir").
+                "booth_description": description,
                 "number": slot.number,
                 "starts_at": slot.starts_at,
                 "ends_at": slot.ends_at,

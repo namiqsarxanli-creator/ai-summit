@@ -104,7 +104,7 @@ export function PlaygroundStaff() {
             >
               {program.slots.map((s) => (
                 <option key={s.id} value={s.id}>
-                  {s.booth} · {slotLabel(s)} · {eventTime(s.starts_at, s.timezone, language)}
+                  {t(s.booth)} · {slotLabel(s)} · {eventTime(s.starts_at, s.timezone, language)}
                 </option>
               ))}
             </select>

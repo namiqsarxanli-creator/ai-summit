@@ -218,7 +218,7 @@ export function PlaygroundProgram() {
         <section className="fm-card fm-card-tint fm-section" aria-labelledby="pg-invitation">
           <h2 id="pg-invitation" className="fm-h3">{t("Team invitation")}</h2>
           <p className="fm-text-soft">
-            {previewSlot ? `${previewSlot.booth} · ${slotLabel(previewSlot)} · ${time(invitation.preview, previewSlot.timezone)}` : null}
+            {previewSlot ? `${t(previewSlot.booth)} · ${slotLabel(previewSlot)} · ${time(invitation.preview, previewSlot.timezone)}` : null}
           </p>
           {previewSlot && (
             <p className="fm-micro">
@@ -272,9 +272,13 @@ export function PlaygroundProgram() {
           <label className="fm-field">
             <span className="fm-label">{t("Booth")}</span>
             <select className="fm-input" value={chosen} onChange={(e) => setBooth(e.target.value)}>
-              {booths.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+              {booths.map(([id, name]) => <option key={id} value={id}>{t(name)}</option>)}
             </select>
           </label>
+          {(() => {
+            const about = slots.find((s) => String(s.booth_id) === chosen)?.booth_description;
+            return about ? <p className="fm-text-soft" data-testid="booth-about">{t(about)}</p> : null;
+          })()}
           <ul className="fm-list">
             {/* Ended sessions (the server closed even the queue) leave the list. */}
             {slots.filter((s) => String(s.booth_id) === chosen && s.queue_open).map((s) => card(s, "slot"))}
@@ -308,7 +312,7 @@ function SlotCard({
   return (
     <li className="fm-card fm-section" data-testid={testId}>
       <div className="fm-row-between">
-        <h3 className="fm-h3">{slot.booth}</h3>
+        <h3 className="fm-h3">{t(slot.booth)}</h3>
         <span className="fm-badge">{slotLabel(slot)}</span>
       </div>
       <p className="fm-small">{time}</p>

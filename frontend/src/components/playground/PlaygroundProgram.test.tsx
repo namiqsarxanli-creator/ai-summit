@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { PlaygroundSlot } from "@/lib/playground";
 
+import { LanguageProvider } from "@/components/ui/LanguageProvider";
 import { PlaygroundProgram } from "./PlaygroundProgram";
 
 const json = (status: number, body: unknown) =>
@@ -68,6 +69,18 @@ describe("PlaygroundProgram", () => {
     fail = false;
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(await screen.findByTestId("pg-slot-1")).toBeInTheDocument();
+  });
+
+  it("shows the chosen booth's one-sentence card, in the chosen language", async () => {
+    window.localStorage.setItem("facemark.language", "az");
+    try {
+      server({ slots: () => [slot({ booth: "HANDEX — Can You Guess?", booth_description: "You draw, AI guesses! Over three rounds, AI analyses your sketches and shares its guesses. Succeed in at least two rounds to reach the booth final and race for the fastest time." })] });
+      render(<LanguageProvider><PlaygroundProgram /></LanguageProvider>);
+      expect(await screen.findByTestId("booth-about")).toHaveTextContent("Sən çək, AI tapsın!");
+      expect(screen.getAllByText("HANDEX — Görək, bildin?").length).toBeGreaterThan(0);
+    } finally {
+      window.localStorage.removeItem("facemark.language");
+    }
   });
 
   it("says when no sessions are open yet", async () => {
