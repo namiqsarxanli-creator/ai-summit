@@ -12,6 +12,7 @@ import type { ApiResult } from "@/lib/api";
 import { messageFor } from "@/lib/errors";
 import { fetchBoothListing, isGeneralListing, type Recommendation } from "@/lib/matching";
 import { rememberScroll, restoreScroll } from "@/lib/scrollMemory";
+import { useCardTopics } from "@/lib/useCardTopics";
 
 const TOP_N = 3;
 const SCROLL_KEY = "home";
@@ -54,6 +55,7 @@ function stateFrom(result: ApiResult<Recommendation[]>): State {
 // authenticates itself from its own endpoint.
 export function HomeDashboard() {
   const { t } = useLanguage();
+  const hasTopics = useCardTopics();
   const [state, setState] = useState<State>({ kind: "loading" });
 
   useEffect(() => {
@@ -149,7 +151,7 @@ export function HomeDashboard() {
           <p className="fm-empty">{t("No booths are available yet. Check back soon.")}</p>
         ) : (
           <>
-            {general && (
+            {general && hasTopics === false && (
               <p className="fm-alert fm-alert-info">
                 {t("Choose topics on your interest card in your profile to see your personalised match for each booth.")}
               </p>

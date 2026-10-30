@@ -66,4 +66,5 @@ export const flowTranslations: Record<string, { az: string; ru: string }> = {
   "Loading…": { az: "Yüklənir…", ru: "Загрузка…" },
   "pts": { az: "xal", ru: "очк." },
   "Rank": { az: "Yer", ru: "Место" },
+  "Your interest card is saved. The booths' own interest profiles are not set yet, so no match can be shown; here are all the booths at the summit.": { az: "Maraq kartınız yadda saxlanılıb. Stendlərin öz maraq profilləri hələ qurulmayıb, ona görə uyğunluq göstərilə bilmir; sammitdəki bütün stendlər aşağıdadır.", ru: "Ваша карточка интересов сохранена. Профили интересов стендов ещё не заданы, поэтому совпадение показать нельзя; ниже все стенды саммита." },
 };
