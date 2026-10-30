@@ -20,7 +20,7 @@ export function RecommendationCard({ recommendation, askForTopics = false }: { r
   const [company, game] = splitName(t(booth.name));
   return (
     <li className="fm-booth-tile">
-      <BoothArt slug={booth.slug} label={company ?? game} />
+      <BoothArt slug={booth.slug} />
       <div className="fm-booth-tile-head">
         <div className="fm-grow">
           {company && <p className="fm-eyebrow">{company}</p>}

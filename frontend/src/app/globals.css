@@ -369,14 +369,15 @@ body:has(.fm-home) .fm-language-switcher { position: absolute; top: 0; left: 50%
 /* Booths */
 .fm-booth-card { position: relative; overflow: hidden; display: flex; flex-direction: column; gap: 12px; min-width: 0; padding: 112px 18px 18px; border: 1px solid #eee0da; border-radius: 20px; background: var(--fm-surface); box-shadow: 0 5px 17px #48182009; }
 /* The Booths page: one tile per booth - company mark, game, card, the way to play. */
-.fm-booth-tile { display: flex; flex-direction: column; gap: 12px; min-width: 0; padding: 0 18px 18px; overflow: hidden; border: 1px solid #eee0da; border-radius: 20px; background: var(--fm-surface); box-shadow: 0 5px 17px #48182009; }
-.fm-booth-art { position: relative; display: grid; place-items: center; height: 104px; margin: 0 -18px 4px; color: #fff; overflow: hidden; }
-.fm-booth-art-dots { position: absolute; inset: 0; background-image: radial-gradient(#ffffff2e 1.5px, transparent 1.6px); background-size: 14px 14px; mask-image: linear-gradient(90deg, transparent, #000 60%); }
-.fm-booth-art-icon { position: relative; filter: drop-shadow(0 3px 6px #0003); }
-.fm-booth-art-letters { position: relative; font-size: 34px; font-weight: 800; letter-spacing: .06em; }
+.fm-booth-tile { display: flex; flex-direction: column; gap: 12px; min-width: 0; padding: 0 18px 18px; overflow: hidden; border: 1px solid #e6d3c3; border-radius: 20px; background: #fffaf4; box-shadow: 0 10px 24px #5a1a1a14; }
+.fm-booth-art { position: relative; height: 150px; margin: 0 -18px 4px; overflow: hidden; border-bottom: 1px solid #e6d3c3; background: linear-gradient(90deg, #f7efe4 0%, #f7efe4b3 22%, #f7efe400 48%), url('/summit-hero-clean.png'); background-size: 100% 100%, 135% auto; background-repeat: no-repeat; }
+.fm-booth-ribbon { position: absolute; left: 14px; top: 16px; padding: 6px 12px; border-radius: 4px; background: var(--fm-red); color: #fff; font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; box-shadow: 0 3px 8px #a7192340; }
+.fm-booth-badge { position: absolute; left: 14px; bottom: 22px; box-sizing: content-box; padding: 10px; border: 2px dashed #a7192366; border-radius: 50%; background: #fff; color: var(--fm-red); box-shadow: 0 4px 12px #48182020; }
+.fm-booth-checks { position: absolute; left: 0; right: 0; bottom: 0; height: 10px; background: conic-gradient(var(--fm-red) 25%, #fff 0 50%, var(--fm-red) 0 75%, #fff 0) 0 0 / 10px 10px; }
 .fm-booth-tile-head { display: flex; align-items: flex-start; gap: 14px; }
 .fm-booth-tile .fm-eyebrow { margin: 0 0 2px; }
-.fm-booth-tile .fm-booth-name { margin: 0; font-size: 20px; line-height: 1.25; }
+.fm-booth-tile .fm-booth-name { margin: 0; font-size: 22px; font-weight: 800; line-height: 1.2; }
+.fm-booth-tile .fm-booth-name a { color: var(--fm-red); text-decoration: none; }
 .fm-booth-play { align-self: flex-start; }
 /* A booth's own one-sentence card: on the Booths page, and highlighted on the Playground page. */
 .fm-booth-blurb { margin: 0; color: var(--fm-ink); font-size: 15px; line-height: 1.55; }

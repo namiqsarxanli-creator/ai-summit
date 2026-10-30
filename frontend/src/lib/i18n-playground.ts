@@ -241,4 +241,5 @@ export const playgroundTranslations: Record<string,{az:string;ru:string}> = {
   "Nobody has booked or queued for this session yet.": { az: "Bu sessiyaya hələ heç kim bron etməyib və növbəyə yazılmayıb.", ru: "На эту сессию пока никто не записался и не встал в очередь." },
   "What awaits you at this booth": { az: "Stenddə sizi nə gözləyir", ru: "Что ждёт вас на стенде" },
   "Book a 15-minute session": { az: "15 dəqiqəlik sessiyaya yazıl", ru: "Записаться на 15-минутную сессию" },
+  "AI Playground · 15 min": { az: "AI Playground · 15 dəq", ru: "AI Playground · 15 мин" },
 };
