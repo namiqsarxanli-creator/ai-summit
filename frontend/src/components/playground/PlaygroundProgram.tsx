@@ -175,7 +175,10 @@ export function PlaygroundProgram() {
 
   const { slots } = state.program;
   const booths = [...new Map(slots.map((s) => [s.booth_id, s.booth])).entries()];
-  const chosen = booth || String(booths[0]?.[0] ?? "");
+  // A booth card on the Booths page opens this page at its booth (?booth=<slug>).
+  const linked = typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("booth");
+  const linkedId = linked ? slots.find((s) => s.booth_slug === linked)?.booth_id : undefined;
+  const chosen = booth || String(linkedId ?? booths[0]?.[0] ?? "");
   const mine = slots.filter((s) => s.mine && (HOLDING.includes(s.mine.status) || s.mine.status === "no_show"));
   const time = (s: { starts_at: string; ends_at: string }, zone: string) =>
     `${eventTime(s.starts_at, zone, language)}–${eventTime(s.ends_at, zone, language)}`;

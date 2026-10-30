@@ -64,7 +64,7 @@ export function AdminList({ kind, refreshKey, base = "/api/admin" }: { kind: Lis
   // left when the newest request has no answer yet - no state is set to say so.
   const [answer, setAnswer] = useState<{ key: string; load: Load } | null>(null);
   const cursor = cursors[cursors.length - 1] ?? null;
-  const requestKey = JSON.stringify([kind, applied, cursor, refreshKey, retry]);
+  const requestKey = JSON.stringify([base, kind, applied, cursor, refreshKey, retry]);
   const load: Load = answer !== null && answer.key === requestKey ? answer.load : { status: "loading" };
 
   useEffect(() => {
@@ -79,7 +79,7 @@ export function AdminList({ kind, refreshKey, base = "/api/admin" }: { kind: Lis
       });
     });
     return () => { current = false; };
-  }, [kind, applied, cursor, refreshKey, retry, requestKey]);
+  }, [base, kind, applied, cursor, refreshKey, retry, requestKey]);
 
   function apply(event?: FormEvent) {
     event?.preventDefault();

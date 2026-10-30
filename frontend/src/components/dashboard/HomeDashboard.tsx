@@ -6,15 +6,12 @@ import { HomeIcon } from "@/components/ui/HomeIcons";
 import { type MouseEvent, useEffect, useState } from "react";
 
 import { ScoreSummary } from "@/components/dashboard/ScoreSummary";
-import { RecommendationCard } from "@/components/matching/RecommendationCard";
 import { AttendeeTabBar } from "@/components/nav/AttendeeTabBar";
 import type { ApiResult } from "@/lib/api";
 import { messageFor } from "@/lib/errors";
-import { fetchBoothListing, isGeneralListing, type Recommendation } from "@/lib/matching";
+import { fetchRecommendations, type Recommendation } from "@/lib/matching";
 import { rememberScroll, restoreScroll } from "@/lib/scrollMemory";
-import { useCardTopics } from "@/lib/useCardTopics";
 
-const TOP_N = 3;
 const SCROLL_KEY = "home";
 
 // The Beyond Now programme surfaces, in the order an attendee uses them. Styled
@@ -55,12 +52,11 @@ function stateFrom(result: ApiResult<Recommendation[]>): State {
 // authenticates itself from its own endpoint.
 export function HomeDashboard() {
   const { t } = useLanguage();
-  const hasTopics = useCardTopics();
   const [state, setState] = useState<State>({ kind: "loading" });
 
   useEffect(() => {
     let cancelled = false;
-    fetchBoothListing().then((result) => {
+    fetchRecommendations().then((result) => {
       if (!cancelled) setState(stateFrom(result));
     });
     return () => {
@@ -97,10 +93,6 @@ export function HomeDashboard() {
       </p>
     );
   }
-
-  const { recommendations } = state;
-  const top = recommendations.slice(0, TOP_N);
-  const general = isGeneralListing(recommendations);
 
   return (
     <div className="fm-stack" onClickCapture={remember}>
@@ -140,30 +132,6 @@ export function HomeDashboard() {
         </ul>
       </section>
 
-      <section className="fm-section">
-        <div className="fm-row-between">
-          <h2 className="fm-eyebrow">{t("Your top matches")}</h2>
-          <Link href="/booths" className="fm-link fm-link-block">
-            {t("See all →")}
-          </Link>
-        </div>
-        {top.length === 0 ? (
-          <p className="fm-empty">{t("No booths are available yet. Check back soon.")}</p>
-        ) : (
-          <>
-            {general && hasTopics === false && (
-              <p className="fm-alert fm-alert-info">
-                {t("Choose topics on your interest card in your profile to see your personalised match for each booth.")}
-              </p>
-            )}
-            <ul className="fm-list">
-              {top.map((r) => (
-                <RecommendationCard key={r.booth.slug} recommendation={r} askForTopics={hasTopics === false} />
-              ))}
-            </ul>
-          </>
-        )}
-      </section>
 
       <AttendeeTabBar active="home" />
     </div>

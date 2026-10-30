@@ -368,6 +368,16 @@ body:has(.fm-home) .fm-language-switcher { position: absolute; top: 0; left: 50%
 
 /* Booths */
 .fm-booth-card { position: relative; overflow: hidden; display: flex; flex-direction: column; gap: 12px; min-width: 0; padding: 112px 18px 18px; border: 1px solid #eee0da; border-radius: 20px; background: var(--fm-surface); box-shadow: 0 5px 17px #48182009; }
+/* The Booths page: one tile per booth - company mark, game, card, the way to play. */
+.fm-booth-tile { display: flex; flex-direction: column; gap: 12px; min-width: 0; padding: 0 18px 18px; overflow: hidden; border: 1px solid #eee0da; border-radius: 20px; background: var(--fm-surface); box-shadow: 0 5px 17px #48182009; }
+.fm-booth-art { position: relative; display: grid; place-items: center; height: 104px; margin: 0 -18px 4px; color: #fff; overflow: hidden; }
+.fm-booth-art-dots { position: absolute; inset: 0; background-image: radial-gradient(#ffffff2e 1.5px, transparent 1.6px); background-size: 14px 14px; mask-image: linear-gradient(90deg, transparent, #000 60%); }
+.fm-booth-art-icon { position: relative; filter: drop-shadow(0 3px 6px #0003); }
+.fm-booth-art-letters { position: relative; font-size: 34px; font-weight: 800; letter-spacing: .06em; }
+.fm-booth-tile-head { display: flex; align-items: flex-start; gap: 14px; }
+.fm-booth-tile .fm-eyebrow { margin: 0 0 2px; }
+.fm-booth-tile .fm-booth-name { margin: 0; font-size: 20px; line-height: 1.25; }
+.fm-booth-play { align-self: flex-start; }
 /* A booth's own one-sentence card: on the Booths page, and highlighted on the Playground page. */
 .fm-booth-blurb { margin: 0; color: var(--fm-ink); font-size: 15px; line-height: 1.55; }
 .fm-booth-about { display: grid; gap: 6px; padding: 16px 18px; border: 1px solid #f0c9c4; border-left: 6px solid var(--fm-red); border-radius: 16px; background: linear-gradient(135deg, #fff4f2, #fff); box-shadow: 0 6px 18px #a7192314; }

@@ -31,6 +31,7 @@ export type PlaygroundSlot = {
   booth_id: number;
   booth: string;
   booth_description?: string | null;
+  booth_slug?: string;
   number: number;
   starts_at: string;
   ends_at: string;

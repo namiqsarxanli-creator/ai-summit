@@ -41,7 +41,9 @@ export async function fetchBoothListing(): Promise<ApiResult<Recommendation[]>> 
   const catalogue = await fetchBooths();
   if (!catalogue.ok || !Array.isArray(catalogue.data)) return recommended;
   const listed = new Set(recommended.data.map((r) => r.booth.slug));
-  const rest = catalogue.data.filter((b) => !listed.has(b.slug)).map((booth) => ({ booth, match: null }));
+  const rest = catalogue.data
+    .filter((b) => typeof b?.slug === "string" && typeof b?.name === "string" && !listed.has(b.slug))
+    .map((booth) => ({ booth, match: null }));
   return { ...recommended, data: [...recommended.data, ...rest] };
 }
 

@@ -78,8 +78,9 @@ describe("Home", () => {
       }),
     );
     render(<Home />);
-    // The matched-booths preview (M07 data, this milestone's UI) ...
-    expect(await screen.findByRole("heading", { name: "AIWorks" })).toBeInTheDocument();
+    // The Beyond Now hub (booths themselves are on the Booths page) ...
+    expect(await screen.findByRole("heading", { name: "Beyond Now" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "AIWorks" })).not.toBeInTheDocument();
     // ... no identity strip: the profile is the Profile tab, not a block on Home ...
     expect(screen.queryByText("Marcus Lindqvist")).not.toBeInTheDocument();
     // ... and the shared attendee navigation, all on one coherent screen.

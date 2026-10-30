@@ -86,18 +86,16 @@ afterEach(() => {
 });
 
 describe("HomeDashboard", () => {
-  it("shows only the top 3 matches, plus a See all link and the real score/rank", async () => {
+  it("links to the Booths page instead of listing booths, and shows the real score/rank", async () => {
     vi.stubGlobal("fetch", router(() => jsonResponse(200, SCORED)));
     render(<HomeDashboard />);
     // ScoreSummary (and its EventSource) only mounts once HomeDashboard's
-    // own recommendations fetch resolves into the "ok" branch.
-    expect(await screen.findByRole("heading", { name: "AIWorks" })).toBeInTheDocument();
+    // own recommendations fetch (the session check) resolves into "ok".
     await waitFor(() => expect(MockEventSource.instances.length).toBeGreaterThan(0));
     openReady();
-    expect(screen.getByRole("heading", { name: "FinPulse" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "MediSync AI" })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "SecureStack" })).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "See all →" })).toHaveAttribute("href", "/booths");
+    // Booths live on the Booths page (owner, 30 Oct 2026): none are listed here.
+    expect(screen.queryByRole("heading", { name: "AIWorks" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Your top matches")).not.toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: "Booths" })[0]).toHaveAttribute("href", "/booths");
     expect(screen.getAllByRole("link", { name: "My QR" })[0]).toHaveAttribute("href", "/my-card");
     // the Beyond Now surfaces (masterclasses included) are reached from Home, not from a sixth tab
@@ -114,23 +112,6 @@ describe("HomeDashboard", () => {
     expect(screen.getByText("Rank #3")).toBeInTheDocument();
   });
 
-  it("shows the general-listing banner when interests are unset", async () => {
-    vi.stubGlobal(
-      "fetch",
-      router(() =>
-        jsonResponse(200, [
-          { booth: { slug: "aiworks", name: "AIWorks", location_label: null }, match: null },
-        ]),
-      ),
-    );
-    render(<HomeDashboard />);
-    await screen.findByRole("heading", { name: "AIWorks" });
-    expect(
-      screen.getByText(
-        "Choose topics on your interest card in your profile to see your personalised match for each booth.",
-      ),
-    ).toBeInTheDocument();
-  });
 
   it("renders nothing when signed out — SessionPanel already offers the CTA", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => errorResponse(401, "UNAUTHENTICATED")));

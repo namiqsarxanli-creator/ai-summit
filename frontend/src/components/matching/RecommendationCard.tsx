@@ -5,6 +5,8 @@ import Link from "next/link";
 
 import type { Recommendation } from "@/lib/matching";
 
+import { BoothArt } from "./BoothArt";
+
 // Renders exactly what the server sent for one booth: no score is ever
 // computed here (§24.5, §24.9). `match: null` renders a neutral prompt,
 // never a fabricated 0%.
@@ -14,12 +16,16 @@ import type { Recommendation } from "@/lib/matching";
 export function RecommendationCard({ recommendation, askForTopics = false }: { recommendation: Recommendation; askForTopics?: boolean }) {
   const { booth, match } = recommendation;
   const { t, language } = useLanguage();
+  // "Company — Game": the company as the eyebrow, the game as the title.
+  const [company, game] = splitName(t(booth.name));
   return (
-    <li className="fm-booth-card">
-      <div className="fm-row-between" style={{ alignItems: "flex-start" }}>
+    <li className="fm-booth-tile">
+      <BoothArt slug={booth.slug} label={company ?? game} />
+      <div className="fm-booth-tile-head">
         <div className="fm-grow">
+          {company && <p className="fm-eyebrow">{company}</p>}
           <h3 className="fm-booth-name">
-            <Link href={`/booths/${encodeURIComponent(booth.slug)}`}>{t(booth.name)}</Link>
+            <Link href={`/booths/${encodeURIComponent(booth.slug)}`}>{game}</Link>
           </h3>
           {booth.location_label && <p className="fm-small">{t(booth.location_label)}</p>}
         </div>
@@ -45,8 +51,16 @@ export function RecommendationCard({ recommendation, askForTopics = false }: { r
           {t("Select your interests to see how well this booth matches you.")}
         </p>
       ) : null}
+      <Link href={`/playground?booth=${encodeURIComponent(booth.slug)}`} className="fm-btn fm-btn-primary fm-booth-play">
+        {t("Book a 15-minute session")}
+      </Link>
     </li>
   );
+}
+
+function splitName(name: string): [string | null, string] {
+  const at = name.indexOf(" — ");
+  return at > 0 ? [name.slice(0, at), name.slice(at + 3)] : [null, name];
 }
 
 function localizeExplanation(explanation: string, names: string[], t: (text: string) => string): string {
