@@ -51,6 +51,7 @@ const CODE_LABELS: Record<string, string> = {
 const CHECK_LABELS: Record<string, string> = {
   database: "Database",
   migrations: "Database schema",
+  "email-providers": "E-mail providers (in order)",
   "outbox-backlog": "Sign-in code emails: queue",
   "outbox-failures": "Sign-in code emails: failures",
   outbox: "Sign-in code emails",

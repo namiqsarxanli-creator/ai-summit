@@ -310,4 +310,5 @@ export const adminTranslations: Record<string, { az: string; ru: string }> = {
   "Live updates": { az: "Canlı yeniləmələr", ru: "Живые обновления" },
   "Networking cards": { az: "Tanışlıq kartları", ru: "Карточки знакомств" },
   "Health check": { az: "Sağlamlıq yoxlaması", ru: "Проверка работоспособности" },
+  "E-mail providers (in order)": { az: "E-poçt provayderləri (sıra ilə)", ru: "Почтовые провайдеры (по порядку)" },
 };

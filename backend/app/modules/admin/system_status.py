@@ -41,6 +41,16 @@ def checks() -> list[ops_status.CheckResult]:
                 results.extend(ops_status.check_outbox(db))
     finally:
         engine.dispose()
+    from app.modules.auth.email_providers import configured
+
+    names = [name for name, _ in configured(get_settings())]
+    results.append(
+        ops_status.CheckResult(
+            "email-providers",
+            "ok" if names else "crit",
+            " -> ".join(names) if names else "none configured",
+        )
+    )
     try:
         results.extend(ops_status.check_media(get_store()))
     except Exception as exc:  # noqa: BLE001 - the class name is the diagnosis

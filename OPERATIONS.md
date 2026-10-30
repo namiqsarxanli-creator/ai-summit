@@ -99,6 +99,42 @@ cd .. && bash deploy/tests/backup-scripts.test.sh && bash deploy/tests/monitor.t
 (The backend commands need `DATABASE_URL` pointing at a PostgreSQL server whose
 role may `CREATE DATABASE`; the suite only uses it to create its own databases.)
 
+## E-mail providers and failover
+
+Sign-in codes, staff reset codes and programme reminders go through ONE chain
+of providers (`app/modules/auth/email_providers.py`), in `EMAIL_PROVIDER_ORDER`
+(default `ses,zeptomail,resend`). Only configured providers take part; with
+nothing but `RESEND_API_KEY` set the behaviour is exactly as before.
+
+* A provider answering "rate limited / quota used up" (Resend 429, SES
+  `LimitExceeded`/`SendingPaused`, ZeptoMail "no credits"), "unavailable",
+  "auth rejected" or a network failure is set aside (60 s / 30 s / 10 min / 30 s,
+  or its own Retry-After) and the same message goes to the next one at once.
+* A refusal of the message itself (e.g. SES sandbox: unverified recipient)
+  moves on without setting the provider aside.
+* Resend's "conflict" (another request holds this idempotency key) stops the
+  chain: it may be sending already.
+* Which provider took a message is the prefix of its message id (`ses:…`,
+  `zeptomail:…`, `resend:…`) in /admin → E-mail delivery. /admin → System
+  status lists the chain.
+* Trade-off: a provider that takes a message and then drops the connection
+  looks like a network failure, so the next one may send it again - the
+  attendee gets the same code twice.
+
+Adding a provider (the operator; keys go into `.env.production` on the server,
+never into chat or the repository):
+
+1. **Amazon SES** - in the AWS console, SES in the region you choose (e.g.
+   `eu-central-1`): verify the domain `aiworks.az` (DKIM CNAMEs in Cloudflare),
+   request production access (out of the sandbox, ~1 day), create an IAM user
+   with only `ses:SendEmail` and an access key. Set `SES_ACCESS_KEY_ID`,
+   `SES_SECRET_ACCESS_KEY`, `SES_REGION`.
+2. **ZeptoMail** - add and verify the domain (its DKIM/SPF records), create a
+   Mail Agent, copy its Send Mail token into `ZEPTOMAIL_TOKEN` (EU data centre:
+   `ZEPTOMAIL_API_URL=https://api.zeptomail.eu/v1.1/email`).
+3. `$DC up -d --no-build --wait backend worker`, then check /admin → System
+   status ("E-mail providers (in order)").
+
 ## OTP e-mail pacing
 
 **The problem.** The per-address and per-IP limits (`app/core/ratelimit.py`)

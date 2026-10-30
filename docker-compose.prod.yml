@@ -49,6 +49,14 @@ x-backend-environment: &backend-environment
   SCAN_REF_SECRET: ${SCAN_REF_SECRET:?set SCAN_REF_SECRET in the env file}
   RESEND_API_KEY: ${RESEND_API_KEY:?set RESEND_API_KEY in the env file}
   OTP_FROM_EMAIL: ${OTP_FROM_EMAIL:?set OTP_FROM_EMAIL in the env file}
+  # Optional extra e-mail providers, tried before Resend in EMAIL_PROVIDER_ORDER
+  # (OPERATIONS.md, "E-mail providers and failover"). Empty = not used.
+  SES_ACCESS_KEY_ID: ${SES_ACCESS_KEY_ID:-}
+  SES_SECRET_ACCESS_KEY: ${SES_SECRET_ACCESS_KEY:-}
+  SES_REGION: ${SES_REGION:-eu-central-1}
+  ZEPTOMAIL_TOKEN: ${ZEPTOMAIL_TOKEN:-}
+  ZEPTOMAIL_API_URL: ${ZEPTOMAIL_API_URL:-https://api.zeptomail.com/v1.1/email}
+  EMAIL_PROVIDER_ORDER: ${EMAIL_PROVIDER_ORDER:-ses,zeptomail,resend}
   # Encrypts OTP codes while they wait in the delivery outbox (backend and
   # worker share it). Generate: `$DC --profile ops run --rm cli generate-otp-key`.
   OTP_OUTBOX_ENCRYPTION_KEY: ${OTP_OUTBOX_ENCRYPTION_KEY:?set OTP_OUTBOX_ENCRYPTION_KEY in the env file}

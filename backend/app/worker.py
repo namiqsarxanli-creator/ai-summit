@@ -45,7 +45,8 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.db.session import SessionLocal, mutating_transaction
 from app.modules.auth import otp_outbox
-from app.modules.auth.otp_provider import EmailProvider, ResendProvider
+from app.modules.auth.email_providers import build_provider
+from app.modules.auth.otp_provider import EmailProvider
 from app.modules.auth.otp_throttle import SendThrottle
 from app.modules.reminders import service as reminders
 
@@ -277,7 +278,8 @@ def main() -> int:
     )
     run_forever(
         stop,
-        provider=ResendProvider(settings.resend_api_key),
+        # Resend alone, or the chain of every configured provider (email_providers.py).
+        provider=build_provider(settings),
         worker_id=worker_id,
         throttle=throttle,
     )

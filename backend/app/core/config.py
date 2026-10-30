@@ -152,6 +152,16 @@ class Settings(BaseSettings):
     # Settings fail. No fallback value (invariant #14): an unset key
     # must never be silently treated as configured.
     resend_api_key: str | None = None
+    # More providers, tried in EMAIL_PROVIDER_ORDER; a provider that cannot take
+    # a message (quota, rate limit, outage) is set aside and the next one sends
+    # it (app/modules/auth/email_providers.py). Each is optional; Resend stays
+    # the required last resort in production.
+    ses_access_key_id: str | None = None
+    ses_secret_access_key: str | None = None
+    ses_region: str = "eu-central-1"
+    zeptomail_token: str | None = None
+    zeptomail_api_url: str = "https://api.zeptomail.com/v1.1/email"
+    email_provider_order: str = "ses,zeptomail,resend"
     # Not a secret — the From header any recipient already sees. A
     # default is fine here, unlike the key above.
     otp_from_email: str = "AI Summit <info@aiworks.az>"
@@ -335,6 +345,14 @@ class Settings(BaseSettings):
         # without a real provider key no attendee could receive a code.
         if not self.resend_api_key or _looks_like_placeholder(self.resend_api_key):
             problems.append("RESEND_API_KEY is required (a real key, not a placeholder)")
+        if bool(self.ses_access_key_id) != bool(self.ses_secret_access_key):
+            problems.append("SES_ACCESS_KEY_ID and SES_SECRET_ACCESS_KEY go together")
+        for name, value in (
+            ("SES_SECRET_ACCESS_KEY", self.ses_secret_access_key),
+            ("ZEPTOMAIL_TOKEN", self.zeptomail_token),
+        ):
+            if value and _looks_like_placeholder(value):
+                problems.append(f"{name} is a placeholder")
         if "otp_from_email" not in self.model_fields_set:
             problems.append("OTP_FROM_EMAIL must be set explicitly")
         else:
