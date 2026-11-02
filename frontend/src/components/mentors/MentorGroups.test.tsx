@@ -75,9 +75,9 @@ describe("MentorGroups", () => {
     expect(card.queryByRole("button")).toBeNull();
   });
 
-  it("says plainly when no group is published", async () => {
+  it("shows nothing when no group is published", async () => {
     server([]);
-    render(<MentorGroups />);
-    expect(await screen.findByText("The organiser has not published mentor groups yet.")).toBeInTheDocument();
+    const { container } = render(<MentorGroups />);
+    await waitFor(() => expect(container).toBeEmptyDOMElement());
   });
 });

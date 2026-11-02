@@ -12,10 +12,15 @@ blocks in five rooms with published masterclasses, two Main Stage panels, the
 17:30 close, the competition ranking on, AI Playground booths with 36 slots
 each, mentor sessions of at most six, Match Corner tables, and the staff scopes
 that let every door, mentor group and booth be scanned.
+
+The 13 Nov agenda (Gundelik, 2 Nov) moved Panel 1 to 10:20 and has neither a
+Meet the Mentor slot nor room for a Match Corner: with no mentor session or no
+active table that activity is reported as "info" (not used), not as missing.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from typing import Literal
@@ -83,6 +88,44 @@ def _live_targets(db: Session, scope: str) -> set[int]:
         ).scalars()
         if t is not None
     }
+
+
+def _mentor_checks(
+    add: Callable[[str, bool, str], None], db: Session, sessions: list[MentorSession], zone: str
+) -> None:
+    oversized = [s.id for s in sessions if s.capacity > MENTOR_GROUP_MAX]
+    add(
+        "mentor_sessions",
+        bool(sessions) and not oversized,
+        f"{len(sessions)} session(s)"
+        + "".join(f"; {_local(s.starts_at, zone)[-5:]}" for s in sessions)
+        + (f"; over {MENTOR_GROUP_MAX} seats: session {_ids(oversized)}" if oversized else ""),
+    )
+    open_sessions = [s for s in sessions if s.is_open]
+    mentor_times = {s.starts_at.astimezone(ZoneInfo(zone)).time() for s in open_sessions}
+    expected_mentors = {time(13, 10), time(13, 35), time(15, 35)}
+    add(
+        "mentor_schedule",
+        expected_mentors <= mentor_times
+        and all(
+            s.starts_at.astimezone(ZoneInfo(zone)).date() == EVENT_DATE
+            and s.ends_at - s.starts_at == timedelta(minutes=20)
+            and s.capacity == MENTOR_GROUP_MAX
+            for s in open_sessions
+        ),
+        "expected open 20-minute groups of 6 at 13:10, 13:35 and 15:35 on the event day",
+    )
+    hosted = _live_targets(db, "MENTOR_HOST")
+    unhosted = [s.id for s in sessions if s.id not in hosted]
+    add(
+        "mentor_hosts",
+        bool(sessions) and not unhosted,
+        "every session has a host"
+        if sessions and not unhosted
+        else f"no host: session {_ids(unhosted)}"
+        if sessions
+        else "no sessions",
+    )
 
 
 def check(db: Session) -> list[Check]:
@@ -180,7 +223,7 @@ def check(db: Session) -> list[Check]:
         ),
         "expected event-day blocks 11:30-13:00 / 16:00-17:30, deadlines 11:00 / 15:30",
     )
-    expected_panels = {(time(10), time(11, 30)), (time(14), time(15, 30))}
+    expected_panels = {(time(10, 20), time(11, 30)), (time(14), time(15, 30))}
     actual_panels = {
         (p.starts_at.astimezone(ZoneInfo(zone)).time(), p.ends_at.astimezone(ZoneInfo(zone)).time())
         for p in panels
@@ -193,7 +236,7 @@ def check(db: Session) -> list[Check]:
             and p.ends_at.astimezone(ZoneInfo(zone)).date() == EVENT_DATE
             for p in panels
         ),
-        "expected event-day panels 10:00-11:30 / 14:00-15:30",
+        "expected event-day panels 10:20-11:30 / 14:00-15:30",
     )
 
     mode = bool(
@@ -260,46 +303,26 @@ def check(db: Session) -> list[Check]:
     )
 
     sessions = list(db.execute(select(MentorSession).order_by(MentorSession.starts_at)).scalars())
-    oversized = [s.id for s in sessions if s.capacity > MENTOR_GROUP_MAX]
-    add(
-        "mentor_sessions",
-        bool(sessions) and not oversized,
-        f"{len(sessions)} session(s)"
-        + "".join(f"; {_local(s.starts_at, zone)[-5:]}" for s in sessions)
-        + (f"; over {MENTOR_GROUP_MAX} seats: session {_ids(oversized)}" if oversized else ""),
-    )
-    open_sessions = [s for s in sessions if s.is_open]
-    mentor_times = {s.starts_at.astimezone(ZoneInfo(zone)).time() for s in open_sessions}
-    expected_mentors = {time(13, 10), time(13, 35), time(15, 35)}
-    add(
-        "mentor_schedule",
-        expected_mentors <= mentor_times
-        and all(
-            s.starts_at.astimezone(ZoneInfo(zone)).date() == EVENT_DATE
-            and s.ends_at - s.starts_at == timedelta(minutes=20)
-            and s.capacity == MENTOR_GROUP_MAX
-            for s in open_sessions
-        ),
-        "expected open 20-minute groups of 6 at 13:10, 13:35 and 15:35 on the event day",
-    )
-    hosted = _live_targets(db, "MENTOR_HOST")
-    unhosted = [s.id for s in sessions if s.id not in hosted]
-    add(
-        "mentor_hosts",
-        bool(sessions) and not unhosted,
-        "every session has a host"
-        if sessions and not unhosted
-        else f"no host: session {_ids(unhosted)}"
-        if sessions
-        else "no sessions",
-    )
+    if not sessions:
+        out.append(Check("mentor_sessions", "info", "no mentor groups: not in the programme"))
+    else:
+        _mentor_checks(add, db, sessions, zone)
 
     tables = int(
         db.execute(
             select(func.count()).select_from(MatchTable).where(MatchTable.is_active.is_(True))
         ).scalar_one()
     )
-    add("match_corner_tables", 4 <= tables <= 6, f"{tables} active table(s) (expected 4-6)")
+    if tables == 0:
+        out.append(
+            Check(
+                "match_corner_tables",
+                "info",
+                "no active table: Match Corner off; accepted requests meet at the Connection Hub",
+            )
+        )
+    else:
+        add("match_corner_tables", 4 <= tables <= 6, f"{tables} active table(s) (expected 4-6)")
 
     published_ids = list(
         db.execute(select(Masterclass.id).where(Masterclass.is_published.is_(True))).scalars()

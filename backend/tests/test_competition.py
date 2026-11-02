@@ -848,11 +848,13 @@ def test_the_readiness_report_names_what_is_missing_and_changes_nothing(
         "masterclasses_published",
         "competition_mode",
         "playground_slots",
-        "mentor_sessions",
-        "match_corner_tables",
         "game_masters",
     ):
         assert status[missing] == "missing", missing
+    # No mentor group and no Match Corner table: not in the 13 Nov programme.
+    for unused in ("mentor_sessions", "match_corner_tables"):
+        assert status[unused] == "info", unused
+    assert "mentor_schedule" not in status and "mentor_hosts" not in status
     assert status["founder_rule"] == status["reminders"] == "info"
     assert not ready(list(checks.values()))
 
@@ -927,6 +929,16 @@ def test_readiness_does_not_accept_one_booth_one_table_or_unpublished_mentor_tim
     assert checks["playground_slots"].status == "missing"  # PDF needs 8-15 booths
     assert checks["playground_schedule"].status == "ok"
     assert checks["match_corner_tables"].status == "missing"  # PDF suggests 4-6
+    comp.rig.sql(
+        "INSERT INTO mentor_sessions "
+        "(event_id, code, title, starts_at, ends_at, capacity, is_open) "
+        "VALUES (:e, 'mentor-x', 'Test mentor session', :s, :f, 6, false)",
+        e=comp.event,
+        s=baku("13:10"),
+        f=baku("13:30"),
+    )
+    with Session(comp.rig.engine) as db:
+        checks = {c.key: c for c in check(db)}
     assert checks["mentor_schedule"].status == "missing"
     comp.rig.sql(
         "UPDATE playground_slots SET starts_at = starts_at + interval '1 minute', "
@@ -943,6 +955,8 @@ def test_readiness_accepts_a_complete_programme_without_writing(comp: Comp) -> N
     from app.modules.competition.readiness import check, ready
 
     comp.rig.sql("UPDATE event_config SET competition_mode = true")
+    # The 13 Nov agenda: Panel 1 at 10:20-11:30.
+    comp.rig.sql("UPDATE panels SET starts_at = :s WHERE id = :p", s=baku("10:20"), p=comp.panel1)
     for block in (comp.b1, comp.b2):
         for _ in range(5):
             comp.volunteer("MASTERCLASS_DOOR", comp.masterclass(block))

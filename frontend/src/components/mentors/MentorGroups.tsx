@@ -57,6 +57,8 @@ export function MentorGroups() {
 
   if (state.kind !== "ok") return null;
   const { sessions, timezone } = state.data;
+  // No mentor group in the programme (13 Nov agenda): the section stays out of the way.
+  if (sessions.length === 0) return null;
   const holding = sessions.some((s) => s.booking && s.booking.status !== "attended");
 
   function card(s: MentorSession) {
@@ -106,9 +108,7 @@ export function MentorGroups() {
     <section className="fm-section" aria-labelledby="mentor-groups">
       <h2 id="mentor-groups" className="fm-eyebrow">{t("Meet the Mentor")}</h2>
       <p className="fm-small">{t("20 minutes with a speaker in a group of up to 6. At the end the host scans your QR: +5 points, once.")}</p>
-      {sessions.length === 0
-        ? <p className="fm-empty">{t("The organiser has not published mentor groups yet.")}</p>
-        : <ul className="fm-list">{sessions.map(card)}</ul>}
+      <ul className="fm-list">{sessions.map(card)}</ul>
       {holding && <p className="fm-micro">{t("You can hold one mentor group place at a time.")}</p>}
     </section>
   );

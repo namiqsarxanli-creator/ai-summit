@@ -12,6 +12,13 @@ export const contentTranslations: Record<string, { az: string; ru: string }> = {
   "Cloud Infrastructure": { az: "Bulud infrastrukturu", ru: "Облачная инфраструктура" },
   "Sustainability": { az: "Dayanıqlılıq", ru: "Устойчивое развитие" },
   "Hall B · 14": { az: "Zal B · 14", ru: "Зал B · 14" },
+  // The 13 Nov venue's halls (masterclass rooms).
+  "Ağdam Hall": { az: "Ağdam zalı", ru: "Зал Агдам" },
+  "Füzuli Hall": { az: "Füzuli zalı", ru: "Зал Физули" },
+  "Xocavənd Hall": { az: "Xocavənd zalı", ru: "Зал Ходжавенд" },
+  "Laçın Hall": { az: "Laçın zalı", ru: "Зал Лачин" },
+  "Qubadlı Hall": { az: "Qubadlı zalı", ru: "Зал Губадлы" },
+  "Shusha Hall": { az: "Şuşa zalı", ru: "Зал Шуша" },
   "Hall A · 3": { az: "Zal A · 3", ru: "Зал A · 3" },
   "Hall C · 8": { az: "Zal C · 8", ru: "Зал C · 8" },
   "Hall A · 11": { az: "Zal A · 11", ru: "Зал A · 11" },

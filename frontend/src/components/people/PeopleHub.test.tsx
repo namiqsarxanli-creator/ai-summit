@@ -65,6 +65,15 @@ describe("PeopleHub", () => {
     expect(meetings.getByText("Talk about A mentor: what would help each of you?")).toBeInTheDocument();
   });
 
+  it("sends an accepted pair without a Match Corner table to the Connection Hub", async () => {
+    server({ requests: [{ ...MEETING, meeting: null }] });
+    render(<PeopleHub />);
+    const agreed = within(await screen.findByRole("region", { name: "Agreed to meet" }));
+    expect(agreed.getByText("Aysel Məmmədova")).toBeInTheDocument();
+    expect(agreed.getByText("Find each other at the Connection Hub and scan each other's QR to connect.")).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Match Corner meetings" })).not.toBeInTheDocument();
+  });
+
   it("names the daily limit the server enforces", async () => {
     server({ people: [PERSON], write: () => json(409, { error: { code: "PEOPLE_CONFLICT", message: "", details: { reason: "daily_limit" } } }) });
     render(<PeopleHub />);

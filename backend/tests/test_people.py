@@ -211,15 +211,19 @@ def test_parallel_acceptances_never_share_a_table_slot(people: Comp) -> None:
     assert len({s[0] for s in slots}) == 4  # one table: four different quarter hours
 
 
-def test_no_table_configured_leaves_the_request_pending(people: Comp) -> None:
+def test_without_a_match_corner_table_an_accepted_request_has_no_meeting(
+    people: Comp,
+) -> None:
+    # 13 Nov: no room for a Match Corner, so no active table. Accepting still
+    # works; the pair meets at the Connection Hub and scans each other's QR.
     a, b = people.users(2)
     people.clock.now = baku("10:00")
     rid = ask(people.client(a), b).json()["id"]
-    refused = people.client(b).post(f"{REQUESTS}/{rid}/respond", json={"accept": True})
-    assert reason(refused) == "no_tables"
-    assert (
-        people.rig.scalar("SELECT status FROM meeting_requests WHERE id = :r", r=rid) == "PENDING"
-    )
+    accepted = people.client(b).post(f"{REQUESTS}/{rid}/respond", json={"accept": True})
+    assert accepted.status_code == 200 and accepted.json()["status"] == "accepted"
+    assert people.rig.scalar("SELECT count(*) FROM meetings") == 0
+    mine = people.client(a).get("/api/attendees/me/meetings").json()["requests"]
+    assert [(m["status"], m["meeting"]) for m in mine] == [("accepted", None)]
 
 
 def test_a_block_hides_the_person_and_cancels_what_is_open(people: Comp) -> None:

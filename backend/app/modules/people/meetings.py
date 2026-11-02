@@ -9,6 +9,9 @@
   quarter hour on in which the table AND both people are free. The PDF allows
   meetings during masterclass time too, so only meetings are checked against
   each other; the database refuses a double-booked table or person regardless.
+* No active table = no Match Corner (the 13 Nov venue has no room for one): an
+  accepted request then gets no table or slot; the two find each other at the
+  Connection Hub, and the mutual QR scan is what connects them (and earns).
 * Each meeting carries 2-3 discussion prompts, chosen from what the pair share.
 """
 
@@ -142,7 +145,7 @@ def _prompts(a: User, b: User) -> list[str]:
     return keys[:3]
 
 
-def _schedule(db: Session, request: MeetingRequest, now: datetime) -> Meeting:
+def _schedule(db: Session, request: MeetingRequest, now: datetime) -> Meeting | None:
     db.execute(text("SELECT pg_advisory_xact_lock(:c, 0)"), {"c": _MEETING_LOCK})
     event = _event(db)
     zone = ZoneInfo(event.timezone)
@@ -159,8 +162,8 @@ def _schedule(db: Session, request: MeetingRequest, now: datetime) -> Meeting:
             .order_by(MatchTable.id)
         ).scalars()
     )
-    if not tables:
-        raise PeopleError("no_tables")
+    if not tables:  # Match Corner is off: accepted without a table
+        return None
     people = (request.requester_id, request.recipient_id)
     slot = start
     while slot <= last_start:

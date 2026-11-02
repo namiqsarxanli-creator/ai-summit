@@ -101,6 +101,8 @@ export function PeopleHub() {
   const incoming = requests.filter((r) => r.direction === "incoming" && r.status === "pending");
   const outgoing = requests.filter((r) => r.direction === "outgoing" && r.status === "pending");
   const meetings = requests.filter((r) => r.status === "accepted" && r.meeting);
+  // No Match Corner table (13 Nov): an accepted request has no table or time.
+  const agreed = requests.filter((r) => r.status === "accepted" && !r.meeting);
 
   return (
     <div className="fm-stack-lg">
@@ -137,7 +139,7 @@ export function PeopleHub() {
               <li key={r.id} className="fm-card fm-section">
                 <p className="fm-strong">{r.other.name}</p>
                 <p className="fm-small">{r.other.profession}</p>
-                <button type="button" disabled={busy} className="fm-btn fm-btn-primary fm-btn-block" onClick={() => void run(`r${r.id}`, () => respond(r.id, true), "Accepted: your table and time are below.")}>{t("Accept")}</button>
+                <button type="button" disabled={busy} className="fm-btn fm-btn-primary fm-btn-block" onClick={() => void run(`r${r.id}`, () => respond(r.id, true), "Accepted: see below where to meet.")}>{t("Accept")}</button>
                 <button type="button" disabled={busy} className="fm-btn fm-btn-secondary fm-btn-block" onClick={() => void run(`r${r.id}`, () => respond(r.id, false), "Declined.")}>{t("Decline")}</button>
                 {line(`r${r.id}`)}
               </li>
@@ -169,6 +171,23 @@ export function PeopleHub() {
                   {r.meeting.prompts.map((key) => <li key={key} className="fm-small">{promptText(key, t)}</li>)}
                 </ol>
                 <p className="fm-micro">{t("At the table, scan each other's QR to connect.")}</p>
+                <button type="button" disabled={busy} className="fm-btn fm-btn-quiet" onClick={() => void run(`r${r.id}`, () => cancelRequest(r.id), "Meeting cancelled.")}>{t("Cancel the meeting")}</button>
+                {line(`r${r.id}`)}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {agreed.length > 0 && (
+        <section className="fm-section" aria-labelledby="ppl-agreed">
+          <h2 id="ppl-agreed" className="fm-eyebrow">{t("Agreed to meet")}</h2>
+          <ul className="fm-list">
+            {agreed.map((r) => (
+              <li key={r.id} className="fm-card fm-section">
+                <p className="fm-strong">{r.other.name}</p>
+                <p className="fm-small">{r.other.profession}</p>
+                <p className="fm-micro">{t("Find each other at the Connection Hub and scan each other's QR to connect.")}</p>
                 <button type="button" disabled={busy} className="fm-btn fm-btn-quiet" onClick={() => void run(`r${r.id}`, () => cancelRequest(r.id), "Meeting cancelled.")}>{t("Cancel the meeting")}</button>
                 {line(`r${r.id}`)}
               </li>
