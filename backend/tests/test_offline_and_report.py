@@ -20,11 +20,12 @@ from app.modules.mentors import routers as mentor_routers
 from app.modules.mentors import service as mentor_service
 from app.modules.staff.models import StaffRole
 from tests.api_rig import Rig
-from tests.test_mentors import Clock, Mentors, baku, book
+from tests.test_mentors import Clock, Mentors, baku, book, legacy_mentor_category
 
 
 @pytest.fixture
 def om(rig: Rig, monkeypatch: pytest.MonkeyPatch) -> Iterator[Mentors]:
+    legacy_mentor_category(monkeypatch)
     clock = Clock()
     monkeypatch.setattr(mentor_service, "now", clock)
     monkeypatch.setattr(mentor_routers, "_now", clock)

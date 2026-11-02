@@ -36,7 +36,7 @@ export const finalTranslations: Record<string, { az: string; ru: string }> = {
   "This result does not exist.": { az: "Belə nəticə yoxdur.", ru: "Такого результата нет." },
   "Final result: place {n} with {p} points.": { az: "Yekun nəticə: {p} balla {n}-ci yer.", ru: "Итог: {n}-е место, {p} баллов." },
   "The final result is published.": { az: "Yekun nəticə dərc edilib.", ru: "Итоговый результат опубликован." },
-  "A scored activity in all four zones: +10 points and a place in the Lucky Draw.": { az: "Dörd zonanın hamısında ballı fəaliyyət: +10 bal və Lucky Draw-da yer.", ru: "Активность с баллами во всех четырёх зонах: +10 баллов и участие в Lucky Draw." },
+  "A scored activity in all four zones: +15 points and a place in the Lucky Draw.": { az: "Dörd zonanın hamısında ballı fəaliyyət: +15 bal və Lucky Draw-da yer.", ru: "Активность с баллами во всех четырёх зонах: +15 баллов и участие в Lucky Draw." },
   "You are a Beyond Now Founder and in the Lucky Draw.": { az: "Siz Beyond Now Founder-siniz və Lucky Draw-dasınız.", ru: "Вы Beyond Now Founder и участвуете в Lucky Draw." },
   "You are a Beyond Now Founder.": { az: "Siz Beyond Now Founder-siniz.", ru: "Вы Beyond Now Founder." },
   "Main Stage": { az: "Main Stage", ru: "Main Stage" },

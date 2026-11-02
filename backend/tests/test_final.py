@@ -55,7 +55,7 @@ class Final(Program):
         self.pay(uid, PointsSource.PANEL, "panel:1", 8)
         self.pay(uid, PointsSource.MASTERCLASS, "block:1", 12)
         self.pay(uid, PointsSource.PLAYGROUND, "booth:1", 3)
-        self.pay(uid, PointsSource.MENTOR, "once", 5)
+        self.pay(uid, PointsSource.CONNECTION, "pair:1:2", 3)
 
     def founder_points(self, uid: int) -> int:
         return int(
@@ -139,7 +139,7 @@ def reverse(rig: Rig, entry_id: int) -> int:
 # --- Founder ------------------------------------------------------------------------------
 
 
-def test_founder_pays_ten_once_when_the_fourth_zone_is_reached(fin: Final) -> None:
+def test_founder_pays_fifteen_once_when_the_fourth_zone_is_reached(fin: Final) -> None:
     uid = fin.users(1)[0]
     fin.pay(uid, PointsSource.PANEL, "panel:1", 8)
     fin.pay(uid, PointsSource.QMETER, "panel:1", 2)  # a second Main Stage activity
@@ -148,9 +148,9 @@ def test_founder_pays_ten_once_when_the_fourth_zone_is_reached(fin: Final) -> No
     fin.pay(uid, PointsSource.PROFILE, "profile", 5)  # not a fifth zone
     assert fin.founder_points(uid) == 0
     fin.pay(uid, PointsSource.CONNECTION, "pair:1:2", 1)
-    assert fin.founder_points(uid) == 10
-    fin.pay(uid, PointsSource.MENTOR, "once", 5)  # more Connection Hub: no second bonus
-    assert fin.founder_points(uid) == 10
+    assert fin.founder_points(uid) == 15
+    fin.pay(uid, PointsSource.CONNECTION, "pair:1:3", 1)  # more Connection Hub: no second bonus
+    assert fin.founder_points(uid) == 15
     mine = fin.client(uid).get("/api/attendees/me/competition").json()
     assert mine["zones"] == {
         "main_stage": True,
@@ -159,13 +159,13 @@ def test_founder_pays_ten_once_when_the_fourth_zone_is_reached(fin: Final) -> No
         "connection_hub": True,
     }
     assert mine["founder"] is True and mine["lucky_draw"] is True
-    assert next(c for c in mine["categories"] if c["category"] == "FOUNDER")["points"] == 10
+    assert next(c for c in mine["categories"] if c["category"] == "FOUNDER")["points"] == 15
 
 
 def test_a_correction_removes_founder_and_new_evidence_restores_it(fin: Final) -> None:
     uid = fin.users(1)[0]
     fin.all_zones(uid)
-    assert fin.founder_points(uid) == 10
+    assert fin.founder_points(uid) == 15
     # The only masterclass was scanned by mistake: reversing it reverses Founder too.
     assert reverse(fin.rig, fin.entry(uid, "MASTERCLASS")) == 200
     assert fin.founder_points(uid) == 0
@@ -181,7 +181,7 @@ def test_a_correction_removes_founder_and_new_evidence_restores_it(fin: Final) -
     assert mine["zones"]["masterclass"] is False and mine["lucky_draw"] is False
     # Block 2 is verified later: Founder is earned again, as a new ledger entry.
     fin.pay(uid, PointsSource.MASTERCLASS, "block:2", 12)
-    assert fin.founder_points(uid) == 10
+    assert fin.founder_points(uid) == 15
     assert fin.rig.scalar("SELECT count(*) FROM points_log WHERE source = 'FOUNDER'") == 3
 
 
@@ -189,7 +189,7 @@ def test_the_founder_bonus_itself_cannot_be_reversed_by_hand(fin: Final) -> None
     uid = fin.users(1)[0]
     fin.all_zones(uid)
     assert reverse(fin.rig, fin.entry(uid, "FOUNDER")) == 409
-    assert fin.founder_points(uid) == 10
+    assert fin.founder_points(uid) == 15
 
 
 def test_a_zone_completed_after_the_close_earns_no_founder(fin: Final) -> None:
@@ -197,8 +197,8 @@ def test_a_zone_completed_after_the_close_earns_no_founder(fin: Final) -> None:
     fin.pay(uid, PointsSource.PANEL, "panel:1", 8)
     fin.pay(uid, PointsSource.MASTERCLASS, "block:1", 12)
     fin.pay(uid, PointsSource.PLAYGROUND, "booth:1", 3)
-    # The mentor scan itself is after the close: no award, so no fourth zone.
-    assert fin.pay(uid, PointsSource.MENTOR, "once", 5, at="17:30") == "closed"
+    # The connection itself is after the close: no award, so no fourth zone.
+    assert fin.pay(uid, PointsSource.CONNECTION, "pair:1:2", 3, at="17:30") == "closed"
     assert fin.founder_points(uid) == 0
 
 
@@ -228,7 +228,7 @@ def test_no_snapshot_before_the_close_and_only_for_a_game_master(fin: Final) -> 
 def test_review_publish_and_a_new_version_never_rewrites_the_published_one(fin: Final) -> None:
     a, b, c = fin.users(3)
     fin.rig.sql("UPDATE users SET first_name = 'Aysel', last_name = 'Məmmədova' WHERE id = :u", u=a)
-    fin.all_zones(a)  # 28 + Founder 10 = 38
+    fin.all_zones(a)  # 26 + Founder 15 = 41
     fin.pay(b, PointsSource.PANEL, "panel:1", 8)
     fin.clock.now = baku("17:35")
     gm = fin.game_master()
@@ -238,7 +238,7 @@ def test_review_publish_and_a_new_version_never_rewrites_the_published_one(fin: 
     assert v1["version"] == 1 and v1["status"] == "draft"
     review = gm.get(f"/api/staff/final/{v1['id']}").json()
     assert [e["name"] for e in review["ranking"][:2]] == ["Aysel M.", "Guest N."]
-    assert review["ranking"][0]["points"] == 38
+    assert review["ranking"][0]["points"] == 41
     assert [f["user_id"] for f in review["founder_list"]] == [a] and review["founders"] == 1
     assert TestClient(app).get("/api/final").json()["status"] == "pending_review"
 
@@ -248,13 +248,13 @@ def test_review_publish_and_a_new_version_never_rewrites_the_published_one(fin: 
     screen = TestClient(app).get("/api/final")
     body = screen.json()
     assert body["status"] == "published" and body["version"] == 1
-    assert body["top"][0] == {"name": "Aysel M.", "photo_url": None, "place": 1, "points": 38}
+    assert body["top"][0] == {"name": "Aysel M.", "photo_url": None, "place": 1, "points": 41}
     assert body["founders"] == [{"name": "Aysel M.", "photo_url": None}]
     assert "@" not in screen.text and "Məmmədova" not in screen.text
     assert fin.client(a).get("/api/attendees/me/competition").json()["final"] == {
         "version": 1,
         "place": 1,
-        "points": 38,
+        "points": 41,
         "founder": True,
     }
 
@@ -355,7 +355,7 @@ def test_an_unconfirmed_founder_rule_awards_nothing_and_names_no_one(
     gm.post(f"/api/staff/final/{row['id']}/publish")
     public = TestClient(app).get("/api/final").json()
     assert public["founders"] == [] and public["founder_rule_confirmed"] is False
-    assert public["top"][0]["points"] == 28  # the competition itself is unaffected
+    assert public["top"][0]["points"] == 26  # the competition itself is unaffected
     csv = gm.get(f"/api/staff/final/{row['id']}/founders.csv")
     assert csv.status_code == 409
     assert csv.json()["error"]["details"]["reason"] == "founder_rule_unconfirmed"
@@ -366,7 +366,7 @@ def test_a_founder_bonus_awarded_before_the_gate_is_not_shown_while_gated(
 ) -> None:
     uid = fin.users(1)[0]
     fin.all_zones(uid)  # confirmed (fixture): the bonus exists in the ledger
-    assert fin.founder_points(uid) == 10
+    assert fin.founder_points(uid) == 15
     rule(monkeypatch, confirmed=False)
     mine = fin.client(uid).get("/api/attendees/me/competition").json()
     assert mine["founder"] is False and mine["lucky_draw"] is False
@@ -511,7 +511,7 @@ def test_activity_verified_late_but_done_before_the_close_completes_founder(fin:
             (PointsSource.PANEL, "panel:1", 8),
             (PointsSource.MASTERCLASS, "block:1", 12),
             (PointsSource.PLAYGROUND, "booth:1", 3),
-            (PointsSource.MENTOR, "once", 5),
+            (PointsSource.CONNECTION, "pair:1:2", 3),
         ):
             assert (
                 ledger.award(
@@ -520,7 +520,7 @@ def test_activity_verified_late_but_done_before_the_close_completes_founder(fin:
                 == "awarded"
             )
         db.commit()
-    assert fin.founder_points(uid) == 10
+    assert fin.founder_points(uid) == 15
     occurred = fin.rig.scalar(
         "SELECT occurred_at FROM points_log WHERE user_id = :u AND source = 'FOUNDER'", u=uid
     )
@@ -568,11 +568,11 @@ def test_after_confirmation_the_recomputation_reaches_people_with_no_new_award(
     with Session(fin.rig.engine) as db:
         done = recompute_all(db, apply=True)
         db.commit()
-    assert done["awarded"] == 1 and fin.founder_points(uid) == 10
+    assert done["awarded"] == 1 and fin.founder_points(uid) == 15
     with Session(fin.rig.engine) as db:
         assert recompute_all(db, apply=True)["unchanged"] >= 1  # idempotent
         db.commit()
-    assert fin.founder_points(uid) == 10
+    assert fin.founder_points(uid) == 15
 
 
 def test_the_recomputation_command_refuses_while_the_rule_is_unconfirmed(
@@ -620,13 +620,13 @@ def test_the_screen_shows_the_live_top_ten_and_recent_awards_without_private_dat
     fin.pay(a, PointsSource.PANEL, "panel:1", 8, at="11:00")
     fin.pay(b, PointsSource.PANEL, "panel:1", 8, at="11:05")
     fin.pay(b, PointsSource.QMETER, "panel:1", 2, at="11:10")
-    wrong = fin.pay(c, PointsSource.MENTOR, "once", 5, at="13:55")
+    wrong = fin.pay(c, PointsSource.CONNECTION, "pair:1:2", 3, at="13:55")
     assert wrong == "awarded"
     fin.rig.sql(
         "UPDATE users SET competition_excluded_reason = 'Speaker' WHERE id = :u", u=excluded
     )
     fin.pay(excluded, PointsSource.PANEL, "panel:1", 8)  # not paid: excluded
-    assert reverse(fin.rig, fin.entry(c, "MENTOR")) == 200  # a correction
+    assert reverse(fin.rig, fin.entry(c, "CONNECTION")) == 200  # a correction
     from app.modules.leaderboard.service import invalidate_ranking_snapshot
 
     invalidate_ranking_snapshot()
@@ -646,7 +646,7 @@ def test_the_screen_shows_the_live_top_ten_and_recent_awards_without_private_dat
         ("Guest N.", 2, "QMETER"),
         ("Guest N.", 8, "PANEL"),
         ("Anar N.", 8, "PANEL"),
-    ]  # the reversed mentor award and the excluded person never appear
+    ]  # the reversed connection award and the excluded person never appear
     for private in ("Nəsirov", "anar.private", "+994", "user_id", "email", "phone", "token"):
         assert private not in response.text, private
 

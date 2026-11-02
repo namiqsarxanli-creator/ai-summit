@@ -131,6 +131,8 @@ def award(
         booths = {row.booth_id for row in _unreversed_awards(db, user_id, source)}
         if len(booths) >= PLAYGROUND_SCORING_BOOTHS:
             return AwardResult("not_scored", 0)
+    if source not in CATEGORIES:  # e.g. MENTOR, no longer a competition category
+        return AwardResult("not_scored", 0)
     if category_total(db, user_id, source) + points > CATEGORIES[source].maximum:
         return AwardResult("category_full", 0)
     entry = PointsLog(

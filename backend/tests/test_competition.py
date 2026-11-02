@@ -164,9 +164,9 @@ def test_the_category_maximums_add_up_to_exactly_100() -> None:
         "MASTERCLASS": 24,
         "PLAYGROUND": 24,
         "CONNECTION": 12,
-        "MENTOR": 5,
-        "FOUNDER": 10,
+        "FOUNDER": 15,  # 2 Nov 2026: Meet the Mentor's 5 points moved here
     }
+    assert PointsSource.MENTOR not in CATEGORIES
 
 
 def _award(comp: Comp, uid: int, source: PointsSource, unit: str, points: int, at: datetime) -> str:
@@ -176,6 +176,12 @@ def _award(comp: Comp, uid: int, source: PointsSource, unit: str, points: int, a
         )
         db.commit()
         return result.outcome
+
+
+def test_a_mentor_award_scores_nothing_since_meet_the_mentor_left(comp: Comp) -> None:
+    uid = comp.users(1)[0]
+    assert _award(comp, uid, PointsSource.MENTOR, "once", 5, baku("13:30")) == "not_scored"
+    assert comp.rig.scalar("SELECT count(*) FROM points_log WHERE user_id = :u", u=uid) == 0
 
 
 def test_the_ledger_pays_a_unit_once_and_respects_cutoff_cap_and_eligibility(comp: Comp) -> None:

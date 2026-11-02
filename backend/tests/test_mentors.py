@@ -116,8 +116,25 @@ class Mentors(Program):
         )
 
 
+def legacy_mentor_category(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Meet the Mentor left the competition on 2 Nov 2026 (its 5 points went to
+    Founder). These tests keep exercising the mentor flow - and the offline
+    review built on it - with the category it had, for this test only."""
+    from app.modules.competition.rules import CATEGORIES, Category
+    from app.modules.points.models import PointsSource
+
+    monkeypatch.setitem(CATEGORIES, PointsSource.MENTOR, Category(PointsSource.MENTOR, 5))
+    from app.modules.competition import activation, screen
+    from app.modules.leaderboard import service as leaderboard
+
+    for module in (activation, screen, leaderboard):
+        sources = (*module.COMPETITION_SOURCES, PointsSource.MENTOR)
+        monkeypatch.setattr(module, "COMPETITION_SOURCES", sources)
+
+
 @pytest.fixture
 def mt(rig: Rig, monkeypatch: pytest.MonkeyPatch) -> Iterator[Mentors]:
+    legacy_mentor_category(monkeypatch)
     clock = Clock()
     monkeypatch.setattr(service, "now", clock)
     monkeypatch.setattr(mentor_routers, "_now", clock)

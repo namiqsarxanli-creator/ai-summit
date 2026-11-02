@@ -12,8 +12,11 @@ of the category maximums, never a clamp on the total.
 | MASTERCLASS | 12 per block (entry AND exit)    | 24      |
 | PLAYGROUND  | 3 per distinct booth, first 8    | 24      |
 | CONNECTION  | 3 match / 1 other, best 4        | 12      |
-| MENTOR      | 5, once                          | 5       |
-| FOUNDER     | 10, once (all four zones)        | 10      |
+| FOUNDER     | 15, once (all four zones)        | 15      |
+
+Owner's decision (2 Nov 2026): Meet the Mentor is not held on 13 Nov, so it is
+no competition category any more; its 5 points went to the Founder bonus
+(10 -> 15). A MENTOR award would score nothing (ledger.award: "not_scored").
 
 Decisions recorded with the organiser (16 Oct 2026):
 * Legacy booth TASK / FEEDBACK rewards stay in the ledger history but do NOT
@@ -44,7 +47,7 @@ MASTERCLASS_POINTS: Final = 12
 PLAYGROUND_POINTS: Final = 3
 PLAYGROUND_SCORING_BOOTHS: Final = 8
 MENTOR_POINTS: Final = 5
-FOUNDER_POINTS: Final = 10
+FOUNDER_POINTS: Final = 15
 
 CATEGORIES: Final[dict[PointsSource, Category]] = {
     c.source: c
@@ -55,8 +58,7 @@ CATEGORIES: Final[dict[PointsSource, Category]] = {
         Category(PointsSource.MASTERCLASS, 24),
         Category(PointsSource.PLAYGROUND, 24),
         Category(PointsSource.CONNECTION, 12),
-        Category(PointsSource.MENTOR, 5),
-        Category(PointsSource.FOUNDER, 10),
+        Category(PointsSource.FOUNDER, 15),
     )
 }
 COMPETITION_SOURCES: Final = tuple(CATEGORIES)
