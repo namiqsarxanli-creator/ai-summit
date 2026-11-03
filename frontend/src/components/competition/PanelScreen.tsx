@@ -15,8 +15,9 @@ type Screen = {
 type State = { kind: "loading" } | { kind: "error"; text: string } | { kind: "ok"; screen: Screen };
 
 // The Main Stage screen for one panel: the ENTRY and the EXIT code, shown on the
-// big screen by an administrator's browser. The codes come only from the admin
-// API; rotating them in the admin panel makes these stop working.
+// big screen. Opened by its screen link (`?k=`, no sign-in: the hall computer never
+// holds an administrator session) or, as before, by an administrator (`?panel=`).
+// Rotating the codes in the admin panel makes both stop working.
 export function PanelScreen() {
   const { t, language } = useLanguage();
   const [state, setState] = useState<State>({ kind: "loading" });
@@ -24,7 +25,15 @@ export function PanelScreen() {
 
   useEffect(() => {
     let active = true;
-    const id = new URLSearchParams(window.location.search).get("panel");
+    const params = new URLSearchParams(window.location.search);
+    const key = params.get("k");
+    if (key && /^[1-9][0-9]{0,15}\.[0-9]{1,12}\.[0-9a-f]{64}$/.test(key)) {
+      void apiGet<Screen>(`/api/screen/panel?k=${encodeURIComponent(key)}`).then((r) => {
+        if (active) setState(r.ok ? { kind: "ok", screen: r.data } : { kind: "error", text: messageFor(r.error.code) });
+      });
+      return () => { active = false; };
+    }
+    const id = params.get("panel");
     if (!id || !/^[1-9][0-9]{0,15}$/.test(id)) {
       void Promise.resolve().then(() => active && setState({ kind: "error", text: "Open this page from the admin panel." }));
       return () => { active = false; };

@@ -46,7 +46,8 @@ function server(workspace: () => Response) {
     if (url === "/api/staff/organiser") return workspace();
     if (url === "/api/screen/live") return json(200, LIVE);
     if (url === "/api/staff/final") return json(200, VERSIONS);
-    if (url === "/api/panels") return json(200, [{ id: 3, title: "Panel 1", starts_at: "2026-11-13T06:00:00Z", ends_at: "2026-11-13T07:30:00Z", timezone: "Asia/Baku" }]);
+    if (url === "/api/panels") return json(200, [{ id: 3, title: "Panel 1", kind: "panel", starts_at: "2026-11-13T06:00:00Z", ends_at: "2026-11-13T07:30:00Z", timezone: "Asia/Baku" }]);
+    if (url === "/api/admin/panel-screen-links") return json(200, [{ id: 3, title: "Panel 1", kind: "panel", starts_at: "2026-11-13T06:00:00Z", timezone: "Asia/Baku", key: "3.1763064000.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }]);
     if (url === "/api/staff/me") return json(200, { full_name: "Leyla Game", role: "VOLUNTEER", booth_name: null, queue_owner: "a".repeat(64), dataset_generation: 1 });
     if (url === "/api/staff/me/scopes") return json(200, { scopes: [{ scope: "GAME_MASTER", target_id: null }] });
     if (url === "/api/masterclasses") return json(200, { server_time: "x", events: [] });
@@ -134,7 +135,7 @@ describe("OrganiserPanel", () => {
     expect(live.map((a) => a.getAttribute("href"))).toEqual(expect.arrayContaining(["/screen/live", "/screen/final", "/screen/photos"]));
     for (const a of live) expect(a).toHaveAttribute("target", "_blank");
     expect(await screen.findByText(/Panel 1/)).toBeInTheDocument();
-    expect(screen.getAllByRole("link", { name: "Open screen" }).map((a) => a.getAttribute("href"))).toContain("/screen/panel?panel=3");
+    expect(screen.getAllByRole("link", { name: "Open screen" }).map((a) => a.getAttribute("href"))).toContain("/screen/panel?k=3.1763064000.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
   });
 
   it("lists no panel codes for a Game Master: those need an administrator", async () => {
@@ -143,6 +144,6 @@ describe("OrganiserPanel", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Venue screens" }));
     await screen.findAllByRole("link", { name: "Open screen" });
     expect(screen.queryByText("Panel QR codes (Main Stage)")).toBeNull();
-    expect(calls).not.toContain("/api/panels");
+    expect(calls).not.toContain("/api/admin/panel-screen-links");
   });
 });

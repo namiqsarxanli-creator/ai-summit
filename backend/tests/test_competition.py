@@ -178,6 +178,44 @@ def _award(comp: Comp, uid: int, source: PointsSource, unit: str, points: int, a
         return result.outcome
 
 
+def test_a_screen_link_shows_one_panels_codes_without_a_session_until_rotated(
+    comp: Comp,
+) -> None:
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    anonymous = TestClient(app)
+    assert anonymous.get("/api/admin/panel-screen-links").status_code == 401
+    comp.rig.sign_in_as(comp.rig.staff_id(StaffRole.ADMIN))
+    links = comp.rig.client.get("/api/admin/panel-screen-links")
+    assert links.status_code == 200
+    assert links.headers["cache-control"] == "no-store"
+    key = next(x["key"] for x in links.json() if x["id"] == comp.panel1)
+    assert links.json()[0]["expires_at"].startswith("2026-11-14T00:00:00")
+
+    comp.clock.now = baku("10:05")
+    shown = anonymous.get("/api/screen/panel", params={"k": key})
+    assert shown.status_code == 200, shown.text
+    body = shown.json()
+    assert body["id"] == comp.panel1 and len(body["entry_short"]) == 6
+    assert body["entry_code"].startswith(f"P{comp.panel1}.ENTRY.")
+    # Another panel's id under this signature, a changed expiry, garbage: refused.
+    pid, stamp, sig = key.split(".")
+    for bad in (f"{comp.panel2}.{stamp}.{sig}", f"{pid}.{int(stamp) + 86400}.{sig}", "x" * 20):
+        r = anonymous.get("/api/screen/panel", params={"k": bad})
+        assert r.status_code in (404, 422) and "entry_code" not in r.text
+    # After midnight following the event day the link stops.
+    comp.clock.now = baku("23:59") + timedelta(minutes=2)
+    assert anonymous.get("/api/screen/panel", params={"k": key}).status_code == 404
+    # Rotating the panel's codes revokes the link too.
+    comp.clock.now = baku("10:05")
+    comp.rig.sql("UPDATE panels SET qr_version = qr_version + 1 WHERE id = :p", p=comp.panel1)
+    gone = anonymous.get("/api/screen/panel", params={"k": key})
+    assert gone.status_code == 404
+    assert gone.json()["error"]["code"] == "SCREEN_LINK_INVALID"
+
+
 def test_the_six_digit_code_scans_like_the_qr_and_wrong_digits_do_not(comp: Comp) -> None:
     from app.modules.competition import panels as panels_module
     from app.modules.competition.models import Panel

@@ -18,6 +18,13 @@ payload, reduced) for a phone whose camera fails; the attendee types them. One
 per panel and phase, revoked by the same rotation; guessing is bounded by the
 attendee's scan rate limit (30 per 10 minutes against 1 000 000 values).
 
+SCREEN LINK: the hall computer shows a panel's codes WITHOUT an administrator
+session (security review, 3 Nov 2026: a 12-hour admin session left on a venue
+PC opened the whole admin console). The link carries `<panel>.<expiry>.<HMAC>`
+over the panel id, its `qr_version` and the expiry (the end of the event day):
+it reveals only what the big screen shows anyway, stops at midnight after the
+event and whenever the panel's codes are rotated.
+
 GRAND FINAL (rules.GRAND_FINAL_CODE): one ENTRY code valid for the row's whole
 time, no points of its own; the scan completes Beyond Now Founder (founder.py).
 
@@ -116,6 +123,41 @@ def _read_short(db: Session, digits: str) -> tuple[Panel, str]:
     if len(found) != 1:  # none, or (never seen) two codes alike: refuse, never guess
         raise PanelScanError("invalid_code")
     return found[0]
+
+
+class ScreenLinkError(DomainError):
+    code = "SCREEN_LINK_INVALID"
+    status_code = 404
+
+
+_SCREEN_KEY = re.compile(r"([1-9][0-9]{0,15})\.([0-9]{1,12})\.([0-9a-f]{64})")
+
+
+def _screen_signature(panel: Panel, expires: int) -> str:
+    payload = f"panel-screen-v1:{panel.id}:{panel.qr_version}:{expires}"
+    return hmac.new(
+        get_settings().scan_ref_secret.encode(), payload.encode(), hashlib.sha256
+    ).hexdigest()
+
+
+def screen_key(panel: Panel, expires: datetime) -> str:
+    stamp = int(expires.timestamp())
+    return f"{panel.id}.{stamp}.{_screen_signature(panel, stamp)}"
+
+
+def read_screen_key(db: Session, key: str, now: datetime) -> Panel:
+    match = _SCREEN_KEY.fullmatch(key.strip())
+    if match is None:
+        raise ScreenLinkError("This screen link is not valid.")
+    panel = db.get(Panel, int(match.group(1)))
+    stamp = int(match.group(2))
+    if (
+        panel is None
+        or not hmac.compare_digest(_screen_signature(panel, stamp), match.group(3))
+        or now.timestamp() >= stamp
+    ):  # unknown, rotated or expired: one answer, never which
+        raise ScreenLinkError("This screen link is not valid.")
+    return panel
 
 
 def read_code(db: Session, code: str) -> tuple[Panel, str]:

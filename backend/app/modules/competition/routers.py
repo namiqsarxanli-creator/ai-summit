@@ -24,8 +24,9 @@ so a double tap, a retry or a lost response pays once.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, time, timedelta
 from typing import Annotated, Any, Literal, cast
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Path, Query, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -464,6 +465,49 @@ def list_panels(admin_user: CurrentAdmin, db: DbSession) -> list[dict[str, Any]]
     return [panel_view(p) for p in db.execute(select(Panel).order_by(Panel.starts_at)).scalars()]
 
 
+def _screen_until(event: MasterclassEvent) -> datetime:
+    """A screen link works until midnight after the event day (event time)."""
+    return datetime.combine(event.event_date + timedelta(days=1), time(0), ZoneInfo(event.timezone))
+
+
+@admin_router.get("/panel-screen-links")
+def panel_screen_links(
+    admin_user: CurrentAdmin, db: DbSession, response: Response
+) -> list[dict[str, Any]]:
+    """For the hall computer: one link per panel that shows its codes with no
+    sign-in (panels.py, SCREEN LINK). Administrators only, never cached."""
+    _read(admin_user)
+    response.headers["Cache-Control"] = "no-store"
+    rows = db.execute(
+        select(Panel, MasterclassEvent)
+        .join(MasterclassEvent, MasterclassEvent.id == Panel.event_id)
+        .order_by(Panel.starts_at)
+    ).all()
+    return [
+        {
+            "id": p.id,
+            "title": p.title,
+            "kind": "grand_final" if panels.is_grand_final(p) else "panel",
+            "starts_at": p.starts_at.isoformat(),
+            "timezone": e.timezone,
+            "key": panels.screen_key(p, _screen_until(e)),
+            "expires_at": _screen_until(e).isoformat(),
+        }
+        for p, e in rows
+    ]
+
+
+@router.get("/screen/panel")
+def public_panel_screen(
+    db: DbSession, response: Response, k: Annotated[str, Query(min_length=10, max_length=120)]
+) -> dict[str, Any]:
+    """The hall computer's view of one panel's codes, opened by its screen link."""
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Robots-Tag"] = "noindex"
+    panel = panels.read_screen_key(db, k, _now())
+    return _screen_payload(panel, required(db, MasterclassEvent, panel.event_id))
+
+
 @admin_router.get("/panels/{panel_id}/screen")
 def panel_screen(
     panel_id: RowId, admin_user: CurrentAdmin, db: DbSession, response: Response
@@ -472,7 +516,10 @@ def panel_screen(
     _read(admin_user)
     response.headers["Cache-Control"] = "no-store"
     panel = required(db, Panel, panel_id)
-    event = required(db, MasterclassEvent, panel.event_id)
+    return _screen_payload(panel, required(db, MasterclassEvent, panel.event_id))
+
+
+def _screen_payload(panel: Panel, event: MasterclassEvent) -> dict[str, Any]:
     return {
         **panel_view(panel),
         "timezone": event.timezone,

@@ -7,7 +7,7 @@ import { AdminList } from "@/components/admin/AdminList";
 import { AttendanceDesk } from "@/components/competition/AttendanceDesk";
 import { FinalReview } from "@/components/competition/FinalReview";
 import { useLanguage } from "@/components/ui/LanguageProvider";
-import { fetchPanels, type PublicPanel } from "@/lib/competition";
+import { apiGet } from "@/lib/api";
 import { messageFor } from "@/lib/errors";
 import { fetchVersions, type Versions } from "@/lib/final";
 import { eventTime } from "@/lib/masterclasses";
@@ -224,15 +224,18 @@ const SCREENS = [
   { href: "/screen/photos", title: "Beyond Now Photo", detail: "Photos both people agreed to show and a moderator approved." },
 ] as const;
 
+// The hall computer's link per panel (GET /api/admin/panel-screen-links).
+type ScreenLink = { id: number; title: string; kind: string; starts_at: string; timezone: string; key: string };
+
 function Screens({ panelCodes }: { panelCodes: boolean }) {
   const { t, language } = useLanguage();
-  const [panels, setPanels] = useState<{ kind: "loading" } | { kind: "error"; text: string } | { kind: "ok"; data: PublicPanel[] } | null>(
+  const [panels, setPanels] = useState<{ kind: "loading" } | { kind: "error"; text: string } | { kind: "ok"; data: ScreenLink[] } | null>(
     panelCodes ? { kind: "loading" } : null,
   );
   useEffect(() => {
     if (!panelCodes) return;
     let active = true;
-    void fetchPanels().then((r) => {
+    void apiGet<ScreenLink[]>("/api/admin/panel-screen-links").then((r) => {
       if (active) setPanels(r.ok ? { kind: "ok", data: r.data } : { kind: "error", text: messageFor(r.error.code) });
     });
     return () => { active = false; };
@@ -253,7 +256,7 @@ function Screens({ panelCodes }: { panelCodes: boolean }) {
       {panels !== null && (
         <section className="fm-card fm-section" aria-labelledby="org-panels">
           <h3 id="org-panels" className="fm-eyebrow">{t("Panel QR codes (Main Stage)")}</h3>
-          <p className="fm-small">{t("Opens with your administrator session; the codes change when they are rotated in the admin console.")}</p>
+          <p className="fm-small">{t("Open these links on the hall computer: they need no sign-in and show only that panel's codes. They stop working at midnight after the event day, or when the codes are rotated in the admin console.")}</p>
           {panels.kind === "loading" && <p role="status" className="fm-note">{t("Loading…")}</p>}
           {panels.kind === "error" && <p role="alert" className="fm-alert fm-alert-warn">{t(panels.text)}</p>}
           {panels.kind === "ok" && panels.data.length === 0 && <p className="fm-empty">{t("No panels are set up yet.")}</p>}
@@ -262,7 +265,7 @@ function Screens({ panelCodes }: { panelCodes: boolean }) {
               {panels.data.map((p) => (
                 <li key={p.id} className="fm-row-between fm-small">
                   <span>{p.title} · {eventTime(p.starts_at, p.timezone, language)}</span>
-                  <a href={`/screen/panel?panel=${p.id}`} target="_blank" rel="noopener noreferrer">{t("Open screen")}</a>
+                  <a href={`/screen/panel?k=${encodeURIComponent(p.key)}`} target="_blank" rel="noopener noreferrer">{t("Open screen")}</a>
                 </li>
               ))}
             </ul>

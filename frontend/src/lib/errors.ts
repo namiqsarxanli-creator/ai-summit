@@ -3,6 +3,7 @@
 // client degrades gracefully instead of rendering nothing."
 
 const MESSAGES: Record<string, string> = {
+  SCREEN_LINK_INVALID: "This screen link is not valid. Open the current link from the organiser panel.",
   VALIDATION_ERROR: "Some details need attention — please check the highlighted fields.",
   UNKNOWN_INTEREST:
     "One of the selected interests is no longer available. Please reload the page and choose again.",
