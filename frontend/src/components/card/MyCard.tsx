@@ -156,7 +156,7 @@ export function MyCard() {
     );
   }
 
-  const { card_url, card } = state.card;
+  const { card_url, card, short_code } = state.card;
   return (
     <div className="fm-stack-lg">
       <section aria-labelledby="qr-heading" className="fm-qr-stage">
@@ -167,6 +167,12 @@ export function MyCard() {
         <div className="fm-qr-frame">
           <QrCode value={card_url} label={`QR code for ${card.first_name} ${card.last_name}'s networking card`} />
         </div>
+        {short_code && (
+          <p className="fm-card-short">
+            <span className="fm-micro">{t("Code if the camera cannot read it")}</span>
+            <strong aria-label={t("Your attendee code")}>{short_code.slice(0, 3)}-{short_code.slice(3)}</strong>
+          </p>
+        )}
         <p className="fm-qr-note">
           {t("Hold this code steady for networking. Attendees can open your card; booth staff can scan it for activities.")}
         </p>

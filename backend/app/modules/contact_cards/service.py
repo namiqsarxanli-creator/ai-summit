@@ -12,6 +12,10 @@ code path.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import re
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -39,6 +43,51 @@ def contact_action_for(*, linkedin_url: str | None, email: str) -> ContactAction
     if linkedin_url and is_linkedin_url(linkedin_url):
         return ContactAction(type="LINKEDIN", value=linkedin_url.strip())
     return ContactAction(type="EMAIL", value=email)
+
+
+# The card's SHORT CODE (owner's decision, 3 Nov 2026): six characters under the
+# QR that a volunteer or another attendee types when the camera cannot read it.
+# Derived from the live token with the server's secret (an HMAC, never stored),
+# so a new token gets a new code; the alphabet leaves out 0/O, 1/I/L. A lookup
+# answers only for a live card of an ACTIVE attendee and only to a signed-in
+# caller under a rate limit: 31**6 (~ 8.9e8) codes against a few hundred cards.
+SHORT_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"
+_SHORT_CODE = re.compile(f"[{SHORT_ALPHABET}]{{6}}")
+
+
+def card_short_code(token: str) -> str:
+    digest = hmac.new(
+        get_settings().scan_ref_secret.encode(),
+        f"card-short-v1:{token}".encode(),
+        hashlib.sha256,
+    ).digest()
+    n = int.from_bytes(digest[:8], "big")
+    chars = []
+    for _ in range(6):
+        n, r = divmod(n, len(SHORT_ALPHABET))
+        chars.append(SHORT_ALPHABET[r])
+    return "".join(chars)
+
+
+def normalise_short_code(text: str) -> str | None:
+    code = re.sub(r"[\s-]", "", text).upper()
+    return code if _SHORT_CODE.fullmatch(code) else None
+
+
+def token_for_short_code(db: Session, text: str) -> str:
+    """The live card token a typed short code names, or `InvalidQrError`."""
+    code = normalise_short_code(text)
+    if code is None:
+        raise InvalidQrError()
+    live = db.execute(
+        select(ContactCard.public_token)
+        .join(User, User.id == ContactCard.user_id)
+        .where(ContactCard.revoked_at.is_(None), User.status == UserStatus.ACTIVE)
+    ).scalars()
+    found = [t for t in live if hmac.compare_digest(card_short_code(t), code)]
+    if len(found) != 1:  # none, or (never seen) two alike: refuse, never guess
+        raise InvalidQrError()
+    return found[0]
 
 
 def card_url_for(token: str) -> str:
@@ -132,4 +181,8 @@ def own_card(db: Session, user: User) -> OwnCard:
         # (§9.6), so an ACTIVE attendee without a live card is a broken
         # invariant — surfaced as INTERNAL_ERROR, not papered over.
         raise RuntimeError("active attendee has no live contact card")
-    return OwnCard(card_url=card_url_for(token), card=_public_card_for(db, user))
+    return OwnCard(
+        card_url=card_url_for(token),
+        card=_public_card_for(db, user),
+        short_code=card_short_code(token),
+    )

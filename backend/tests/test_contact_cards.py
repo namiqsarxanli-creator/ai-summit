@@ -677,7 +677,7 @@ def test_my_card_is_the_session_attendees_card_and_its_qr_url(
     response = client.get(MY_CARD)
     assert response.status_code == 200
     body = response.json()
-    assert set(body) == {"card_url", "card"}
+    assert set(body) == {"card_url", "card", "short_code"}
     assert body["card_url"] == f"{get_settings().app_origin}/c/{token}"
     # The preview is exactly what a scanner of the QR sees.
     assert body["card"] == anonymous.get(card_path(token)).json()

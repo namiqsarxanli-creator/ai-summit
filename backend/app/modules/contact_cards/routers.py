@@ -12,16 +12,19 @@ masking for these paths are applied app-wide (app/core/privacy.py).
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from typing import Any
 
-from app.core.deps import ClientIp, CurrentAttendee, SessionToken
+from fastapi import APIRouter, Response
+from pydantic import BaseModel, ConfigDict, Field
+
+from app.core.deps import ClientIp, CurrentAttendee, CurrentStaff, SessionToken
 from app.core.errors import DomainError
-from app.core.ratelimit import CARD_READ_PER_IP, CARD_READ_PER_TOKEN, limiter
+from app.core.ratelimit import CARD_READ_PER_IP, CARD_READ_PER_TOKEN, RateLimit, limiter
 from app.core.security import hash_card_token
 from app.core.sessions import resolve_attendee_session
 from app.db.session import DbSession
 from app.modules.contact_cards.schemas import OwnCard, PublicCard
-from app.modules.contact_cards.service import own_card, resolve_public_card
+from app.modules.contact_cards.service import own_card, resolve_public_card, token_for_short_code
 
 router = APIRouter(tags=["contact-cards"])
 
@@ -47,3 +50,36 @@ def get_public_card(token: str, db: DbSession, ip: ClientIp, session: SessionTok
 @router.get("/attendees/me/card", response_model=OwnCard)
 def get_my_card(attendee: CurrentAttendee, db: DbSession) -> OwnCard:
     return own_card(db, attendee)
+
+
+# --- the card's short code, typed when the QR cannot be read ---------------------
+
+CARD_LOOKUP_PER_STAFF = RateLimit("card_lookup:staff", 300, 600)
+CARD_LOOKUP_PER_ATTENDEE = RateLimit("card_lookup:attendee", 20, 600)
+
+
+class CardLookup(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: str = Field(min_length=6, max_length=12)
+
+
+@router.post("/staff/cards/lookup")
+def staff_card_lookup(
+    payload: CardLookup, staff: CurrentStaff, db: DbSession, response: Response
+) -> dict[str, Any]:
+    """A volunteer or booth staff types the six characters under a card: the
+    card token, exactly what scanning its QR would have given them."""
+    limiter.check([(CARD_LOOKUP_PER_STAFF, str(staff.id))])
+    response.headers["Cache-Control"] = "no-store"
+    return {"card_token": token_for_short_code(db, payload.code)}
+
+
+@router.post("/attendees/me/cards/lookup")
+def attendee_card_lookup(
+    payload: CardLookup, attendee: CurrentAttendee, db: DbSession, response: Response
+) -> dict[str, Any]:
+    """The same for another attendee connecting by hand (People page)."""
+    limiter.check([(CARD_LOOKUP_PER_ATTENDEE, str(attendee.id))])
+    response.headers["Cache-Control"] = "no-store"
+    return {"card_token": token_for_short_code(db, payload.code)}

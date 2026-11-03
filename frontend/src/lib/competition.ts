@@ -62,6 +62,29 @@ export const awardQmeter = (userId: number, panelId: number, reason: string) =>
 // The attendee card token in what the camera read (a card URL or a bare token).
 export const cardTokenFrom = (text: string) => tokenFromScannedText(text);
 
+// The six characters under an attendee's QR (no 0/O, 1/I/L), typed when the
+// camera cannot read the code; the server turns them into the card token.
+const CARD_SHORT = /^[2-9A-HJKMNP-Z]{6}$/;
+export const cardShortCode = (text: string) => {
+  const code = text.replace(/[\s-]/g, "").toUpperCase();
+  return CARD_SHORT.test(code) ? code : null;
+};
+
+export type CardText = { token: string } | { error: string };
+
+/** A scanned card URL, or a typed short code looked up on the server. */
+export async function resolveCardText(text: string, who: "staff" | "attendee"): Promise<CardText> {
+  const token = cardTokenFrom(text);
+  if (token) return { token };
+  const code = cardShortCode(text);
+  if (!code) return { error: "This is not an attendee QR code." };
+  const path = who === "staff" ? "/api/staff/cards/lookup" : "/api/attendees/me/cards/lookup";
+  const r = await apiPost<{ card_token: string }>(path, { code });
+  if (r.ok) return { token: r.data.card_token };
+  if (r.error.code === "NETWORK_ERROR" || r.status === 0) return { error: "No connection: a typed code needs the internet. Scan the QR instead." };
+  return { error: r.error.code === "INVALID_QR" ? "No attendee has this code. Check the six characters." : "This is not an attendee QR code." };
+}
+
 export const CATEGORY_LABEL: Record<string, string> = {
   PROFILE: "Profile and interest card",
   PANEL: "Main Stage panels",

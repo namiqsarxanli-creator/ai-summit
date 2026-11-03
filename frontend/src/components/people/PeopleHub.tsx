@@ -8,7 +8,7 @@ import { AttendeeTabBar } from "@/components/nav/AttendeeTabBar";
 import { useLanguage } from "@/components/ui/LanguageProvider";
 import type { ApiResult } from "@/lib/api";
 import { safeExternalUrl } from "@/lib/card";
-import { cardTokenFrom } from "@/lib/competition";
+import { resolveCardText } from "@/lib/competition";
 import { messageFor } from "@/lib/errors";
 import { labelOf } from "@/lib/interestCard";
 import { eventTime } from "@/lib/masterclasses";
@@ -202,11 +202,11 @@ export function PeopleHub() {
         <QrCapture
           paused={busy}
           manualLabel="Their attendee code"
-          onText={(text) => {
-            const token = cardTokenFrom(text);
-            if (!token) { setNotice({ tone: "warn", text: "This is not an attendee QR code.", place: "scan" }); return; }
-            void run("scan", () => scanPerson(token), (data) => scanMessage(data as ScanResult, t));
-          }}
+          onText={(text) => void (async () => {
+            const card = await resolveCardText(text, "attendee");
+            if ("error" in card) { setNotice({ tone: "warn", text: card.error, place: "scan" }); return; }
+            void run("scan", () => scanPerson(card.token), (data) => scanMessage(data as ScanResult, t));
+          })()}
         />
         {line("scan")}
         {connections.length > 0 && (

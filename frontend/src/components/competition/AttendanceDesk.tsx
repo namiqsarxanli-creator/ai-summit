@@ -7,7 +7,7 @@ import { apiGet, type ApiResult } from "@/lib/api";
 import {
   OUTCOME_TEXT,
   awardQmeter,
-  cardTokenFrom,
+  resolveCardText,
   completePlayground,
   doorScan,
   fetchMyScopes,
@@ -161,8 +161,9 @@ function DoorDesk({ doors, programme, owner }: { doors: number[]; programme: Pro
     return `#${id}`;
   };
   async function scan(text: string) {
-    const token = cardTokenFrom(text);
-    if (!token) { setNotice({ tone: "warn", text: "This is not an attendee QR code." }); return; }
+    const card = await resolveCardText(text, "staff");
+    if ("error" in card) { setNotice({ tone: "warn", text: card.error }); return; }
+    const { token } = card;
     await once(async () => {
       const r = await doorScan(Number(chosen), token, phase);
       if (unreachable(r)) { setNotice(await queued(owner, "MASTERCLASS_DOOR", Number(chosen), phase, token)); return; }
@@ -206,8 +207,9 @@ function PlaygroundDesk({ slots, owner }: { slots: PlaygroundProgram; owner: Own
   const [notice, setNotice] = useState<Notice>(null);
   const { busy, once } = useOneAtATime();
   async function scan(text: string) {
-    const token = cardTokenFrom(text);
-    if (!token) { setNotice({ tone: "warn", text: "This is not an attendee QR code." }); return; }
+    const card = await resolveCardText(text, "staff");
+    if ("error" in card) { setNotice({ tone: "warn", text: card.error }); return; }
+    const { token } = card;
     await once(async () => {
       const r = await completePlayground(Number(chosen), token);
       if (unreachable(r)) { setNotice(await queued(owner, "PLAYGROUND_COMPLETE", Number(chosen), null, token)); return; }
@@ -239,8 +241,9 @@ function MentorDesk({ sessions, timezone, owner }: { sessions: HostSession[]; ti
   const [notice, setNotice] = useState<Notice>(null);
   const { busy, once } = useOneAtATime();
   async function scan(text: string) {
-    const token = cardTokenFrom(text);
-    if (!token) { setNotice({ tone: "warn", text: "This is not an attendee QR code." }); return; }
+    const card = await resolveCardText(text, "staff");
+    if ("error" in card) { setNotice({ tone: "warn", text: card.error }); return; }
+    const { token } = card;
     await once(async () => {
       const r = await completeMentor(Number(chosen), token);
       if (unreachable(r)) { setNotice(await queued(owner, "MENTOR_COMPLETE", Number(chosen), null, token)); return; }

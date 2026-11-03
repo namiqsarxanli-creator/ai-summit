@@ -579,6 +579,9 @@ def test_the_mutating_route_inventory_is_what_m16_expects() -> None:
         ("POST", "/api/attendees/feedback"),
         # Beyond Now: the attendee scans a panel's screen QR (own session only).
         ("POST", "/api/attendees/me/blocks"),
+        # A card's typed short code -> its token (3 Nov 2026): a read sent as POST so
+        # the code stays out of URLs and logs; own session, rate-limited.
+        ("POST", "/api/attendees/me/cards/lookup"),
         # People (migration 0021): mutual scan, requests; one's own session only.
         ("POST", "/api/attendees/me/connections/scan"),
         ("POST", "/api/attendees/me/meeting-requests"),
@@ -610,6 +613,7 @@ def test_the_mutating_route_inventory_is_what_m16_expects() -> None:
         ("POST", "/api/staff/auth/password-reset/request"),
         # Points corrections in the organiser panel (25 Oct 2026): an administrator or
         # a Game Master, the same reversal and connection review as the admin console.
+        ("POST", "/api/staff/cards/lookup"),
         ("POST", "/api/staff/connections/reconcile"),
         # The final result (migration 0023): Game Master or administrator only.
         ("POST", "/api/staff/final"),

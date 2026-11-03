@@ -17,7 +17,7 @@ export type PublicCard = {
   photo_url?: string | null;
 };
 
-export type OwnCard = { card_url: string; card: PublicCard };
+export type OwnCard = { card_url: string; card: PublicCard; short_code?: string };
 
 export function fetchPublicCard(token: string): Promise<ApiResult<PublicCard>> {
   return apiGet<PublicCard>(`/api/cards/${encodeURIComponent(token)}`);

@@ -69,3 +69,5 @@ class OwnCard(_Strict):
 
     card_url: str
     card: PublicCard
+    # Six characters to type when the QR cannot be read (service.card_short_code).
+    short_code: str

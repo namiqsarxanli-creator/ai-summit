@@ -69,6 +69,11 @@ describe("MyCard", () => {
     expect(drawing.path).toMatch(/^M/);
     expect(await screen.findByText("Offline QR saved on this device.")).toBeInTheDocument();
   });
+  it("shows the six-character code to type when the camera cannot read the QR", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(200, { card_url: CARD_URL, card: CARD, short_code: "K7M4QX" })));
+    render(<MyCard />);
+    expect(await screen.findByLabelText("Your attendee code")).toHaveTextContent("K7M-4QX");
+  });
   it("refuses to encode anything that is not a bare card URL", async () => {
     vi.stubGlobal(
       "fetch",

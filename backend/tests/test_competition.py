@@ -216,6 +216,42 @@ def test_a_screen_link_shows_one_panels_codes_without_a_session_until_rotated(
     assert gone.json()["error"]["code"] == "SCREEN_LINK_INVALID"
 
 
+def test_the_card_short_code_turns_into_the_card_for_a_signed_in_caller_only(
+    comp: Comp,
+) -> None:
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+    from app.modules.contact_cards.service import card_short_code
+
+    owner, other = comp.users(2)
+    token = comp.card(owner)
+    code = card_short_code(token)
+    assert len(code) == 6 and not set(code) & set("01OIL")
+    mine = comp.client(owner).get("/api/attendees/me/card").json()
+    assert mine["short_code"] == code
+    loose = f"{code[:3].lower()} {code[3:]}"  # typed loosely
+    # A door volunteer gets the token, exactly what the QR would have given.
+    door = comp.volunteer("GAME_MASTER", None)
+    found = door.post("/api/staff/cards/lookup", json={"code": loose})
+    assert found.status_code == 200 and found.json() == {"card_token": token}
+    assert found.headers["cache-control"] == "no-store"
+    # Another attendee too (People: connect by hand).
+    them = comp.client(other).post("/api/attendees/me/cards/lookup", json={"code": code})
+    assert them.json() == {"card_token": token}
+    # Nobody signed in: refused; a wrong code: the same INVALID_QR as a bad scan.
+    anon = TestClient(app).post("/api/attendees/me/cards/lookup", json={"code": code})
+    assert anon.status_code in (401, 403)  # no session (or no same-origin proof)
+    wrong = "".join("2" if c != "2" else "3" for c in code)
+    assert door.post("/api/staff/cards/lookup", json={"code": wrong}).json()["error"]["code"] == (
+        "INVALID_QR"
+    )
+    # A revoked card's code names no one.
+    comp.rig.sql("UPDATE contact_cards SET revoked_at = now() WHERE user_id = :u", u=owner)
+    gone = door.post("/api/staff/cards/lookup", json={"code": code})
+    assert gone.json()["error"]["code"] == "INVALID_QR"
+
+
 def test_the_six_digit_code_scans_like_the_qr_and_wrong_digits_do_not(comp: Comp) -> None:
     from app.modules.competition import panels as panels_module
     from app.modules.competition.models import Panel
