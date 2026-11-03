@@ -21,6 +21,7 @@ export const SETUP: Record<string, { label: string; section: string | null }> = 
   masterclass_schedule: { label: "Masterclass times", section: "masterclasses" },
   panels: { label: "Main Stage panels", section: "competition" },
   panel_schedule: { label: "Panel times", section: "competition" },
+  grand_final: { label: "Grand Final check-in", section: "competition" },
   competition_close: { label: "Competition close (17:30)", section: "competition" },
   competition_mode: { label: "Competition ranking switched on", section: "competition" },
   playground_slots: { label: "AI Playground booths and slots", section: "playground" },

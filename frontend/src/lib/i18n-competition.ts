@@ -71,6 +71,15 @@ export const competitionTranslations: Record<string, { az: string; ru: string }>
   "No camera is available. Type the code below.": { az: "Kamera yoxdur. Kodu aşağıda yazın.", ru: "Камера недоступна. Введите код ниже." },
   "The camera could not start. Type the code below.": { az: "Kamera işə düşmədi. Kodu aşağıda yazın.", ru: "Камера не запустилась. Введите код ниже." },
   "Send": { az: "Göndər", ru: "Отправить" },
+  "Grand Final recorded. Stay for the Lucky Draw.": { az: "Grand Final qeydə alındı. Lucky Draw üçün zalda qalın.", ru: "Grand Final отмечен. Оставайтесь в зале до Lucky Draw." },
+  "A scored activity in all four zones and the Grand Final scan: +15 points and a place in the Lucky Draw.": { az: "Dörd zonanın hamısında ballı fəaliyyət və Grand Final skanı: +15 bal və Lucky Draw-da yer.", ru: "Активность с баллами во всех четырёх зонах и скан на Grand Final: +15 баллов и участие в Lucky Draw." },
+  "scan at the hall entrance (Beyond Now Founder)": { az: "zala girəndə skan edin (Beyond Now Founder)", ru: "сканируйте при входе в зал (Beyond Now Founder)" },
+  "Grand Final (scan at the hall entrance)": { az: "Grand Final (zala girəndə skan)", ru: "Grand Final (скан при входе в зал)" },
+  "Grand Final check-in": { az: "Grand Final girişi", ru: "Вход на Grand Final" },
+  "Grand Final code": { az: "Grand Final kodu", ru: "Код Grand Final" },
+  "Code to type": { az: "Əllə yazılacaq kod", ru: "Код для ввода" },
+  "Scan when you enter the hall: this completes Beyond Now Founder. Open AI Summit → My points.": { az: "Zala girəndə skan edin: bu, Beyond Now Founder-i tamamlayır. AI Summit → Xallarım bölməsini açın.", ru: "Сканируйте при входе в зал: это завершает Beyond Now Founder. Откройте AI Summit → Мои баллы." },
+  "Camera not working? Type the six digits in AI Summit → My points → Code from the screen.": { az: "Kamera işləmir? 6 rəqəmi AI Summit → Xallarım → Ekrandakı kod sahəsinə yazın.", ru: "Камера не работает? Введите шесть цифр в AI Summit → Мои баллы → Код с экрана." },
 
   // the main screen
   "Panel codes": { az: "Panel kodları", ru: "Коды панели" },

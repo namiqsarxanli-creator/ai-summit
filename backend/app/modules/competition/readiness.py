@@ -34,6 +34,7 @@ from app.modules.admin.models import EventConfig
 from app.modules.attendees.models import User, UserStatus
 from app.modules.competition.ledger import closes_at
 from app.modules.competition.models import Panel, StaffScope
+from app.modules.competition.rules import GRAND_FINAL_CODE
 from app.modules.masterclasses.models import (
     Masterclass,
     MasterclassBlock,
@@ -158,7 +159,8 @@ def check(db: Session) -> list[Check]:
         + "; ".join(f"{_local(b.starts_at, zone)}-{_local(b.ends_at, zone)[-5:]}" for b in blocks),
     )
     rooms = int(db.execute(select(func.count()).select_from(MasterclassRoom)).scalar_one())
-    add("masterclass_rooms", rooms == ROOMS, f"{rooms} of {ROOMS}")
+    # The 13 Nov agenda (SIZ2026) has 5 halls in block 1 and 6 in block 2.
+    add("masterclass_rooms", rooms >= ROOMS, f"{rooms} (at least {ROOMS})")
     published = {
         block_id: int(n)
         for block_id, n in db.execute(
@@ -175,14 +177,25 @@ def check(db: Session) -> list[Check]:
     )
     add(
         "masterclasses_published",
-        bool(blocks) and all(published.get(b.id, 0) == ROOMS for b in blocks),
-        "; ".join(f"block {b.id}: {published.get(b.id, 0)} of {ROOMS} published" for b in blocks)
+        bool(blocks) and all(published.get(b.id, 0) >= ROOMS for b in blocks),
+        "; ".join(
+            f"block {b.id}: {published.get(b.id, 0)} published (at least {ROOMS})" for b in blocks
+        )
         + f"; {unpublished} not published"
         if blocks
         else "no blocks",
     )
 
-    panels = list(db.execute(select(Panel).order_by(Panel.starts_at)).scalars())
+    every = list(db.execute(select(Panel).order_by(Panel.starts_at)).scalars())
+    panels = [p for p in every if p.code != GRAND_FINAL_CODE]
+    final_rows = [p for p in every if p.code == GRAND_FINAL_CODE]
+    add(
+        "grand_final",
+        len(final_rows) == 1
+        and final_rows[0].starts_at.astimezone(ZoneInfo(zone)).date() == EVENT_DATE,
+        "; ".join(f"{_local(p.starts_at, zone)}-{_local(p.ends_at, zone)[-5:]}" for p in final_rows)
+        or "no Grand Final check-in: Beyond Now Founder cannot be earned",
+    )
     add(
         "panels",
         len(panels) == PANELS,

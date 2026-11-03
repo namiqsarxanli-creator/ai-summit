@@ -51,7 +51,33 @@ class Final(Program):
             db.commit()
             return result.outcome
 
+    def grand_final(self) -> int:
+        """The Grand Final check-in row (17:25-17:45), created once."""
+        have = self.rig.sql("SELECT id FROM panels WHERE code = 'grand-final'")
+        if have:
+            return int(have[0][0])
+        return int(
+            self.rig.scalar(
+                "INSERT INTO panels (event_id, code, title, starts_at, ends_at) "
+                "VALUES (:e, 'grand-final', 'Grand Final', :s, :f) RETURNING id",
+                e=self.event,
+                s=baku("17:25"),
+                f=baku("17:45"),
+            )
+        )
+
+    def check_in(self, uid: int) -> None:
+        """The person scanned the Grand Final code (recorded without a recompute)."""
+        self.rig.sql(
+            "INSERT INTO panel_scans (panel_id, user_id, phase, scanned_at) "
+            "VALUES (:p, :u, 'ENTRY', :t)",
+            p=self.grand_final(),
+            u=uid,
+            t=baku("17:30"),
+        )
+
     def all_zones(self, uid: int) -> None:
+        self.check_in(uid)  # first, so the fourth zone's award completes Founder
         self.pay(uid, PointsSource.PANEL, "panel:1", 8)
         self.pay(uid, PointsSource.MASTERCLASS, "block:1", 12)
         self.pay(uid, PointsSource.PLAYGROUND, "booth:1", 3)
@@ -141,6 +167,7 @@ def reverse(rig: Rig, entry_id: int) -> int:
 
 def test_founder_pays_fifteen_once_when_the_fourth_zone_is_reached(fin: Final) -> None:
     uid = fin.users(1)[0]
+    fin.check_in(uid)
     fin.pay(uid, PointsSource.PANEL, "panel:1", 8)
     fin.pay(uid, PointsSource.QMETER, "panel:1", 2)  # a second Main Stage activity
     fin.pay(uid, PointsSource.MASTERCLASS, "block:1", 12)
@@ -157,6 +184,7 @@ def test_founder_pays_fifteen_once_when_the_fourth_zone_is_reached(fin: Final) -
         "masterclass": True,
         "playground": True,
         "connection_hub": True,
+        "grand_final": True,
     }
     assert mine["founder"] is True and mine["lucky_draw"] is True
     assert next(c for c in mine["categories"] if c["category"] == "FOUNDER")["points"] == 15
@@ -183,6 +211,54 @@ def test_a_correction_removes_founder_and_new_evidence_restores_it(fin: Final) -
     fin.pay(uid, PointsSource.MASTERCLASS, "block:2", 12)
     assert fin.founder_points(uid) == 15
     assert fin.rig.scalar("SELECT count(*) FROM points_log WHERE source = 'FOUNDER'") == 3
+
+
+def test_without_the_grand_final_scan_four_zones_earn_no_founder(fin: Final) -> None:
+    from app.modules.competition import panels as panels_module
+    from app.modules.competition.models import Panel
+
+    uid = fin.users(1)[0]
+    final = fin.grand_final()
+    fin.pay(uid, PointsSource.PANEL, "panel:1", 8)
+    fin.pay(uid, PointsSource.MASTERCLASS, "block:1", 12)
+    fin.pay(uid, PointsSource.PLAYGROUND, "booth:1", 3)
+    fin.pay(uid, PointsSource.CONNECTION, "pair:1:2", 3)
+    assert fin.founder_points(uid) == 0  # four zones, but not stayed to the end
+    mine = fin.client(uid).get("/api/attendees/me/competition").json()
+    assert mine["zones"]["grand_final"] is False and mine["founder"] is False
+
+    with Session(fin.rig.engine) as db:
+        row = db.get(Panel, final)
+        assert row is not None
+        code, digits = (
+            panels_module.screen_code(row, "ENTRY"),
+            panels_module.short_code(row, "ENTRY"),
+        )
+    c = fin.client(uid)
+    fin.clock.now = baku("17:20")
+    early = c.post("/api/attendees/me/panels/scan", json={"code": code})
+    assert early.json()["error"]["details"]["reason"] == "outside_window"
+    # 17:40, after the 17:30 close: the check-in still completes Founder, dated by
+    # the fourth zone's activity (12:00), so the close does not refuse it.
+    fin.clock.now = baku("17:40")
+    typed = c.post("/api/attendees/me/panels/scan", json={"code": f"{digits[:3]} {digits[3:]}"})
+    assert typed.status_code == 200, typed.text
+    assert typed.json()["grand_final"] is True and typed.json()["award"] is None
+    assert fin.founder_points(uid) == 15
+    assert fin.rig.scalar(
+        "SELECT occurred_at FROM points_log WHERE user_id = :u AND source = 'FOUNDER'", u=uid
+    ) == baku("12:00")
+    again = c.post("/api/attendees/me/panels/scan", json={"code": code})
+    assert again.status_code == 200 and fin.founder_points(uid) == 15  # once
+    # The Grand Final has no exit code and is never a Qmeter question.
+    with Session(fin.rig.engine) as db:
+        row = db.get(Panel, final)
+        assert row is not None
+        exit_code = panels_module.screen_code(row, "EXIT")
+    refused = c.post("/api/attendees/me/panels/scan", json={"code": exit_code})
+    assert refused.json()["error"]["details"]["reason"] == "invalid_code"
+    listed = {p["id"]: p["kind"] for p in TestClient(app).get("/api/panels").json()}
+    assert listed[final] == "grand_final"
 
 
 def test_the_founder_bonus_itself_cannot_be_reversed_by_hand(fin: Final) -> None:
@@ -505,6 +581,7 @@ def test_activity_verified_late_but_done_before_the_close_completes_founder(fin:
         "UPDATE masterclass_events SET competition_closes_at = :c", c=now - timedelta(minutes=5)
     )
     uid = fin.users(1)[0]
+    fin.check_in(uid)
     before = now - timedelta(hours=1)
     with Session(fin.rig.engine) as db:
         for source, unit, points in (

@@ -73,7 +73,7 @@ class Strict(BaseModel):
 
 
 class PanelScanRequest(Strict):
-    code: str = Field(min_length=10, max_length=120)
+    code: str = Field(min_length=6, max_length=120)  # the QR text, or six typed digits
 
 
 class DoorScanRequest(Strict):
@@ -135,6 +135,7 @@ def list_public_panels(db: DbSession) -> list[dict[str, Any]]:
         {
             "id": p.id,
             "title": p.title,
+            "kind": "grand_final" if panels.is_grand_final(p) else "panel",
             "starts_at": p.starts_at,
             "ends_at": p.ends_at,
             "timezone": zone,
@@ -475,8 +476,11 @@ def panel_screen(
     return {
         **panel_view(panel),
         "timezone": event.timezone,
+        "kind": "grand_final" if panels.is_grand_final(panel) else "panel",
         "entry_code": panels.screen_code(panel, "ENTRY"),
         "exit_code": panels.screen_code(panel, "EXIT"),
+        "entry_short": panels.short_code(panel, "ENTRY"),
+        "exit_short": panels.short_code(panel, "EXIT"),
     }
 
 

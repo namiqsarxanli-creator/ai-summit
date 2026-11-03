@@ -75,7 +75,7 @@ export function AttendanceDesk({ jobs = "all" }: { jobs?: DeskJobs }) {
           scopes: scopes.ok ? scopes.data.scopes : [],
           programme: programme.ok ? programme.data : null,
           slots: slots && slots.ok ? slots.data : null,
-          panels: panels.ok ? panels.data : [],
+          panels: panels.ok ? panels.data.filter((p) => p.kind !== "grand_final") : [],
           mentor: mentor.ok ? mentor.data : null,
         },
       });

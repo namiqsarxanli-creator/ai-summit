@@ -64,6 +64,12 @@ CATEGORIES: Final[dict[PointsSource, Category]] = {
 COMPETITION_SOURCES: Final = tuple(CATEGORIES)
 assert sum(c.maximum for c in CATEGORIES.values()) == 100
 
+# The Grand Final check-in (owner's decision, 3 Nov 2026, FACEMARK's participant
+# guide): a `panels` row with this code is not a Main Stage panel. Its screen shows
+# one ENTRY code for the row's whole time; scanning it records that the person
+# stayed to the end, which Beyond Now Founder requires (competition/founder.py).
+GRAND_FINAL_CODE: Final = "grand-final"
+
 # Scan windows (PDF "Kim, nəyi, nə vaxt skan edir").
 PANEL_ENTRY_MINUTES: Final = 15  # first 15 minutes
 PANEL_EXIT_MINUTES: Final = 10  # last 10 minutes

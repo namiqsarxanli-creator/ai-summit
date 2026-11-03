@@ -65,4 +65,5 @@ export const ZONE_LABEL: Record<string, string> = {
   masterclass: "Masterclass",
   playground: "AI Playground",
   connection_hub: "Connection Hub",
+  grand_final: "Grand Final (scan at the hall entrance)",
 };

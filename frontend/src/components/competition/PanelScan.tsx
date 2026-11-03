@@ -73,6 +73,7 @@ export function PanelScan() {
     try {
       const result = await scanPanel(text);
       if (!result.ok) setNotice({ tone: "warn", text: scanFailure(result, messageFor) });
+      else if (result.data.grand_final) setNotice({ tone: "ok", text: "Grand Final recorded. Stay for the Lucky Draw." });
       else if (result.data.award) setNotice({ tone: result.data.award.points > 0 ? "ok" : "warn", text: OUTCOME_TEXT[result.data.award.outcome] });
       else setNotice({ tone: "ok", text: result.data.phase === "entry" ? "Entry recorded. Scan the exit code in the last 10 minutes of the panel." : "Exit recorded." });
       await load();
@@ -126,7 +127,7 @@ export function PanelScan() {
       {mine.zones && (
         <section className="fm-card fm-section" aria-labelledby="comp-founder">
           <h2 id="comp-founder" className="fm-eyebrow">{t("Beyond Now Founder")}</h2>
-          <p className="fm-small">{t("A scored activity in all four zones: +15 points and a place in the Lucky Draw.")}</p>
+          <p className="fm-small">{t("A scored activity in all four zones and the Grand Final scan: +15 points and a place in the Lucky Draw.")}</p>
           {mine.founder_rule_confirmed === false && <p className="fm-micro">{t("The organisers are still confirming the Founder rule; the bonus is added once it is confirmed.")}</p>}
           <ul className="fm-stack" style={{ gap: 4 }}>
             {Object.entries(mine.zones).map(([zone, done]) => (
@@ -147,6 +148,7 @@ export function PanelScan() {
             {panels.map((p) => (
               <li key={p.id} className="fm-small">
                 <span className="fm-strong">{p.title}</span> · {eventTime(p.starts_at, p.timezone, language)}–{eventTime(p.ends_at, p.timezone, language)}
+                {p.kind === "grand_final" && <> · {t("scan at the hall entrance (Beyond Now Founder)")}</>}
               </li>
             ))}
           </ul>

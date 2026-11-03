@@ -411,14 +411,15 @@ def my_final(db: Session, user_id: int) -> dict[str, Any] | None:
 
 
 def founder_status(db: Session, user_id: int) -> dict[str, Any]:
-    from app.modules.competition.founder import zones
+    from app.modules.competition.founder import at_grand_final, zones
 
     reached = zones(db, user_id)
     confirmed = rule_confirmed()
     bonus = live_founder(db, user_id) if confirmed else None
     user = db.get(User, user_id)
     return {
-        "zones": {zone: at is not None for zone, at in reached.items()},
+        "zones": {zone: at is not None for zone, at in reached.items()}
+        | {"grand_final": at_grand_final(db, user_id)},
         "founder_rule_confirmed": confirmed,
         "founder": bonus is not None,
         "lucky_draw": bonus is not None and eligible(user),

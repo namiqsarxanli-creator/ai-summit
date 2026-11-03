@@ -13,6 +13,14 @@ needed - entering late or only at the end earns nothing.
   scanned at, or a mentor group whose host scanned them) does not also earn the
   panel (PDF slot table: "Panel balı itir").
 
+SHORT CODE: under the QR the screen also shows six digits (an HMAC of the same
+payload, reduced) for a phone whose camera fails; the attendee types them. One
+per panel and phase, revoked by the same rotation; guessing is bounded by the
+attendee's scan rate limit (30 per 10 minutes against 1 000 000 values).
+
+GRAND FINAL (rules.GRAND_FINAL_CODE): one ENTRY code valid for the row's whole
+time, no points of its own; the scan completes Beyond Now Founder (founder.py).
+
 QMETER (2 per panel, at most 4): a Game Master checks the question in Qmeter and
 records it for the exactly identified attendee (name AND phone must match one
 ACTIVE person; never a name alone), once the panel has ENDED and before the
@@ -37,6 +45,7 @@ from app.modules.attendees.models import User, UserStatus
 from app.modules.competition.ledger import AwardResult, award
 from app.modules.competition.models import Panel, PanelScan
 from app.modules.competition.rules import (
+    GRAND_FINAL_CODE,
     PANEL_ENTRY_MINUTES,
     PANEL_EXIT_MINUTES,
     PANEL_POINTS,
@@ -77,9 +86,42 @@ def screen_code(panel: Panel, phase: str) -> str:
 
 
 _CODE = re.compile(r"P([1-9][0-9]{0,15})\.(ENTRY|EXIT)\.([1-9][0-9]{0,8})\.([0-9a-f]{64})")
+_SHORT = re.compile(r"[0-9]{6}")
+
+
+def is_grand_final(panel: Panel) -> bool:
+    return panel.code == GRAND_FINAL_CODE
+
+
+def phases_of(panel: Panel) -> tuple[str, ...]:
+    return ("ENTRY",) if is_grand_final(panel) else ("ENTRY", "EXIT")
+
+
+def short_code(panel: Panel, phase: str) -> str:
+    """Six digits for typing the code by hand (see the module docstring)."""
+    payload = f"panel-short-v1:{panel.id}:{phase}:{panel.qr_version}"
+    digest = hmac.new(
+        get_settings().scan_ref_secret.encode(), payload.encode(), hashlib.sha256
+    ).hexdigest()
+    return f"{int(digest, 16) % 1_000_000:06d}"
+
+
+def _read_short(db: Session, digits: str) -> tuple[Panel, str]:
+    found = [
+        (panel, phase)
+        for panel in db.execute(select(Panel)).scalars()
+        for phase in phases_of(panel)
+        if hmac.compare_digest(short_code(panel, phase), digits)
+    ]
+    if len(found) != 1:  # none, or (never seen) two codes alike: refuse, never guess
+        raise PanelScanError("invalid_code")
+    return found[0]
 
 
 def read_code(db: Session, code: str) -> tuple[Panel, str]:
+    digits = re.sub(r"[\s-]", "", code)
+    if _SHORT.fullmatch(digits):
+        return _read_short(db, digits)
     match = _CODE.fullmatch(code.strip())
     if match is None:
         raise PanelScanError("invalid_code")
@@ -93,6 +135,10 @@ def read_code(db: Session, code: str) -> tuple[Panel, str]:
 
 
 def window(panel: Panel, phase: str) -> tuple[datetime, datetime]:
+    if is_grand_final(panel):  # one check-in code for the whole time; no exit
+        return (
+            (panel.starts_at, panel.ends_at) if phase == "ENTRY" else (panel.ends_at, panel.ends_at)
+        )
     if phase == "ENTRY":
         return panel.starts_at, panel.starts_at + timedelta(minutes=PANEL_ENTRY_MINUTES)
     return panel.ends_at - timedelta(minutes=PANEL_EXIT_MINUTES), panel.ends_at
@@ -130,6 +176,8 @@ def _verified_elsewhere(db: Session, user_id: int, panel: Panel) -> bool:
 
 def scan(db: Session, user: User, code: str, now: datetime) -> dict[str, Any]:
     panel, phase = read_code(db, code)
+    if phase not in phases_of(panel):
+        raise PanelScanError("invalid_code")
     opens, closes = window(panel, phase)
     already = db.execute(
         select(PanelScan).where(
@@ -150,6 +198,17 @@ def scan(db: Session, user: User, code: str, now: datetime) -> dict[str, Any]:
             )
         ).scalars()
     )
+    if is_grand_final(panel):
+        from app.modules.competition.founder import recompute
+
+        recompute(db, user.id)  # the check-in may complete Beyond Now Founder
+        return {
+            "panel_id": panel.id,
+            "phase": "entry",
+            "recorded": ["entry"],
+            "grand_final": True,
+            "award": None,
+        }
     result: AwardResult | None = None
     if phases == {"ENTRY", "EXIT"}:
         if _verified_elsewhere(db, user.id, panel):
@@ -264,7 +323,7 @@ def record_qmeter(
 ) -> dict[str, Any]:
     require_scope(db, staff, "GAME_MASTER", None)
     panel = db.get(Panel, panel_id)
-    if panel is None:
+    if panel is None or is_grand_final(panel):  # Qmeter questions are about panels
         raise PanelScanError("unknown_panel")
     # PDF "Kim, nəyi, nə vaxt skan edir": Qmeter is checked AFTER the panel, until
     # 17:30 (the ledger refuses after the close). Owner's decision, 25 Oct 2026.

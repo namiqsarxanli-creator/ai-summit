@@ -1,4 +1,7 @@
-"""Beyond Now Founder: +10 once, for verified activity in all four zones.
+"""Beyond Now Founder: +15 once, for verified activity in all four zones AND the
+Grand Final check-in scan (owner's decision, 3 Nov 2026: "sona qədər qaldığını
+təsdiqləyir"). The bonus is dated by the fourth zone's activity, so a check-in
+after the 17:30 close still completes it; without the check-in there is no bonus.
 
 PDF ("Founder: 4 zonanın hamısında fəaliyyət", flow page 3).
 
@@ -80,6 +83,30 @@ def zones(db: Session, user_id: int) -> dict[str, datetime | None]:
     return reached
 
 
+def at_grand_final(db: Session, user_id: int) -> bool:
+    """Whether the person scanned the Grand Final check-in code."""
+    from app.modules.competition.models import Panel, PanelScan
+    from app.modules.competition.rules import GRAND_FINAL_CODE
+
+    return (
+        db.execute(
+            select(PanelScan.id)
+            .join(Panel, Panel.id == PanelScan.panel_id)
+            .where(
+                Panel.code == GRAND_FINAL_CODE,
+                PanelScan.user_id == user_id,
+                PanelScan.phase == "ENTRY",
+            )
+            .limit(1)
+        ).first()
+        is not None
+    )
+
+
+def qualifies(db: Session, user_id: int) -> bool:
+    return all(zones(db, user_id).values()) and at_grand_final(db, user_id)
+
+
 def live_founder(db: Session, user_id: int) -> PointsLog | None:
     return db.execute(_live_awards(user_id, (PointsSource.FOUNDER,)).limit(1)).scalars().first()
 
@@ -104,7 +131,7 @@ def recompute(db: Session, user_id: int) -> str:
         return "gated"
     lock_attendee_points(db, user_id)
     reached = zones(db, user_id)
-    complete = all(reached.values())
+    complete = all(reached.values()) and at_grand_final(db, user_id)
     current = live_founder(db, user_id)
     if complete and current is None:
         earlier = int(
@@ -126,7 +153,7 @@ def recompute(db: Session, user_id: int) -> str:
             unit=f"award:{earlier + 1}",  # a re-earned bonus after a correction is a new unit
             points=FOUNDER_POINTS,
             occurred_at=moment,
-            note="All four zones completed.",
+            note="All four zones completed and the Grand Final scanned.",
         ).outcome
     if not complete and current is not None:
         db.add(
@@ -165,7 +192,7 @@ def recompute_all(db: Session, *, apply: bool) -> dict[str, int]:
         .order_by(PointsLog.user_id)
     ).scalars()
     for user_id in list(candidates):
-        complete = all(zones(db, user_id).values())
+        complete = qualifies(db, user_id)
         current = live_founder(db, user_id)
         if complete == (current is not None):
             counts["unchanged"] += 1

@@ -460,3 +460,5 @@ body:has(.fm-home) .fm-language-switcher { position: absolute; top: 0; left: 50%
 
 .fm-remember { display: flex; align-items: center; gap: 12px; min-height: 48px; font-size: 14px; cursor: pointer; }
 .fm-remember input { flex: none; width: 20px; height: 20px; accent-color: var(--fm-red); }
+/* The panel screen's six digits, read from the back of the hall. */
+.fm-panel-short { margin-top: 12px; text-align: center; color: var(--fm-ink); font-size: clamp(40px, 7vw, 72px); font-weight: 800; letter-spacing: .12em; font-variant-numeric: tabular-nums; }

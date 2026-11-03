@@ -178,6 +178,35 @@ def _award(comp: Comp, uid: int, source: PointsSource, unit: str, points: int, a
         return result.outcome
 
 
+def test_the_six_digit_code_scans_like_the_qr_and_wrong_digits_do_not(comp: Comp) -> None:
+    from app.modules.competition import panels as panels_module
+    from app.modules.competition.models import Panel
+
+    uid = comp.users(1)[0]
+    with Session(comp.rig.engine) as db:
+        row = db.get(Panel, comp.panel1)
+        assert row is not None
+        entry = panels_module.short_code(row, "ENTRY")
+        exit_ = panels_module.short_code(row, "EXIT")
+    assert entry != exit_ and len(entry) == 6 and entry.isdigit()
+    c = comp.client(uid)
+    comp.clock.now = baku("10:05")
+    wrong = f"{(int(entry) + 1) % 1_000_000:06d}"
+    bad = c.post("/api/attendees/me/panels/scan", json={"code": wrong})
+    assert bad.json()["error"]["details"]["reason"] == "invalid_code"
+    ok = c.post("/api/attendees/me/panels/scan", json={"code": entry})
+    assert ok.status_code == 200 and ok.json()["phase"] == "entry"
+    comp.clock.now = baku("11:25")
+    done = c.post("/api/attendees/me/panels/scan", json={"code": f"{exit_[:3]}-{exit_[3:]}"})
+    assert done.json()["award"] == {"outcome": "awarded", "points": 8}
+    # Rotating the panel's codes revokes the digits too.
+    comp.rig.sql("UPDATE panels SET qr_version = qr_version + 1 WHERE id = :p", p=comp.panel1)
+    comp.clock.now = baku("10:05")
+    other = comp.client(comp.users(1)[0])
+    stale = other.post("/api/attendees/me/panels/scan", json={"code": entry})
+    assert stale.json()["error"]["details"]["reason"] == "invalid_code"
+
+
 def test_a_mentor_award_scores_nothing_since_meet_the_mentor_left(comp: Comp) -> None:
     uid = comp.users(1)[0]
     assert _award(comp, uid, PointsSource.MENTOR, "once", 5, baku("13:30")) == "not_scored"
@@ -963,6 +992,13 @@ def test_readiness_accepts_a_complete_programme_without_writing(comp: Comp) -> N
     comp.rig.sql("UPDATE event_config SET competition_mode = true")
     # The 13 Nov agenda: Panel 1 at 10:20-11:30.
     comp.rig.sql("UPDATE panels SET starts_at = :s WHERE id = :p", s=baku("10:20"), p=comp.panel1)
+    comp.rig.sql(
+        "INSERT INTO panels (event_id, code, title, starts_at, ends_at) "
+        "VALUES (:e, 'grand-final', 'Grand Final', :s, :f)",
+        e=comp.event,
+        s=baku("17:25"),
+        f=baku("17:45"),
+    )
     for block in (comp.b1, comp.b2):
         for _ in range(5):
             comp.volunteer("MASTERCLASS_DOOR", comp.masterclass(block))

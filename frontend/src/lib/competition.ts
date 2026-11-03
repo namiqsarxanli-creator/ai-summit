@@ -12,6 +12,7 @@ export type PanelScanResult = {
   phase: "entry" | "exit";
   recorded: ("entry" | "exit")[];
   award: Award | null;
+  grand_final?: boolean;
 };
 
 export type CategoryTotal = { category: string; points: number; maximum: number };
@@ -28,7 +29,9 @@ export type MyCompetition = {
   final?: { version: number; place: number | null; points: number | null; founder: boolean } | null;
   final_status?: "not_configured" | "disabled" | "open" | "pending_review" | "published";
 };
-export type PublicPanel = { id: number; title: string; starts_at: string; ends_at: string; timezone: string };
+// kind "grand_final": the Grand Final check-in (one code, no points of its own;
+// it completes Beyond Now Founder) - never a Qmeter target.
+export type PublicPanel = { id: number; title: string; kind?: "panel" | "grand_final"; starts_at: string; ends_at: string; timezone: string };
 export type Scope = { scope: "MASTERCLASS_DOOR" | "GAME_MASTER" | "MENTOR_HOST"; target_id: number | null };
 
 export type DoorResult = { phase: "entry" | "exit"; name: string; standing: boolean; already?: boolean; award?: Award };
@@ -37,7 +40,9 @@ export type Identified = { user_id: number; name: string; phone: string };
 
 // What a panel's screen shows: P<id>.<ENTRY|EXIT>.<version>.<signature>.
 const PANEL_CODE = /^P[1-9][0-9]*\.(ENTRY|EXIT)\.[1-9][0-9]*\.[0-9a-f]{64}$/;
-export const isPanelCode = (text: string) => PANEL_CODE.test(text.trim());
+// The six digits shown under the QR, typed by hand ("482 913" or "482913").
+const SHORT_CODE = /^[0-9]{6}$/;
+export const isPanelCode = (text: string) => PANEL_CODE.test(text.trim()) || SHORT_CODE.test(text.replace(/[\s-]/g, ""));
 
 export const scanPanel = (code: string) =>
   apiPost<PanelScanResult>("/api/attendees/me/panels/scan", { code: code.trim() });
