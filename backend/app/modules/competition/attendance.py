@@ -45,7 +45,7 @@ from app.modules.competition.rules import (
     MASTERCLASS_POINTS,
     PLAYGROUND_POINTS,
 )
-from app.modules.competition.scopes import require_scope
+from app.modules.competition.scopes import may_work_booth, require_scope
 from app.modules.contact_cards.service import resolve_active_attendee
 from app.modules.masterclasses.models import (
     CANCELLED,
@@ -57,7 +57,7 @@ from app.modules.masterclasses.models import (
 )
 from app.modules.playground.models import PlaygroundBooking, PlaygroundSlot
 from app.modules.points.models import PointsSource
-from app.modules.staff.models import StaffAccount, StaffRole
+from app.modules.staff.models import StaffAccount
 
 PLAYGROUND_SCAN_BEFORE_END = timedelta(minutes=3)
 PLAYGROUND_SCAN_AFTER_END = timedelta(minutes=5)
@@ -285,7 +285,7 @@ def playground_complete(
     slot = db.get(PlaygroundSlot, slot_id)
     if slot is None:
         raise AttendanceError("unknown_slot")
-    if staff.role != StaffRole.BOOTH_STAFF or staff.booth_id != slot.booth_id:
+    if not may_work_booth(db, staff, slot.booth_id):
         raise StaffNotAuthorizedError("Only this booth's staff can complete its sessions.")
     user = attendee or resolve_active_attendee(db, card_token or "")
     booking = db.execute(

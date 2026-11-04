@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.core.errors import StaffNotAuthorizedError
 from app.modules.competition.models import StaffScope
-from app.modules.staff.models import StaffAccount
+from app.modules.staff.models import StaffAccount, StaffRole
 
 
 def has_scope(db: Session, staff: StaffAccount, scope: str, target_id: int | None) -> bool:
@@ -36,3 +36,28 @@ def has_scope(db: Session, staff: StaffAccount, scope: str, target_id: int | Non
 def require_scope(db: Session, staff: StaffAccount, scope: str, target_id: int | None) -> None:
     if not has_scope(db, staff, scope, target_id):
         raise StaffNotAuthorizedError("This account has no permission for that.")
+
+
+def works_every_booth(db: Session, staff: StaffAccount) -> bool:
+    """FACEMARK's one scanning login (their request, 5 Nov 2026): whoever holds a
+    live masterclass door or Game Master scope also works every AI Playground
+    booth, choosing the session, so booths need no account of their own. Wrong
+    choices stay harmless: only a person admitted to that session can be scored."""
+    if not staff.is_active:
+        return False
+    found = db.execute(
+        select(StaffScope.id)
+        .where(
+            StaffScope.staff_account_id == staff.id,
+            StaffScope.scope.in_(("MASTERCLASS_DOOR", "GAME_MASTER")),
+            StaffScope.revoked_at.is_(None),
+        )
+        .limit(1)
+    ).first()
+    return found is not None
+
+
+def may_work_booth(db: Session, staff: StaffAccount, booth_id: int) -> bool:
+    """The booth's own staff, or one of FACEMARK's scanners."""
+    own = staff.role == StaffRole.BOOTH_STAFF and staff.booth_id == booth_id
+    return own or works_every_booth(db, staff)

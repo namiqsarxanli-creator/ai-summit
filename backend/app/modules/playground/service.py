@@ -340,8 +340,12 @@ def accept(db: Session, user: User, token: str) -> dict[str, Any]:
     return view(b)
 
 
-def staff_scope(staff: StaffAccount, slot: Slot) -> None:
-    if staff.role != StaffRole.ADMIN and staff.booth_id != slot.booth_id:
+def staff_scope(db: Session, staff: StaffAccount, slot: Slot) -> None:
+    from app.modules.competition.scopes import works_every_booth
+
+    if staff.role == StaffRole.ADMIN or staff.booth_id == slot.booth_id:
+        return
+    if not works_every_booth(db, staff):
         raise StaffNotAuthorizedError("This slot belongs to another booth.")
 
 
@@ -378,7 +382,7 @@ def admit(db: Session, staff: StaffAccount, bid: int, expected: int) -> dict[str
     if b is None:
         raise PlaygroundMissing("No such booking.")
     slot = slot_of(db, b.slot_id)
-    staff_scope(staff, slot)
+    staff_scope(db, staff, slot)
     stamp = now()
     if b.status == "CHECKED_IN":
         return {**view(b), "admitted": True}
@@ -540,7 +544,7 @@ def programme(db: Session, uid: int | None = None, booth_id: int | None = None) 
 
 def staff_list(db: Session, staff: StaffAccount, slot_id: int) -> dict[str, Any]:
     slot = slot_of(db, slot_id)
-    staff_scope(staff, slot)
+    staff_scope(db, staff, slot)
     rows = db.execute(
         select(Booking, User.first_name, User.last_name)
         .join(User, Booking.user_id == User.id)

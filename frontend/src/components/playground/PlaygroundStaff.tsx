@@ -2,15 +2,14 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { SlotPicker, currentSlot } from "@/components/playground/SlotPicker";
 import { useLanguage } from "@/components/ui/LanguageProvider";
 import { apiGet, type ApiResult } from "@/lib/api";
 import { messageFor } from "@/lib/errors";
-import { eventTime } from "@/lib/masterclasses";
 import {
   STATUS_LABEL,
   admitPlayground,
   failureText,
-  slotLabel,
   type PlaygroundBooking,
   type PlaygroundProgram,
 } from "@/lib/playground";
@@ -18,11 +17,11 @@ import {
 type Member = PlaygroundBooking & { name: string };
 type Notice = { tone: "ok" | "warn"; text: string } | null;
 
-// Booth staff: the people booked or queueing for one session of THEIR booth (the
-// server refuses any other booth), and "Confirm arrival". Arrival is not points:
+// Booth staff, or FACEMARK's scanners who work every booth: the people booked or
+// queueing for one session (the server refuses anyone else), and "Confirm arrival". Arrival is not points:
 // the end-of-session scan belongs to the attendance flow.
 export function PlaygroundStaff() {
-  const { t, language } = useLanguage();
+  const { t } = useLanguage();
   const [program, setProgram] = useState<PlaygroundProgram | null>(null);
   const [slot, setSlot] = useState("");
   const [members, setMembers] = useState<Member[]>([]);
@@ -38,7 +37,7 @@ export function PlaygroundStaff() {
       if (!active) return;
       if (result.ok) {
         setProgram(result.data);
-        setSlot(String(result.data.slots[0]?.id ?? ""));
+        setSlot(String(currentSlot(result.data.slots, result.data.server_time)?.id ?? ""));
       } else setNotice({ tone: "warn", text: messageFor(result.error.code) });
     });
     return () => { active = false; };
@@ -84,7 +83,7 @@ export function PlaygroundStaff() {
 
   return (
     <div className="fm-stack-lg">
-      <p className="fm-small">{t("Confirm arrivals only at your booth. This does not award points.")}</p>
+      <p className="fm-small">{t("Confirm arrivals for the session you chose. This does not award points.")}</p>
       {notice && (
         <p role={notice.tone === "ok" ? "status" : "alert"} className={`fm-alert ${notice.tone === "ok" ? "fm-alert-ok" : "fm-alert-warn"}`}>
           {t(notice.text)}
@@ -94,21 +93,7 @@ export function PlaygroundStaff() {
       {program && program.slots.length === 0 && <p className="fm-empty">{t("The organiser has not opened Playground bookings yet.")}</p>}
       {program && program.slots.length > 0 && (
         <>
-          <label className="fm-field">
-            <span className="fm-label">{t("Playground slots")}</span>
-            <select
-              className="fm-input"
-              value={slot}
-              disabled={busy}
-              onChange={(e) => { setMembers([]); setNotice(null); setSlot(e.target.value); }}
-            >
-              {program.slots.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {t(s.booth)} · {slotLabel(s)} · {eventTime(s.starts_at, s.timezone, language)}
-                </option>
-              ))}
-            </select>
-          </label>
+          <SlotPicker program={program} value={slot} disabled={busy} onChange={(id) => { setMembers([]); setNotice(null); setSlot(id); }} />
           <button type="button" disabled={busy} className="fm-btn fm-btn-secondary" onClick={() => void refresh()}>
             {t("Refresh programme")}
           </button>

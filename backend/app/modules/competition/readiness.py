@@ -304,7 +304,18 @@ def check(db: Session) -> list[Check]:
         ).scalars()
         if b is not None
     }
-    unstaffed = [b for b in slots if b not in staffed]
+    # FACEMARK's scanners (a live door or Game Master scope) work every booth.
+    scanners = db.execute(
+        select(StaffScope.id)
+        .join(StaffAccount, StaffAccount.id == StaffScope.staff_account_id)
+        .where(
+            StaffScope.scope.in_(("MASTERCLASS_DOOR", "GAME_MASTER")),
+            StaffScope.revoked_at.is_(None),
+            StaffAccount.is_active.is_(True),
+        )
+        .limit(1)
+    ).first()
+    unstaffed = [] if scanners else [b for b in slots if b not in staffed]
     add(
         "playground_booth_staff",
         bool(slots) and not unstaffed,

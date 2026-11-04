@@ -83,6 +83,7 @@ export const competitionTranslations: Record<string, { az: string; ru: string }>
   "Your attendee code": { az: "İştirakçı kodunuz", ru: "Ваш код участника" },
   "No connection: a typed code needs the internet. Scan the QR instead.": { az: "İnternet yoxdur: yazılan kod üçün internet lazımdır. QR-ı skan edin.", ru: "Нет связи: для введённого кода нужен интернет. Отсканируйте QR." },
   "No attendee has this code. Check the six characters.": { az: "Bu kodla iştirakçı yoxdur. 6 simvolu yoxlayın.", ru: "Участника с таким кодом нет. Проверьте шесть символов." },
+  "Confirm arrivals for the session you chose. This does not award points.": { az: "Seçdiyiniz sessiya üçün gəlişi təsdiqləyin. Bu, bal vermir.", ru: "Подтвердите приход на выбранную сессию. Баллы за это не начисляются." },
   "Code to type": { az: "Əllə yazılacaq kod", ru: "Код для ввода" },
   "Scan when you enter the hall: this completes Beyond Now Founder. Open AI Summit → My points.": { az: "Zala girəndə skan edin: bu, Beyond Now Founder-i tamamlayır. AI Summit → Xallarım bölməsini açın.", ru: "Сканируйте при входе в зал: это завершает Beyond Now Founder. Откройте AI Summit → Мои баллы." },
   "Camera not working? Type the six digits in AI Summit → My points → Code from the screen.": { az: "Kamera işləmir? 6 rəqəmi AI Summit → Xallarım → Ekrandakı kod sahəsinə yazın.", ru: "Камера не работает? Введите шесть цифр в AI Summit → Мои баллы → Код с экрана." },

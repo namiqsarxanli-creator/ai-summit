@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import { SlotPicker, currentSlot } from "@/components/playground/SlotPicker";
 import { useLanguage } from "@/components/ui/LanguageProvider";
 import { apiGet, type ApiResult } from "@/lib/api";
 import {
@@ -22,7 +23,7 @@ import { messageFor } from "@/lib/errors";
 import { eventTime, type Program } from "@/lib/masterclasses";
 import { completeMentor, fetchHostSessions, mentorFailure, type HostSession } from "@/lib/mentors";
 import { durableQueueSupported, enqueue, unreachable, type Owner, type ScanKind } from "@/lib/offlineQueue";
-import { slotLabel, type PlaygroundProgram } from "@/lib/playground";
+import { type PlaygroundProgram } from "@/lib/playground";
 import { fetchStaffMe, type StaffMe } from "@/lib/staff";
 
 import { OfflineQueuePanel } from "./OfflineQueuePanel";
@@ -63,7 +64,7 @@ export function AttendanceDesk({ jobs = "all" }: { jobs?: DeskJobs }) {
       const [scopes, programme, slots, panels, mentor] = await Promise.all([
         fetchMyScopes(),
         apiGet<Program>("/api/masterclasses"),
-        me.data.role === "BOOTH_STAFF" ? apiGet<PlaygroundProgram>("/api/staff/playground") : Promise.resolve(null),
+        apiGet<PlaygroundProgram>("/api/staff/playground"),
         fetchPanels(),
         fetchHostSessions(),
       ]);
@@ -89,7 +90,9 @@ export function AttendanceDesk({ jobs = "all" }: { jobs?: DeskJobs }) {
   const scans = jobs !== "qmeter";
   const doors = scans ? data.scopes.filter((s) => s.scope === "MASTERCLASS_DOOR" && s.target_id !== null) : [];
   const gameMaster = jobs !== "scans" && data.scopes.some((s) => s.scope === "GAME_MASTER");
-  const booth = scans && data.me.role === "BOOTH_STAFF" && data.slots !== null;
+  // A booth's own staff, or FACEMARK's scanners, who work every booth (scopes.py).
+  const everyBooth = data.scopes.some((s) => s.scope === "MASTERCLASS_DOOR" || s.scope === "GAME_MASTER");
+  const booth = scans && (data.me.role === "BOOTH_STAFF" || everyBooth) && data.slots !== null;
   const hosts = scans && data.scopes.some((s) => s.scope === "MENTOR_HOST") && (data.mentor?.sessions.length ?? 0) > 0;
   if (!doors.length && !gameMaster && !booth && !hosts) {
     return <p className="fm-alert fm-alert-info">{t(jobs === "qmeter"
@@ -202,8 +205,8 @@ function DoorDesk({ doors, programme, owner }: { doors: number[]; programme: Pro
 }
 
 function PlaygroundDesk({ slots, owner }: { slots: PlaygroundProgram; owner: Owner }) {
-  const { t, language } = useLanguage();
-  const [chosen, setChosen] = useState(String(slots.slots[0]?.id ?? ""));
+  const { t } = useLanguage();
+  const [chosen, setChosen] = useState(String(currentSlot(slots.slots, slots.server_time)?.id ?? ""));
   const [notice, setNotice] = useState<Notice>(null);
   const { busy, once } = useOneAtATime();
   async function scan(text: string) {
@@ -223,12 +226,7 @@ function PlaygroundDesk({ slots, owner }: { slots: PlaygroundProgram; owner: Own
     <section className="fm-card fm-section" aria-labelledby="desk-playground">
       <h2 id="desk-playground" className="fm-h3">{t("End of a Playground session")}</h2>
       <p className="fm-small">{t("Scan each member in the last 3 minutes of the session (until 5 minutes after it ends).")}</p>
-      <label className="fm-field">
-        <span className="fm-label">{t("Playground slots")}</span>
-        <select className="fm-input" value={chosen} onChange={(e) => { setChosen(e.target.value); setNotice(null); }}>
-          {slots.slots.map((s) => <option key={s.id} value={s.id}>{slotLabel(s)} · {eventTime(s.starts_at, s.timezone, language)}</option>)}
-        </select>
-      </label>
+      <SlotPicker program={slots} value={chosen} onChange={(id) => { setChosen(id); setNotice(null); }} />
       <QrCapture paused={busy} onText={(text) => void scan(text)} manualLabel="Attendee code" />
       <NoticeLine notice={notice} />
     </section>

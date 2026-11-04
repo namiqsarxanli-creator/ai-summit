@@ -41,11 +41,11 @@ from app.modules.competition import attendance
 from app.modules.competition.final import require_reviewer
 from app.modules.competition.ledger import closes_at
 from app.modules.competition.offline_models import OfflineScan
-from app.modules.competition.scopes import require_scope
+from app.modules.competition.scopes import may_work_booth, require_scope
 from app.modules.contact_cards.models import ContactCard
 from app.modules.contact_cards.service import resolve_active_attendee
 from app.modules.playground.models import PlaygroundSlot
-from app.modules.staff.models import StaffAccount, StaffRole
+from app.modules.staff.models import StaffAccount
 
 LIVE_GRACE: Final = timedelta(minutes=2)
 FUTURE_TOLERANCE: Final = timedelta(minutes=2)
@@ -103,7 +103,7 @@ def _check_authority(db: Session, staff: StaffAccount, kind: str, target_id: int
         require_scope(db, staff, "MENTOR_HOST", target_id)
     else:
         slot = db.get(PlaygroundSlot, target_id)
-        if slot is None or staff.role != StaffRole.BOOTH_STAFF or staff.booth_id != slot.booth_id:
+        if slot is None or not may_work_booth(db, staff, slot.booth_id):
             raise StaffNotAuthorizedError("Only this booth's staff can complete its sessions.")
 
 

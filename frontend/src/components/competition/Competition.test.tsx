@@ -184,9 +184,29 @@ describe("AttendanceDesk", () => {
   it("shows only the Qmeter desk, or only the scanning desks, when asked to", async () => {
     desk({ scopes: [{ scope: "GAME_MASTER", target_id: null }], write: () => json(200, {}) });
     const { unmount } = render(<AttendanceDesk jobs="scans" />);
-    expect(await screen.findByText("No scanning job is assigned to this account. Ask an administrator.")).toBeInTheDocument();
+    expect(await screen.findByText("The organiser has not opened Playground bookings yet.")).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Qmeter questions" })).not.toBeInTheDocument();
     unmount();
     render(<AttendanceDesk jobs="qmeter" />);
     expect(await screen.findByRole("region", { name: "Qmeter questions" })).toBeInTheDocument();
+  });
+
+  it("lets one FACEMARK login choose the booth, then that booth's session", async () => {
+    const at = (h: number) => ({ starts_at: `2026-11-13T0${h}:00:00Z`, ends_at: `2026-11-13T0${h}:15:00Z`, timezone: "Asia/Baku" });
+    const slots = [
+      { id: 1, booth_id: 1, booth: "AIWorks — Spin & Play", number: 1, ...at(5) },
+      { id: 2, booth_id: 1, booth: "AIWorks — Spin & Play", number: 2, ...at(6) },
+      { id: 9, booth_id: 2, booth: "HANDEX — Can You Guess?", number: 1, ...at(5) },
+      { id: 10, booth_id: 2, booth: "HANDEX — Can You Guess?", number: 2, ...at(6) },
+    ];
+    desk({ scopes: [{ scope: "MASTERCLASS_DOOR", target_id: 11 }] });
+    const base = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (url, init) => (url === "/api/staff/playground" ? json(200, { server_time: "2026-11-13T06:05:00Z", slots }) : base(url, init)));
+    render(<AttendanceDesk />);
+    const booth = await screen.findByLabelText("Booth");
+    expect(screen.getByLabelText("Playground slots")).toHaveValue("2"); // the session running now
+    fireEvent.change(booth, { target: { value: "2" } });
+    expect(screen.getByLabelText("Playground slots")).toHaveValue("10");
+    expect(within(screen.getByLabelText("Playground slots")).getAllByRole("option")).toHaveLength(2);
   });
 });

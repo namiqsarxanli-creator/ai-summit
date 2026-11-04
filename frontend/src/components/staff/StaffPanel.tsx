@@ -116,15 +116,11 @@ export function StaffPanel() {
       {/* The server decides who may review: a Game Master scope or an administrator. */}
       {me.role !== "BOOTH_STAFF" && <Link href="/staff/final" className="fm-btn fm-btn-secondary fm-btn-block">{t("Final result")}</Link>}
       {me.role === "BOOTH_STAFF" && <Link href="/staff/booth-report" className="fm-btn fm-btn-secondary fm-btn-block">{t("Booth report")}</Link>}
-      {me.role !== "VOLUNTEER" && (
-        <>
-          <Link href="/staff/playground" className="fm-btn fm-btn-secondary fm-btn-block">{t("Playground arrivals and queue")}</Link>
-          {legacyScan && (
-            <Link href="/staff/scan" className="fm-btn fm-btn-primary fm-btn-block">
-              {t("Scan attendee")}
-            </Link>
-          )}
-        </>
+      <Link href="/staff/playground" className="fm-btn fm-btn-secondary fm-btn-block">{t("Playground arrivals and queue")}</Link>
+      {me.role !== "VOLUNTEER" && legacyScan && (
+        <Link href="/staff/scan" className="fm-btn fm-btn-primary fm-btn-block">
+          {t("Scan attendee")}
+        </Link>
       )}
 
       <Link href="/staff/password" className="fm-btn fm-btn-secondary fm-btn-block">
