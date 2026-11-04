@@ -137,7 +137,7 @@ export function actionFor(block: Block, item: MasterclassItem, mine: Choice | un
 
 // Explicit standard-label metadata, not a translation guessed from a free-form name.
 export function programLabel(name: string, number: number | null | undefined, kind: "block" | "room", language: string): string {
-  // A named hall (e.g. "Ağdam Hall") in the visitor's language when known.
+  // A named room (e.g. "Ağdam Room") in the visitor's language when known.
   if (number == null) return isLanguage(language) ? translate(name, language) : name;
   const labels = kind === "block" ? { az: "Blok", en: "Block", ru: "Блок" } : { az: "Zal", en: "Hall", ru: "Зал" };
   return `${labels[language as keyof typeof labels] ?? labels.en} ${number}`;

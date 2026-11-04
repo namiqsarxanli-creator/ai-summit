@@ -123,8 +123,8 @@ describe("explicit standard programme labels",()=>{
     expect(programLabel("Zal 2",2,"room","ru")).toBe("Зал 2");
     expect(programLabel("Blok 1",null,"block","en")).toBe("Blok 1");
     expect(programLabel("Board room",null,"room","az")).toBe("Board room");
-    expect(programLabel("Ağdam Hall",null,"room","az")).toBe("Ağdam zalı");
-    expect(programLabel("Ağdam Hall",null,"room","ru")).toBe("Зал Агдам");
-    expect(programLabel("Ağdam Hall",null,"room","en")).toBe("Ağdam Hall");
+    expect(programLabel("Ağdam Room",null,"room","az")).toBe("Ağdam otağı");
+    expect(programLabel("Shusha Hall",null,"room","ru")).toBe("Зал Шуша");
+    expect(programLabel("Ağdam Room",null,"room","en")).toBe("Ağdam Room");
   });
 });
