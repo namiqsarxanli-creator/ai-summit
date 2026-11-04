@@ -19,7 +19,6 @@ export const contentTranslations: Record<string, { az: string; ru: string }> = {
   "Qubadlı Room": { az: "Qubadlı otağı", ru: "Комната Губадлы" },
   "Tərtər Room": { az: "Tərtər otağı", ru: "Комната Тертер" },
   "Shusha Hall": { az: "Şuşa zalı", ru: "Зал Шуша" },
-  "Shusha Hall": { az: "Şuşa zalı", ru: "Зал Шуша" },
   "Hall A · 3": { az: "Zal A · 3", ru: "Зал A · 3" },
   "Hall C · 8": { az: "Zal C · 8", ru: "Зал C · 8" },
   "Hall A · 11": { az: "Zal A · 11", ru: "Зал A · 11" },
