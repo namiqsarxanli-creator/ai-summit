@@ -32,14 +32,34 @@ describe("StaffPanel", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string) =>
-        url === "/api/staff/me" ? jsonResponse(200, BOOTH_STAFF_ME) : jsonResponse(200, TASKS),
+        url === "/api/staff/me"
+          ? jsonResponse(200, BOOTH_STAFF_ME)
+          : url === "/api/final"
+            ? jsonResponse(200, { status: "disabled", missing: ["competition_mode"], closes_at: null })
+            : jsonResponse(200, TASKS),
       ),
     );
     render(<StaffPanel />);
     expect(await screen.findByText("Noah Bergström")).toBeInTheDocument();
     expect(screen.getByText("AIWorks")).toBeInTheDocument();
-    expect(screen.getByText("Watch the live demo · +10")).toBeInTheDocument();
+    expect(await screen.findByText("Watch the live demo · +10")).toBeInTheDocument();
     expect(screen.getByText("Ask about deployment · +5")).toBeInTheDocument();
+  });
+
+  it("hides the old booth activities and their points while the competition ranking is on", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        url === "/api/staff/me"
+          ? jsonResponse(200, BOOTH_STAFF_ME)
+          : url === "/api/final"
+            ? jsonResponse(200, { status: "open", closes_at: null })
+            : jsonResponse(200, TASKS),
+      ),
+    );
+    render(<StaffPanel />);
+    await screen.findByText("Noah Bergström");
+    await waitFor(() => expect(screen.queryByText("Watch the live demo · +10")).toBeNull());
   });
 
   it("shows an admin with no booth and no activities section", async () => {
