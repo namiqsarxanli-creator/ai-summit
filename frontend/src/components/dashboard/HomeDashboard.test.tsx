@@ -101,7 +101,7 @@ describe("HomeDashboard", () => {
     // the Beyond Now surfaces (masterclasses included) are reached from Home, not from a sixth tab
     const hub = within(screen.getByRole("heading", { name: "Beyond Now" }).closest("section")!);
     expect(hub.getAllByRole("link").map((a) => a.getAttribute("href"))).toEqual([
-      "/programme", "/masterclasses", "/playground", "/people", "/points", "/report",
+      "/programme", "/guide", "/masterclasses", "/playground", "/people", "/points", "/report",
     ]);
     expect(hub.getByRole("link", { name: /^Masterclasses/ })).toHaveTextContent("Reserve a seat or join the waitlist");
     const tabs = within(screen.getByRole("navigation", { name: "Attendee navigation" }));

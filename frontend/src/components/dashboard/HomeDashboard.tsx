@@ -19,6 +19,7 @@ const SCROLL_KEY = "home";
 // feature card, the last one full width.
 const HUB = [
   { href: "/programme", icon: "calendar", title: "My programme", detail: "Your sessions and reminders", look: "feature" },
+  { href: "/guide", icon: "report", title: "How to play", detail: "Rules, points and booth games", look: "wide" },
   { href: "/masterclasses", icon: "masterclass", title: "Masterclasses", detail: "Reserve a seat or join the waitlist", look: "tile" },
   { href: "/playground", icon: "playground", title: "AI Playground", detail: "Book a hands-on slot", look: "tile" },
   { href: "/people", icon: "people", title: "People to meet", detail: "Matches for a conversation", look: "tile" },

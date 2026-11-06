@@ -128,6 +128,7 @@ export function PanelScan() {
         <section className="fm-card fm-section" aria-labelledby="comp-founder">
           <h2 id="comp-founder" className="fm-eyebrow">{t("Beyond Now Founder")}</h2>
           <p className="fm-small">{t("A scored activity in all four zones and the Grand Final scan: +15 points and a place in the Lucky Draw.")}</p>
+          <Link className="fm-link fm-small" href="/guide">{t("How to play")}</Link>
           {mine.founder_rule_confirmed === false && <p className="fm-micro">{t("The organisers are still confirming the Founder rule; the bonus is added once it is confirmed.")}</p>}
           <ul className="fm-stack" style={{ gap: 4 }}>
             {Object.entries(mine.zones).map(([zone, done]) => (

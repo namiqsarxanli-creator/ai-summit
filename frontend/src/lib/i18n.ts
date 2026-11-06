@@ -4,6 +4,7 @@ import { errorTranslations } from "./i18n-errors";
 import { staffTranslations } from "./i18n-staff";
 import { adminTranslations } from "./i18n-admin";
 import { contentTranslations } from "./i18n-content";
+import { guideTranslations } from "./i18n-guide";
 import { profileTranslations } from "./i18n-profile";
 import { cardTranslations } from "./i18n-card";
 import { competitionTranslations } from "./i18n-competition";
@@ -101,6 +102,7 @@ const translations: Record<string, { az: string; ru: string }> = {
   ...staffTranslations,
   ...adminTranslations,
   ...contentTranslations,
+  ...guideTranslations,
   ...profileTranslations,
   ...cardTranslations,
   ...competitionTranslations,

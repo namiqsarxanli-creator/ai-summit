@@ -465,3 +465,8 @@ body:has(.fm-home) .fm-language-switcher { position: absolute; top: 0; left: 50%
 /* The attendee card's typed fallback code under the QR. */
 .fm-card-short { display: flex; flex-direction: column; align-items: center; gap: 2px; margin: 10px 0 0; }
 .fm-card-short strong { color: var(--fm-ink); font-size: 26px; font-weight: 800; letter-spacing: .14em; font-variant-numeric: tabular-nums; }
+/* The game guide's three numbers. */
+.fm-guide-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; text-align: center; }
+.fm-guide-stats p { display: flex; flex-direction: column; gap: 2px; margin: 0; }
+.fm-guide-stats strong { color: var(--fm-red); font-size: 30px; font-weight: 800; line-height: 1.1; }
+.fm-guide-stats span { color: var(--fm-muted); font-size: 12px; line-height: 1.25; }
