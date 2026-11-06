@@ -470,13 +470,14 @@ def _screen_until(event: MasterclassEvent) -> datetime:
     return datetime.combine(event.event_date + timedelta(days=1), time(0), ZoneInfo(event.timezone))
 
 
-@admin_router.get("/panel-screen-links")
+@router.get("/staff/panel-screen-links")
 def panel_screen_links(
-    admin_user: CurrentAdmin, db: DbSession, response: Response
+    token: SessionToken, db: DbSession, response: Response
 ) -> list[dict[str, Any]]:
     """For the hall computer: one link per panel that shows its codes with no
-    sign-in (panels.py, SCREEN LINK). Administrators only, never cached."""
-    _read(admin_user)
+    sign-in (panels.py, SCREEN LINK). An administrator or a Game Master: FACEMARK
+    runs the screens. Never cached."""
+    organiser.authenticate_organiser(db, token)
     response.headers["Cache-Control"] = "no-store"
     rows = db.execute(
         select(Panel, MasterclassEvent)

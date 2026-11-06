@@ -186,9 +186,13 @@ def test_a_screen_link_shows_one_panels_codes_without_a_session_until_rotated(
     from app.main import app
 
     anonymous = TestClient(app)
-    assert anonymous.get("/api/admin/panel-screen-links").status_code == 401
+    assert anonymous.get("/api/staff/panel-screen-links").status_code == 401
+    door = comp.volunteer("MASTERCLASS_DOOR", comp.masterclass(comp.b1, capacity=5))
+    assert door.get("/api/staff/panel-screen-links").status_code == 403  # not an organiser
+    facemark = comp.volunteer("GAME_MASTER", None)
+    assert facemark.get("/api/staff/panel-screen-links").status_code == 200
     comp.rig.sign_in_as(comp.rig.staff_id(StaffRole.ADMIN))
-    links = comp.rig.client.get("/api/admin/panel-screen-links")
+    links = comp.rig.client.get("/api/staff/panel-screen-links")
     assert links.status_code == 200
     assert links.headers["cache-control"] == "no-store"
     key = next(x["key"] for x in links.json() if x["id"] == comp.panel1)
@@ -1182,7 +1186,7 @@ def test_only_administrators_and_game_masters_open_the_organiser_workspace(comp:
         "final": True,
         "screens": True,
     }
-    assert body["panel_codes"] is False
+    assert body["panel_codes"] is True  # FACEMARK runs the Main Stage screens
     assert _workspace(gm).headers["cache-control"] == "no-store"
 
     admin = comp.staff_client(comp.rig.staff_id(StaffRole.ADMIN))

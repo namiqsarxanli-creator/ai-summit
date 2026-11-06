@@ -99,8 +99,9 @@ def workspace(db: Session, staff: StaffAccount) -> dict[str, Any]:
             "qmeter": game_master,  # POST /api/staff/qmeter/*: GAME_MASTER
             "corrections": admin or game_master,  # /api/staff/points-log, /api/staff/connections
             "final": admin or game_master,  # final.require_reviewer
-            "screens": True,  # public screens; panel codes need ADMIN (below)
+            "screens": True,  # public screens; panel screen links for organisers (below)
         },
         "scanning_jobs": sorted(scopes & {"MASTERCLASS_DOOR", "MENTOR_HOST"}),
-        "panel_codes": admin,  # GET /api/admin/panels/{id}/screen: ADMIN
+        # GET /api/staff/panel-screen-links: FACEMARK runs the Main Stage screens.
+        "panel_codes": admin or game_master,
     }

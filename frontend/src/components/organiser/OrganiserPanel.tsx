@@ -224,7 +224,7 @@ const SCREENS = [
   { href: "/screen/photos", title: "Beyond Now Photo", detail: "Photos both people agreed to show and a moderator approved." },
 ] as const;
 
-// The hall computer's link per panel (GET /api/admin/panel-screen-links).
+// The hall computer's link per panel (GET /api/staff/panel-screen-links).
 type ScreenLink = { id: number; title: string; kind: string; starts_at: string; timezone: string; key: string };
 
 function Screens({ panelCodes }: { panelCodes: boolean }) {
@@ -235,7 +235,7 @@ function Screens({ panelCodes }: { panelCodes: boolean }) {
   useEffect(() => {
     if (!panelCodes) return;
     let active = true;
-    void apiGet<ScreenLink[]>("/api/admin/panel-screen-links").then((r) => {
+    void apiGet<ScreenLink[]>("/api/staff/panel-screen-links").then((r) => {
       if (active) setPanels(r.ok ? { kind: "ok", data: r.data } : { kind: "error", text: messageFor(r.error.code) });
     });
     return () => { active = false; };

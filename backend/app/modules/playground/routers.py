@@ -151,4 +151,7 @@ def inspect_invite(payload: TokenRequest, token: SessionToken, db: DbSession) ->
 @router.get("/staff/playground")
 def staff_programme(staff: CurrentStaff, db: DbSession, response: Response) -> dict[str, Any]:
     response.headers["Cache-Control"] = "no-store"
-    return service.programme(db, booth_id=staff.booth_id)
+    from app.modules.competition.scopes import works_every_booth
+
+    # FACEMARK's scanners choose among all booths, whatever booth the account has.
+    return service.programme(db, booth_id=None if works_every_booth(db, staff) else staff.booth_id)

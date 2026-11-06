@@ -265,6 +265,7 @@ def test_staff_registration_endpoint_does_not_exist() -> None:
     assert set(staff_paths) == {
         "/api/staff/auth/login",
         "/api/staff/cards/lookup",  # a typed card code -> the card (3 Nov 2026)
+        "/api/staff/panel-screen-links",  # the hall computer's links (organisers)
         "/api/staff/auth/logout",
         "/api/staff/me",
         "/api/staff/points/presets",

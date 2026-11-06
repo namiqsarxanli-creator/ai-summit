@@ -47,7 +47,7 @@ function server(workspace: () => Response) {
     if (url === "/api/screen/live") return json(200, LIVE);
     if (url === "/api/staff/final") return json(200, VERSIONS);
     if (url === "/api/panels") return json(200, [{ id: 3, title: "Panel 1", kind: "panel", starts_at: "2026-11-13T06:00:00Z", ends_at: "2026-11-13T07:30:00Z", timezone: "Asia/Baku" }]);
-    if (url === "/api/admin/panel-screen-links") return json(200, [{ id: 3, title: "Panel 1", kind: "panel", starts_at: "2026-11-13T06:00:00Z", timezone: "Asia/Baku", key: "3.1763064000.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }]);
+    if (url === "/api/staff/panel-screen-links") return json(200, [{ id: 3, title: "Panel 1", kind: "panel", starts_at: "2026-11-13T06:00:00Z", timezone: "Asia/Baku", key: "3.1763064000.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }]);
     if (url === "/api/staff/me") return json(200, { full_name: "Leyla Game", role: "VOLUNTEER", booth_name: null, queue_owner: "a".repeat(64), dataset_generation: 1 });
     if (url === "/api/staff/me/scopes") return json(200, { scopes: [{ scope: "GAME_MASTER", target_id: null }] });
     if (url === "/api/masterclasses") return json(200, { server_time: "x", events: [] });
@@ -138,12 +138,20 @@ describe("OrganiserPanel", () => {
     expect(screen.getAllByRole("link", { name: "Open screen" }).map((a) => a.getAttribute("href"))).toContain("/screen/panel?k=3.1763064000.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
   });
 
-  it("lists no panel codes for a Game Master: those need an administrator", async () => {
+  it("gives FACEMARK's Game Master the Main Stage screen links", async () => {
+    server(() => json(200, { ...GM, panel_codes: true }));
+    render(<OrganiserPanel />);
+    fireEvent.click(await screen.findByRole("button", { name: "Venue screens" }));
+    expect(await screen.findByText("Panel QR codes (Main Stage)")).toBeInTheDocument();
+    await vi.waitFor(() => expect(screen.getAllByRole("link", { name: "Open screen" }).map((a) => a.getAttribute("href")).some((h) => h?.startsWith("/screen/panel?k="))).toBe(true));
+  });
+
+  it("lists no panel links for an account that is not an organiser of them", async () => {
     const calls = server(() => json(200, GM));
     render(<OrganiserPanel />);
     fireEvent.click(await screen.findByRole("button", { name: "Venue screens" }));
     await screen.findAllByRole("link", { name: "Open screen" });
     expect(screen.queryByText("Panel QR codes (Main Stage)")).toBeNull();
-    expect(calls).not.toContain("/api/admin/panel-screen-links");
+    expect(calls).not.toContain("/api/staff/panel-screen-links");
   });
 });
