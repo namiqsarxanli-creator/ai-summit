@@ -72,7 +72,7 @@ export function OrganiserPanel() {
       <section className="fm-staff-identity fm-stack" style={{ gap: 4 }}>
         <p className="fm-eyebrow">{t("Signed in")}</p>
         <p className="fm-h2">{ws.full_name}</p>
-        <p className="fm-small">{[ws.role === "ADMIN" ? t("Admin") : t("Volunteer"), ws.game_master ? t("Game Master") : null].filter(Boolean).join(" · ")}</p>
+        <p className="fm-small">{ws.role === "ADMIN" ? t("Admin") : t(ws.game_master ? "Game Master" : "Volunteer")}</p>
       </section>
 
       <nav className="fm-org-nav" aria-label={t("Organiser sections")}>
