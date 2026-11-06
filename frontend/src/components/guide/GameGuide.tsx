@@ -114,7 +114,7 @@ export function GameGuide() {
         <h2 id="guide-points" className="fm-eyebrow">{t("How 100 points add up")}</h2>
         <ul className="fm-list fm-card fm-section">
           {POINTS.map((p) => (
-            <li key={p.title} className="fm-row-between">
+            <li key={p.title} className="fm-row-between fm-guide-row">
               <span>
                 <span className="fm-strong">{t(p.title)}</span>
                 <br />
