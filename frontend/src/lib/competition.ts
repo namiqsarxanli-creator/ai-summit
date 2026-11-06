@@ -118,7 +118,7 @@ const REASONS: Record<string, string> = {
   full: "No seat or standing place is left.",
   no_entry: "No entry scan for this person.",
   unknown_slot: "Unknown session.",
-  not_admitted: "This person was not admitted to this session.",
+  not_admitted: "This person's arrival is not confirmed for this session. Confirm it first in Playground arrivals and queue.",
 };
 
 export function scanFailure(result: Extract<ApiResult<unknown>, { ok: false }>, messageFor: (code: string) => string): string {

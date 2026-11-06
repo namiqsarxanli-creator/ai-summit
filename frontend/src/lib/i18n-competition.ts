@@ -33,7 +33,7 @@ export const competitionTranslations: Record<string, { az: string; ru: string }>
   "No seat or standing place is left.": { az: "Nə oturacaq, nə də ayaq üstə yer qalıb.", ru: "Не осталось ни сидячих, ни стоячих мест." },
   "No entry scan for this person.": { az: "Bu şəxs üçün giriş skanı yoxdur.", ru: "Для этого человека нет сканирования входа." },
   "Unknown session.": { az: "Naməlum sessiya.", ru: "Неизвестная сессия." },
-  "This person was not admitted to this session.": { az: "Bu şəxs bu sessiyaya qəbul edilməyib.", ru: "Этот человек не был допущен на эту сессию." },
+  "This person's arrival is not confirmed for this session. Confirm it first in Playground arrivals and queue.": { az: "Bu şəxsin bu sessiyaya gəlişi təsdiqlənməyib. Əvvəlcə \"Playground gəlişləri və növbə\" bölməsində təsdiqləyin.", ru: "Прибытие этого человека на эту сессию не подтверждено. Сначала подтвердите его в разделе «Прибытия и очередь Playground»." },
   "No single attendee matches that name and phone.": { az: "Bu ad və telefonla tək bir iştirakçı uyğun gəlmir.", ru: "Ни один участник однозначно не совпадает по имени и телефону." },
 
   // the scanning desk
