@@ -10,6 +10,9 @@ import { type ApiError, apiGet, apiPost } from "./api";
 export type StaffRole = "BOOTH_STAFF" | "ADMIN" | "VOLUNTEER";
 
 export type StaffMe = {
+  // The account's own numbers, as the points list shows them.
+  staff_id?: number;
+  booth_id?: number | null;
   full_name: string;
   role: StaffRole;
   // `null` for ADMIN — an admin has no booth (§7.7's CHECK constraint).

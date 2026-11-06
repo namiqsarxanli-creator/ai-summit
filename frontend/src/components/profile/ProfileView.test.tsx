@@ -17,6 +17,7 @@ function errorResponse(status: number, code: string): Response {
 }
 
 const PROFILE = {
+  attendee_id: 18,
   first_name: "Ada",
   last_name: "Lovelace",
   email: "ada@example.com",
@@ -40,6 +41,7 @@ describe("ProfileView", () => {
     render(<ProfileView />);
     expect(await screen.findByRole("heading", { name: "Ada Lovelace" })).toBeInTheDocument();
     expect(screen.getByText("Systems Engineer")).toBeInTheDocument();
+    expect(screen.getByText("18")).toBeInTheDocument(); // the number the Game Master filters by
     expect(screen.getByText("ada@example.com")).toBeInTheDocument();
     expect(screen.getByText("+1-555-0142")).toBeInTheDocument();
     expect(screen.getByText("https://www.linkedin.com/in/ada-demo")).toBeInTheDocument();

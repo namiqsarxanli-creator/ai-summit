@@ -552,6 +552,7 @@ def attendee_profile(db: Session, user: User) -> AttendeeProfile:
         .order_by(Interest.sort_order, Interest.name)
     ).all()
     return AttendeeProfile(
+        attendee_id=user.id,
         first_name=user.first_name,
         last_name=user.last_name,
         email=user.email,

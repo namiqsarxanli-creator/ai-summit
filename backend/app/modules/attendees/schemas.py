@@ -219,6 +219,9 @@ class AttendeeProfile(BaseModel):
     never returned about anyone but the caller, and never part of any
     public response (§24.19 governs PUBLIC responses only)."""
 
+    # The person's own number: what a Game Master filters the points log by when
+    # the attendee brings a question to the desk (owner's request, 6 Nov 2026).
+    attendee_id: int
     first_name: str
     last_name: str
     email: str

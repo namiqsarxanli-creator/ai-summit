@@ -130,6 +130,7 @@ export function ProfileView() {
             </h2>
             <p className="fm-small">{profile.profession}</p>
             <dl className="fm-dl">
+              {profile.attendee_id != null && <ProfileRow label={t("Attendee ID")} value={String(profile.attendee_id)} />}
               {profile.company && <ProfileRow label={t("Company")} value={profile.company} />}
               <ProfileRow label={t("Email")} value={profile.email} />
               <ProfileRow label={t("Phone")} value={profile.phone} />

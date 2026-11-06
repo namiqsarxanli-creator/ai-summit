@@ -220,6 +220,15 @@ def test_a_screen_link_shows_one_panels_codes_without_a_session_until_rotated(
     assert gone.json()["error"]["code"] == "SCREEN_LINK_INVALID"
 
 
+def test_the_id_reference_names_booths_and_staff_for_organisers_only(comp: Comp) -> None:
+    door = comp.volunteer("MASTERCLASS_DOOR", comp.masterclass(comp.b1, capacity=5))
+    assert door.get("/api/staff/id-reference").status_code == 403
+    body = comp.volunteer("GAME_MASTER", None).get("/api/staff/id-reference").json()
+    assert body["booths"] and body["staff"]
+    assert all(set(row) == {"id", "name"} for row in body["booths"] + body["staff"])
+    assert "@" not in str(body)  # never an e-mail address
+
+
 def test_the_card_short_code_turns_into_the_card_for_a_signed_in_caller_only(
     comp: Comp,
 ) -> None:

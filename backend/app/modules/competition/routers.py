@@ -43,6 +43,7 @@ from app.modules.admin.schemas import PointsLogPage, PointsLogQuery
 from app.modules.admin.service import AdminInvalid, AdminResult, required
 from app.modules.attendees.models import User
 from app.modules.attendees.profile import lock_attendee
+from app.modules.booths.models import Booth
 from app.modules.competition import attendance, organiser, panels
 from app.modules.competition.models import SCOPES, Panel, StaffScope
 from app.modules.competition.rules import CATEGORIES
@@ -206,6 +207,24 @@ def organiser_workspace(staff: CurrentStaff, db: DbSession, response: Response) 
 
 
 # --- points corrections in the organiser panel: an administrator or a Game Master ---------
+
+
+@router.get("/staff/id-reference")
+def organiser_id_reference(
+    token: SessionToken, db: DbSession, response: Response
+) -> dict[str, list[dict[str, Any]]]:
+    """Which booth and which staff account each number in the points list is:
+    names only, no contact data. An administrator or a Game Master."""
+    organiser.authenticate_organiser(db, token)
+    response.headers["Cache-Control"] = "no-store"
+    booths = db.execute(select(Booth.id, Booth.name).order_by(Booth.id)).all()
+    staff = db.execute(
+        select(StaffAccount.id, StaffAccount.full_name).order_by(StaffAccount.id)
+    ).all()
+    return {
+        "booths": [{"id": i, "name": n} for i, n in booths],
+        "staff": [{"id": i, "name": n} for i, n in staff],
+    }
 
 
 @router.get("/staff/points-log", response_model=PointsLogPage)

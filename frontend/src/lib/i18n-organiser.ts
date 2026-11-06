@@ -84,6 +84,7 @@ export const organiserTranslations: Record<string, { az: string; ru: string }> =
     ru: "Фото, показ которых одобрили оба человека и модератор.",
   },
   "Open screen": { az: "Ekranı aç", ru: "Открыть экран" },
+  "Booth and staff IDs": { az: "Stend və heyət ID-ləri", ru: "ID стендов и сотрудников" },
   "Panel QR codes (Main Stage)": { az: "Panel QR kodları (Main Stage)", ru: "QR-коды панелей (Main Stage)" },
   "Opens with your administrator session; the codes change when they are rotated in the admin console.": {
     az: "Administrator sessiyanızla açılır; admin konsolunda yenilənəndə kodlar dəyişir.",

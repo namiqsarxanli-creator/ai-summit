@@ -107,6 +107,8 @@ def test_an_attendee_edits_their_own_profile_and_nobody_elses(
     before_other = _profile(theirs)
 
     profile = _profile(mine)
+    assert isinstance(profile["attendee_id"], int)  # own number, for the Game Master's desk
+    assert profile["attendee_id"] != before_other["attendee_id"]
     response = _put(
         mine,
         profile_body(

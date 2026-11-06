@@ -177,8 +177,10 @@ def me(staff: CurrentStaff, db: DbSession) -> StaffMe:
     from app.modules.competition.offline import current_generation, queue_owner
 
     return StaffMe(
+        staff_id=staff.id,
         full_name=staff.full_name,
         role=staff.role,
+        booth_id=staff.booth_id,
         booth_name=booth_name,
         queue_owner=queue_owner(staff.id),
         dataset_generation=current_generation(db),

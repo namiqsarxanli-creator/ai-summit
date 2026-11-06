@@ -22,6 +22,8 @@ import {
 export type ProfileInterest = { slug: string; name: string };
 
 export type AttendeeProfile = {
+  // The attendee's own number, as the Game Master's points list shows it.
+  attendee_id?: number;
   first_name: string;
   last_name: string;
   email: string;

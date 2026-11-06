@@ -7,6 +7,7 @@ import { AdminList } from "@/components/admin/AdminList";
 import { AttendanceDesk } from "@/components/competition/AttendanceDesk";
 import { FinalReview } from "@/components/competition/FinalReview";
 import { useLanguage } from "@/components/ui/LanguageProvider";
+import { IdReference } from "@/components/organiser/IdReference";
 import { apiGet } from "@/lib/api";
 import { messageFor } from "@/lib/errors";
 import { fetchVersions, type Versions } from "@/lib/final";
@@ -102,6 +103,7 @@ export function OrganiserPanel() {
         {current === "corrections" && (
           <>
             <p className="fm-small">{t("The ledger itself is never edited. An award can be reversed in full, with a reason: the reversal is a new entry linked to it.")}</p>
+            <IdReference />
             <AdminList kind="points-log" refreshKey={0} base="/api/staff" />
             <UnpaidConnections />
           </>

@@ -110,6 +110,11 @@ export function StaffPanel() {
         <p className="fm-small">
           {me.role === "ADMIN" ? t("Admin") : me.role === "VOLUNTEER" ? t("Volunteer") : (me.booth_name ? t(me.booth_name) : t("No booth assigned"))}
         </p>
+        {me.staff_id != null && (
+          <p className="fm-micro">
+            {t("Staff ID")}: {me.staff_id}{me.booth_id != null && <> · {t("Booth ID")}: {me.booth_id}</>}
+          </p>
+        )}
       </section>
 
       <Link href="/staff/attendance" className="fm-btn fm-btn-primary fm-btn-block">{t("Attendance scanning")}</Link>

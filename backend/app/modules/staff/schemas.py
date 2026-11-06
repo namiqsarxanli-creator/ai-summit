@@ -98,12 +98,15 @@ class StaffPasswordResetStart(BaseModel):
 class StaffMe(BaseModel):
     """`GET /api/staff/me` — "returning booth name so staff always see
     which booth they are awarding for" (M09). `booth_name` is `None`
-    for an ADMIN, who has no booth (§7.7's CHECK constraint). No id, no
-    email, no password state, no booth id — only what the panel needs
-    to display (§21.4)."""
+    for an ADMIN, who has no booth (§7.7's CHECK constraint). No email, no
+    password state — only what the panel needs to display (§21.4). The two
+    ids are the account's own numbers, the ones the points list filters by
+    (owner's request, 6 Nov 2026)."""
 
+    staff_id: int
     full_name: str
     role: StaffRole
+    booth_id: int | None
     booth_name: str | None
     # Offline scan queue (competition/offline.py): an opaque, stable label of THIS
     # account (a keyed hash; it reveals no id and authenticates nothing) and the

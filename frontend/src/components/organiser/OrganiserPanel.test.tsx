@@ -45,6 +45,7 @@ function server(workspace: () => Response) {
     calls.push(url);
     if (url === "/api/staff/organiser") return workspace();
     if (url === "/api/screen/live") return json(200, LIVE);
+    if (url === "/api/staff/id-reference") return json(200, { booths: [{ id: 1, name: "AIWorks" }], staff: [{ id: 3, name: "Facemark" }] });
     if (url === "/api/staff/final") return json(200, VERSIONS);
     if (url === "/api/panels") return json(200, [{ id: 3, title: "Panel 1", kind: "panel", starts_at: "2026-11-13T06:00:00Z", ends_at: "2026-11-13T07:30:00Z", timezone: "Asia/Baku" }]);
     if (url === "/api/staff/panel-screen-links") return json(200, [{ id: 3, title: "Panel 1", kind: "panel", starts_at: "2026-11-13T06:00:00Z", timezone: "Asia/Baku", key: "3.1763064000.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }]);
