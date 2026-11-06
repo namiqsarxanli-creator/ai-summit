@@ -26,6 +26,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, time, timedelta
 from typing import Annotated, Any, Literal, cast
+from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Path, Query, Response
@@ -44,13 +45,13 @@ from app.modules.admin.service import AdminInvalid, AdminResult, required
 from app.modules.attendees.models import User
 from app.modules.attendees.profile import lock_attendee
 from app.modules.booths.models import Booth
-from app.modules.competition import attendance, organiser, panels
+from app.modules.competition import attendance, manual, organiser, panels
 from app.modules.competition.models import SCOPES, Panel, StaffScope
 from app.modules.competition.rules import CATEGORIES
 from app.modules.masterclasses.models import Masterclass, MasterclassEvent
 from app.modules.mentors.models import MentorSession
 from app.modules.points import reversal
-from app.modules.points.models import PointsLog
+from app.modules.points.models import PointsLog, PointsSource
 from app.modules.points.schemas import ReversalRequest, ReversalResponse
 from app.modules.points.service import maintenance_fast_path_check
 from app.modules.realtime.service import publish_award_signals
@@ -238,6 +239,38 @@ def organiser_points_log(
     organiser.authenticate_organiser(db, token)
     response.headers["Cache-Control"] = "no-store"
     return admin.points_page(db, query)
+
+
+class ManualPoints(Strict):
+    user_id: int = Field(ge=1, le=2**53)
+    source: Literal["PROFILE", "PANEL", "QMETER", "MASTERCLASS", "PLAYGROUND", "CONNECTION"]
+    points: int = Field(ge=1, le=24)
+    reason: str = Field(min_length=3, max_length=280)
+    command_id: UUID
+
+
+@router.post("/staff/points-log/award")
+def organiser_add_points(
+    payload: ManualPoints, token: SessionToken, db: DbSession
+) -> dict[str, Any]:
+    """Adds points for a scan that was missed (competition/manual.py): an
+    administrator or a Game Master, with a reason; a retry adds nothing."""
+    maintenance_fast_path_check(db)
+    with mutating_transaction(db) as tx:
+        staff = organiser.authenticate_organiser(tx, token)
+        body, result = manual.add_points(
+            tx,
+            staff,
+            user_id=payload.user_id,
+            source=PointsSource(payload.source),
+            points=payload.points,
+            reason=payload.reason.strip(),
+            command_id=str(payload.command_id),
+            now=_now(),
+        )
+    if result.paid:
+        publish_award_signals(payload.user_id)
+    return body
 
 
 @router.post("/staff/points-log/{entry_id}/reverse", response_model=ReversalResponse)

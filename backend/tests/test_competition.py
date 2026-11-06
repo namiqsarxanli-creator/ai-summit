@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
-from typing import cast
+from typing import Any, cast
 from uuid import uuid4
 
 import httpx
@@ -227,6 +227,60 @@ def test_the_id_reference_names_booths_and_staff_for_organisers_only(comp: Comp)
     assert body["booths"] and body["staff"]
     assert all(set(row) == {"id", "name"} for row in body["booths"] + body["staff"])
     assert "@" not in str(body)  # never an e-mail address
+
+
+def test_a_game_master_adds_missed_points_with_a_reason_within_the_rules(comp: Comp) -> None:
+    uid, excluded = comp.users(2)
+    url = "/api/staff/points-log/award"
+
+    def body(**over: Any) -> dict[str, Any]:
+        return {
+            "user_id": uid,
+            "source": "MASTERCLASS",
+            "points": 12,
+            "reason": "The door volunteer missed the scan.",
+            "command_id": str(uuid4()),
+            **over,
+        }
+
+    door = comp.volunteer("MASTERCLASS_DOOR", comp.masterclass(comp.b1, capacity=5))
+    assert door.post(url, json=body()).status_code == 403  # a scanner cannot
+    gm = comp.volunteer("GAME_MASTER", None)
+    comp.clock.now = baku("12:00")
+
+    first = body()
+    done = gm.post(url, json=first)
+    assert done.status_code == 200, done.text
+    assert done.json()["outcome"] == "awarded" and done.json()["points"] == 12
+    assert gm.post(url, json=first).json()["outcome"] == "already"  # a retry adds nothing
+    assert comp.points(uid) == 12
+    assert (
+        comp.rig.scalar(
+            "SELECT count(*) FROM admin_audit WHERE action = 'competition.manual_points'"
+        )
+        == 1
+    )
+
+    # The category's own maximum holds: 24 for masterclasses.
+    assert gm.post(url, json=body()).json()["outcome"] == "awarded"
+    assert gm.post(url, json=body(points=1)).json()["outcome"] == "category_full"
+    assert comp.points(uid) == 24
+
+    # Founder and a mentor are never written by hand; a reason is required.
+    assert gm.post(url, json=body(source="FOUNDER")).status_code == 422
+    assert gm.post(url, json=body(source="PANEL", reason="")).status_code == 422
+
+    # An excluded person earns nothing; an unknown person is refused.
+    comp.rig.sql(
+        "UPDATE users SET competition_excluded_reason = 'Speaker' WHERE id = :u", u=excluded
+    )
+    assert gm.post(url, json=body(user_id=excluded)).json()["outcome"] == "ineligible"
+    assert gm.post(url, json=body(user_id=2**40)).status_code == 404
+
+    # After the 17:30 close the desk can still put a missed scan right.
+    comp.clock.now = baku("17:50")
+    late = gm.post(url, json=body(source="PANEL", points=8))
+    assert late.json()["outcome"] == "awarded"
 
 
 def test_the_card_short_code_turns_into_the_card_for_a_signed_in_caller_only(

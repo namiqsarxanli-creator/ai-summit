@@ -311,6 +311,7 @@ def test_staff_registration_endpoint_does_not_exist() -> None:
         "/api/staff/booth/report",
         # Points corrections in the organiser panel: an administrator or a Game Master.
         "/api/staff/points-log",
+        "/api/staff/points-log/award",
         "/api/staff/points-log/{entry_id}/reverse",
         "/api/staff/connections/unpaid",
         "/api/staff/connections/reconcile",

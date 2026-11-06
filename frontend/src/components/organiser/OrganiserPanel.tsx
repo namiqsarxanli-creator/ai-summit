@@ -7,6 +7,7 @@ import { AdminList } from "@/components/admin/AdminList";
 import { AttendanceDesk } from "@/components/competition/AttendanceDesk";
 import { FinalReview } from "@/components/competition/FinalReview";
 import { useLanguage } from "@/components/ui/LanguageProvider";
+import { AddPoints } from "@/components/organiser/AddPoints";
 import { IdReference } from "@/components/organiser/IdReference";
 import { apiGet } from "@/lib/api";
 import { messageFor } from "@/lib/errors";
@@ -33,6 +34,7 @@ export function OrganiserPanel() {
   const { t } = useLanguage();
   const [state, setState] = useState<State>({ kind: "loading" });
   const [section, setSection] = useState<OrganiserSection>("overview");
+  const [ledgerKey, setLedgerKey] = useState(0);
 
   useEffect(() => {
     let active = true;
@@ -104,7 +106,8 @@ export function OrganiserPanel() {
           <>
             <p className="fm-small">{t("The ledger itself is never edited. An award can be reversed in full, with a reason: the reversal is a new entry linked to it.")}</p>
             <IdReference />
-            <AdminList kind="points-log" refreshKey={0} base="/api/staff" />
+            <AddPoints onAdded={() => setLedgerKey((n) => n + 1)} />
+            <AdminList kind="points-log" refreshKey={ledgerKey} base="/api/staff" />
             <UnpaidConnections />
           </>
         )}

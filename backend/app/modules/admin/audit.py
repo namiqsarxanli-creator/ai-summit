@@ -337,6 +337,14 @@ _QMETER: dict[str, _Coerce] = {
     "reason": _text,
 }
 
+_MANUAL_POINTS: dict[str, _Coerce] = {
+    "id": _integer,
+    "user_id": _integer,
+    "source": _one_of("PROFILE", "PANEL", "QMETER", "MASTERCLASS", "PLAYGROUND", "CONNECTION"),
+    "points": _integer,
+    "reason": _text,
+}
+
 # action -> allowlist. A writer that adds an action must add it here (a test runs
 # every admin operation and fails on a kind that is missing); until then the
 # event is shown as metadata only.
@@ -373,6 +381,7 @@ FIELD_ALLOWLISTS: Mapping[str, Mapping[str, _Coerce]] = {
     "staff_scope.revoke": _SCOPE,
     "competition.eligibility": _ELIGIBILITY,
     "competition.qmeter": _QMETER,
+    "competition.manual_points": _MANUAL_POINTS,
     "match_table.create": _MATCH_TABLE,
     "match_table.update": _MATCH_TABLE,
     "mentor_session.create": _MENTOR_SESSION,

@@ -84,6 +84,10 @@ export const organiserTranslations: Record<string, { az: string; ru: string }> =
     ru: "Фото, показ которых одобрили оба человека и модератор.",
   },
   "Open screen": { az: "Ekranı aç", ru: "Открыть экран" },
+  "Category": { az: "Kateqoriya", ru: "Категория" },
+  "Add points": { az: "Xal əlavə et", ru: "Добавить баллы" },
+  "Add {p} points to attendee {n}?": { az: "{n} nömrəli iştirakçıya {p} bal əlavə edilsin?", ru: "Добавить {p} баллов участнику {n}?" },
+  "For a scan that was missed although the person took part. Every category's maximum still applies; Beyond Now Founder follows by itself.": { az: "İştirakçı həqiqətən iştirak edib, amma skan unudulubsa. Hər kateqoriyanın maksimumu qüvvədədir, Beyond Now Founder özü hesablanır.", ru: "Если человек участвовал, но скан пропущен. Максимум каждой категории сохраняется, Beyond Now Founder считается сам." },
   "Booth and staff IDs": { az: "Stend və heyət ID-ləri", ru: "ID стендов и сотрудников" },
   "Panel QR codes (Main Stage)": { az: "Panel QR kodları (Main Stage)", ru: "QR-коды панелей (Main Stage)" },
   "Opens with your administrator session; the codes change when they are rotated in the admin console.": {

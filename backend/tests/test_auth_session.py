@@ -630,6 +630,7 @@ def test_the_mutating_route_inventory_is_what_m16_expects() -> None:
         ("POST", "/api/staff/offline-scans/{scan_id}/reject"),
         ("POST", "/api/staff/playground/bookings/{booking_id}/admit"),
         ("POST", "/api/staff/playground/slots/{slot_id}/complete"),
+        ("POST", "/api/staff/points-log/award"),
         ("POST", "/api/staff/points-log/{entry_id}/reverse"),
         ("POST", "/api/staff/points/award"),
         ("POST", "/api/staff/qmeter/award"),

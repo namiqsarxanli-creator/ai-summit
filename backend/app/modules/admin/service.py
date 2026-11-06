@@ -615,7 +615,9 @@ def points_page(db: Session, query: PointsLogQuery) -> PointsLogPage:
                 created_at=r.created_at,
                 reverses_entry_id=r.reverses_points_log_id,
                 reversed_by_entry_id=r.reversed_by_id,
-                reason=reversal_reason(r.entry_type.value, r.note),
+                # A person wrote it: a reversal's reason, or why points were added.
+                reason=reversal_reason(r.entry_type.value, r.note)
+                or (r.note if r.entered_by_staff_id is not None else None),
             )
             for r in page
         ],
