@@ -472,3 +472,18 @@ body:has(.fm-home) .fm-language-switcher { position: absolute; top: 0; left: 50%
 .fm-guide-stats span { color: var(--fm-muted); font-size: 12px; line-height: 1.25; }
 .fm-guide-row { flex-wrap: nowrap; }
 .fm-guide-row .fm-badge { flex: none; }
+/* The Main Stage screen: read from the back of the hall, so it fills the display. */
+.fm-panel-stage { position: fixed; inset: 0; z-index: 60; display: grid; grid-template-columns: min(94vh, 52vw) minmax(0, 1fr); align-items: center; gap: 4vw; padding: 3vh 4vw; background: #fff; color: var(--fm-ink); overflow: auto; }
+.fm-panel-stage-info { display: flex; flex-direction: column; gap: 1.6vh; min-width: 0; }
+.fm-panel-stage-title { color: var(--fm-red); font-size: clamp(22px, 2.8vw, 54px); font-weight: 800; line-height: 1.15; }
+.fm-panel-stage-time { color: var(--fm-muted); font-size: clamp(16px, 1.7vw, 32px); }
+.fm-panel-stage-phase { font-size: clamp(28px, 4.2vw, 80px); font-weight: 800; line-height: 1.1; }
+.fm-panel-stage .fm-panel-short { margin: 0; text-align: left; font-size: clamp(52px, 8.5vw, 170px); line-height: 1; white-space: nowrap; }
+.fm-panel-stage-hint { font-size: clamp(16px, 1.9vw, 36px); line-height: 1.3; }
+.fm-panel-stage-note { color: var(--fm-muted); font-size: clamp(13px, 1.3vw, 24px); line-height: 1.3; }
+.fm-panel-stage-controls { position: absolute; right: 16px; bottom: 12px; display: flex; align-items: center; gap: 12px; opacity: .45; transform: scale(.8); transform-origin: right bottom; }
+.fm-panel-stage-controls:hover, .fm-panel-stage-controls:focus-within { opacity: 1; }
+@media (max-aspect-ratio: 1/1) {
+  .fm-panel-stage { grid-template-columns: minmax(0, 1fr); align-content: start; }
+  .fm-panel-stage-controls { position: static; flex-wrap: wrap; opacity: 1; transform: none; }
+}
