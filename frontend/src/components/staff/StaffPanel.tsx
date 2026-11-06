@@ -132,7 +132,7 @@ export function StaffPanel() {
         {t("Change password")}
       </Link>
 
-      {me.role === "BOOTH_STAFF" && (
+      {me.role === "BOOTH_STAFF" && legacyScan && (
         <section className="fm-section">
           <h2 className="fm-eyebrow">
             {t("Activities for")} {me.booth_name && t(me.booth_name)}
