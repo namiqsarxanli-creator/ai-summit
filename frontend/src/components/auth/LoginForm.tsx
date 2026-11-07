@@ -152,6 +152,15 @@ export function LoginForm() {
       />
       <label className="fm-remember"><input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} />{t("Remember me")}</label>
       {banners}
+      {/* People without an account wait for a code that never comes (7 Nov 2026).
+          The help says what to check without saying whether this address is registered. */}
+      <div className="fm-small fm-muted">
+        <p>{t("No code after 1–2 minutes? Check your spam or Promotions folder and that the email is spelled correctly.")}</p>
+        <p>
+          {t("No account with this email yet? Register first:")}{" "}
+          <Link href="/register" className="fm-link">{t("Register as an attendee")}</Link>
+        </p>
+      </div>
       <button
         type="submit"
         disabled={busy}

@@ -72,6 +72,9 @@ describe("LoginForm", () => {
     expect(
       screen.getByText("If this email is registered, we've sent a 6-digit sign-in code."),
     ).toBeInTheDocument();
+    // What to do when no code comes, without saying whether the address is known.
+    expect(screen.getByText(/Check your spam or Promotions folder/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Register as an attendee" })).toHaveAttribute("href", "/register");
   });
 
   it("verifies the code and returns home signed in", async () => {
