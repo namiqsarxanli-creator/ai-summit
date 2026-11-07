@@ -54,7 +54,8 @@ def get_my_card(attendee: CurrentAttendee, db: DbSession) -> OwnCard:
 
 # --- the card's short code, typed when the QR cannot be read ---------------------
 
-CARD_LOOKUP_PER_STAFF = RateLimit("card_lookup:staff", 300, 600)
+# A typed card code, when a QR will not scan: shared by every volunteer on one login.
+CARD_LOOKUP_PER_STAFF = RateLimit("card_lookup:staff", 1500, 600)
 CARD_LOOKUP_PER_ATTENDEE = RateLimit("card_lookup:attendee", 20, 600)
 
 

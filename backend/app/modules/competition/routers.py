@@ -62,7 +62,10 @@ admin_router = APIRouter(prefix="/admin", tags=["admin"])
 
 RowId = Annotated[int, Path(ge=1, le=2**53)]
 SCAN_PER_ATTENDEE = RateLimit("panel_scan:attendee", 30, 600)
-SCAN_PER_STAFF = RateLimit("attendance_scan:staff", 600, 600)
+# One login is shared by FACEMARK's 20-30 door and booth volunteers (7 Nov 2026), so
+# the limit is per crowd, not per person: a masterclass entry alone is ~250 scans in
+# 10 minutes. It still stops a stolen login from scanning without end.
+SCAN_PER_STAFF = RateLimit("attendance_scan:staff", 3000, 600)
 
 AUDIT_PANEL_CREATE = "panel.create"
 AUDIT_PANEL_UPDATE = "panel.update"
