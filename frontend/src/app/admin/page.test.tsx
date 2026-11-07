@@ -275,6 +275,22 @@ describe("AdminPage", () => {
     expect(nav.getByRole("button", { name: "Beyond Now competition" })).toBeInTheDocument();
   });
 
+  it("names the refused field when a new staff account is rejected", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/staff/auth/login") return new Response(null, { status: 204 });
+      if (url === "/api/staff/me") return jsonResponse(200, { role: "ADMIN" });
+      if (url === "/api/admin/staff" && init?.method === "POST") {
+        return jsonResponse(422, { error: { code: "VALIDATION_ERROR", message: "", details: { errors: [{ loc: ["body", "password"], msg: "too short" }] }, correlation_id: "c" } });
+      }
+      return jsonResponse(200, []);
+    }));
+    render(<AdminPage />);
+    await signIn();
+    fireEvent.click(screen.getByRole("button", { name: "Staff" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Create staff" }));
+    expect(await screen.findByText("The password must be at least 12 characters.")).toBeInTheDocument();
+  });
+
   it("lets an administrator start a reset email for a staff member - confirmed first, and without ever seeing a code or choosing a password", async () => {
     const fetchMock = vi.fn(async (url: string) => {
       if (url === "/api/staff/auth/login") return new Response(null, { status: 204 });

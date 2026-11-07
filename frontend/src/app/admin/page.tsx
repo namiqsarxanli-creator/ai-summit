@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useLanguage } from "@/components/ui/LanguageProvider";
 
 import { apiGet, apiPost, apiRequest } from "@/lib/api";
-import { messageFor } from "@/lib/errors";
+import { fieldErrorsFrom, messageFor } from "@/lib/errors";
 import { startStaffPasswordReset } from "@/lib/staffPassword";
 import { AdminList } from "@/components/admin/AdminList";
 import { AuditLog } from "@/components/admin/AuditLog";
@@ -68,8 +68,28 @@ async function request(path: string, method = "GET", body?: RecordValue): Promis
     : method === "POST"
       ? await apiPost<unknown>(endpoint, body)
       : await apiRequest<unknown>(endpoint, method as "PATCH" | "PUT" | "DELETE", body);
-  if (!result.ok) throw new Error(messageFor(result.error.code));
+  if (!result.ok) throw new Error(adminFailure(result.error.code, result.error.details));
   return result.data;
+}
+
+// The admin forms mark no fields, so a refused value is named in the message:
+// the first field the server refused, with its rule (7 Nov 2026: a short password
+// only said "check the highlighted fields").
+const ADMIN_FIELD_RULES: Record<string, string> = {
+  email: "Check the email: it must be a valid address.",
+  password: "The password must be at least 12 characters.",
+  full_name: "Enter the full name.",
+  booth_id: "Check the booth ID.",
+  slug: "The slug may contain only lower-case letters, digits and hyphens.",
+  name: "Enter the name.",
+  weight: "The weight must be between 0.01 and 1.00.",
+};
+function adminFailure(code: string, details: Record<string, unknown>): string {
+  if (code === "VALIDATION_ERROR") {
+    const field = Object.keys(fieldErrorsFrom(details)).find((name) => ADMIN_FIELD_RULES[name]);
+    if (field) return ADMIN_FIELD_RULES[field]!;
+  }
+  return messageFor(code);
 }
 
 function Field({ label, value, set }: { label: string; value: string; set: (value: string) => void }) {
