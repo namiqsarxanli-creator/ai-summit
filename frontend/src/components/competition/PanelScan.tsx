@@ -12,6 +12,7 @@ import {
   fetchMyCompetition,
   fetchPanels,
   isPanelCode,
+  panelCodeFrom,
   scanFailure,
   scanPanel,
   type MyCompetition,
@@ -53,16 +54,25 @@ export function PanelScan() {
     () => Promise.all([fetchMyCompetition(), fetchPanels()]).then(([m, p]) => apply(m, p)),
     [apply],
   );
+  // Opened from the screen's QR with a phone's camera (/points?code=...): the code is
+  // sent once, as if scanned here, and taken out of the address so a reload sends nothing.
+  const sendRef = useRef<((text: string) => Promise<void>) | null>(null);
   useEffect(() => {
     let active = true;
+    const linked = new URLSearchParams(window.location.search).get("code");
+    if (linked) window.history.replaceState(null, "", "/points");
     void Promise.all([fetchMyCompetition(), fetchPanels()]).then(([m, p]) => {
-      if (active) apply(m, p);
+      if (!active) return;
+      apply(m, p);
+      if (linked && m.ok) void sendRef.current?.(linked);
     });
     return () => { active = false; };
   }, [apply]);
+  useEffect(() => { sendRef.current = send; });
 
-  async function send(text: string) {
+  async function send(scanned: string) {
     if (inFlight.current) return;
+    const text = panelCodeFrom(scanned);
     if (!isPanelCode(text)) {
       setNotice({ tone: "warn", text: "This is not a panel code. Scan the code on the main screen." });
       return;

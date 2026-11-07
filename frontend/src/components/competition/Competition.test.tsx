@@ -63,6 +63,39 @@ describe("PanelScan", () => {
     expect(posts).toEqual([{ code: CODE }]);
   });
 
+  it("reads the screen's link from the in-app scanner as the code it carries", async () => {
+    const posts: unknown[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        posts.push(JSON.parse(String(init.body)));
+        return json(200, { panel_id: 1, phase: "entry", recorded: ["entry"], award: null });
+      }
+      return url === "/api/panels" ? json(200, PANELS) : json(200, MINE);
+    }));
+    render(<PanelScan />);
+    await screen.findByRole("region", { name: "My points" });
+    typeAndSend("Code from the screen", `https://aisummit.aiworks.az/points?code=${encodeURIComponent(CODE)}`);
+    expect(await screen.findByRole("status")).toHaveTextContent("Entry recorded.");
+    expect(posts).toEqual([{ code: CODE }]);
+  });
+
+  it("sends the code once when a phone camera opened My points from the screen's QR", async () => {
+    const posts: unknown[] = [];
+    window.history.pushState({}, "", `/points?code=${encodeURIComponent(CODE)}`);
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        posts.push(JSON.parse(String(init.body)));
+        return json(200, { panel_id: 1, phase: "entry", recorded: ["entry"], award: null });
+      }
+      return url === "/api/panels" ? json(200, PANELS) : json(200, MINE);
+    }));
+    render(<PanelScan />);
+    expect(await screen.findByText(/^Entry recorded\./)).toBeInTheDocument();
+    expect(posts).toEqual([{ code: CODE }]);
+    expect(window.location.search).toBe(""); // a reload sends nothing again
+    window.history.pushState({}, "", "/");
+  });
+
   it("names the window rule when a scan is late", async () => {
     vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
       if (init?.method === "POST") return refused("PANEL_SCAN_REFUSED", "outside_window");

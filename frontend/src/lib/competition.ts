@@ -44,6 +44,23 @@ const PANEL_CODE = /^P[1-9][0-9]*\.(ENTRY|EXIT)\.[1-9][0-9]*\.[0-9a-f]{64}$/;
 const SHORT_CODE = /^[0-9]{6}$/;
 export const isPanelCode = (text: string) => PANEL_CODE.test(text.trim()) || SHORT_CODE.test(text.replace(/[\s-]/g, ""));
 
+// The screen's QR is a link to My points carrying the code (7 Nov 2026): a phone's own
+// camera opens the site instead of searching the bare code as text. The app's scanner
+// reads the same link, so both ways end in the same code.
+export function panelScanUrl(code: string, origin: string): string {
+  return `${origin}/points?code=${encodeURIComponent(code)}`;
+}
+export function panelCodeFrom(text: string): string {
+  const raw = text.trim();
+  if (!/^https?:\/\//i.test(raw)) return raw;
+  try {
+    const url = new URL(raw);
+    return url.pathname === "/points" ? (url.searchParams.get("code") ?? "").trim() : raw;
+  } catch {
+    return raw;
+  }
+}
+
 export const scanPanel = (code: string) =>
   apiPost<PanelScanResult>("/api/attendees/me/panels/scan", { code: code.trim() });
 export const fetchMyCompetition = () => apiGet<MyCompetition>("/api/attendees/me/competition");

@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { QrCode } from "@/components/card/QrCode";
 import { LanguageSwitcher, useLanguage } from "@/components/ui/LanguageProvider";
 import { apiGet } from "@/lib/api";
+import { panelScanUrl } from "@/lib/competition";
 import { messageFor } from "@/lib/errors";
 import { eventTime } from "@/lib/masterclasses";
 
@@ -71,7 +72,8 @@ export function PanelScreen() {
   return (
     <div className="fm-panel-stage">
       <div className="fm-panel-stage-qr">
-        <QrCode value={shown === "entry" ? screen.entry_code : screen.exit_code} label={name} />
+        {/* A link, so a phone's own camera opens My points with the code (lib/competition.ts). */}
+        <QrCode value={panelScanUrl(shown === "entry" ? screen.entry_code : screen.exit_code, window.location.origin)} label={name} />
       </div>
       <div className="fm-panel-stage-info">
         <h2 className="fm-panel-stage-title">{screen.title}</h2>
