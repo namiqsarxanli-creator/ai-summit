@@ -225,7 +225,7 @@ function PlaygroundDesk({ slots, owner }: { slots: PlaygroundProgram; owner: Own
   return (
     <section className="fm-card fm-section" aria-labelledby="desk-playground">
       <h2 id="desk-playground" className="fm-h3">{t("End of a Playground session")}</h2>
-      <p className="fm-small">{t("Scan each member in the last 3 minutes of the session (until 5 minutes after it ends).")}</p>
+      <p className="fm-small">{t("Scan each member when they finish the game, at the latest 5 minutes after the session ends. Confirm the arrival first.")}</p>
       <SlotPicker program={slots} value={chosen} onChange={(id) => { setChosen(id); setNotice(null); }} />
       <QrCapture paused={busy} onText={(text) => void scan(text)} manualLabel="Attendee code" />
       <NoticeLine notice={notice} />

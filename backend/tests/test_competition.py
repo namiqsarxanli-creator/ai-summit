@@ -700,7 +700,7 @@ def test_one_facemark_login_works_every_booth_but_only_for_admitted_people(comp:
     scanner = comp.volunteer("MASTERCLASS_DOOR", mc)  # no booth of its own
     outsider = comp.volunteer("MENTOR_HOST", 1)  # no door, no Game Master
     url = f"/api/staff/playground/slots/{slot}"
-    comp.clock.now = baku("11:28")
+    comp.clock.now = baku("11:17")  # a one-minute game: scored right after it, mid-session
 
     assert outsider.get(url).status_code == 403
     assert outsider.post(f"{url}/complete", json={"card_token": comp.card(uid)}).status_code == 403
@@ -711,6 +711,19 @@ def test_one_facemark_login_works_every_booth_but_only_for_admitted_people(comp:
     assert reason(wrong) == "not_admitted"
     done = scanner.post(f"{url}/complete", json={"card_token": comp.card(uid)})
     assert done.json()["award"] == {"outcome": "awarded", "points": 3}
+
+    # More than 5 minutes after the end it is too late, even for someone admitted.
+    late = _admitted_playground(comp, stranger, 10)
+    comp.clock.now = baku("11:36")
+    assert (
+        reason(
+            scanner.post(
+                f"/api/staff/playground/slots/{late}/complete",
+                json={"card_token": comp.card(stranger)},
+            )
+        )
+        == "outside_window"
+    )
 
     # Revoking the door scope stops the next request.
     comp.rig.sql("UPDATE staff_scopes SET revoked_at = now() WHERE scope = 'MASTERCLASS_DOOR'")
@@ -746,7 +759,7 @@ def test_only_the_slots_own_booth_staff_complete_it_and_late_slots_score_nothing
         == 403
     )
     own = comp.staff_client(own_staff)
-    comp.clock.now = baku("17:40")
+    comp.clock.now = baku("17:29")  # before the session starts
     assert reason(own.post(f"/api/staff/playground/slots/{slot}/complete", json=body)) == (
         "outside_window"
     )

@@ -18,11 +18,12 @@ qaydaları"):
 * someone holding another masterclass in this block is refused here.
 
 PLAYGROUND (3 per distinct booth, the first 8 booths, at most 24). The booth's
-own staff (BOOTH_STAFF of that booth) scans each member at the END of the
-session they were admitted to (CHECKED_IN): from 3 minutes before the end to 5
-minutes after it. P35-P36 (17:30-18:00) and a ninth booth still complete the
-session, without points. A panel already paid for the same time is corrected
-by a reversal entry.
+own staff (BOOTH_STAFF of that booth) scans each member when they finish the
+session they were admitted to (CHECKED_IN): any time from its start to 5 minutes
+after its end. A game can take one minute (owner's decision, 7 Nov 2026), so the
+scan is not held back to the last minutes; the confirmed arrival is the guard.
+P35-P36 (17:30-18:00) and a ninth booth still complete the session, without points.
+A panel already paid for the same time is corrected by a reversal entry.
 """
 
 from __future__ import annotations
@@ -59,7 +60,6 @@ from app.modules.playground.models import PlaygroundBooking, PlaygroundSlot
 from app.modules.points.models import PointsSource
 from app.modules.staff.models import StaffAccount
 
-PLAYGROUND_SCAN_BEFORE_END = timedelta(minutes=3)
 PLAYGROUND_SCAN_AFTER_END = timedelta(minutes=5)
 
 
@@ -301,11 +301,7 @@ def playground_complete(
         raise AttendanceError("not_admitted")
     name = f"{user.first_name} {user.last_name[:1]}."
     if booking.status == "CHECKED_IN":
-        if (
-            not slot.ends_at - PLAYGROUND_SCAN_BEFORE_END
-            <= now
-            < (slot.ends_at + PLAYGROUND_SCAN_AFTER_END)
-        ):
+        if not slot.starts_at <= now < slot.ends_at + PLAYGROUND_SCAN_AFTER_END:
             raise AttendanceError("outside_window")
         booking.status = "COMPLETED"
         booking.version += 1

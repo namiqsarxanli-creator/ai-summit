@@ -52,7 +52,7 @@ export const competitionTranslations: Record<string, { az: string; ru: string }>
   "Entry recorded (standing).": { az: "Giriş qeydə alındı (ayaq üstə).", ru: "Вход отмечен (стоя)." },
   "Entry recorded.": { az: "Giriş qeydə alındı.", ru: "Вход отмечен." },
   "End of a Playground session": { az: "Playground sessiyasının sonu", ru: "Окончание сессии Playground" },
-  "Scan each member in the last 3 minutes of the session (until 5 minutes after it ends).": { az: "Hər üzvü sessiyanın son 3 dəqiqəsində skan edin (bitdikdən 5 dəqiqə sonraya qədər).", ru: "Сканируйте каждого участника в последние 3 минуты сессии (до 5 минут после окончания)." },
+  "Scan each member when they finish the game, at the latest 5 minutes after the session ends. Confirm the arrival first.": { az: "Hər üzvü oyunu bitirəndə skan edin, ən gec sessiya bitdikdən 5 dəqiqə sonra. Əvvəlcə gəlişi təsdiqləyin.", ru: "Сканируйте каждого участника, когда он закончит игру, но не позже 5 минут после окончания сессии. Сначала подтвердите прибытие." },
   "Qmeter questions": { az: "Qmeter sualları", ru: "Вопросы Qmeter" },
   "Check the question in Qmeter first. Identify the person by full name AND phone number.": { az: "Əvvəl sualı Qmeter-də yoxlayın. Şəxsi tam ad VƏ telefon nömrəsi ilə müəyyən edin.", ru: "Сначала проверьте вопрос в Qmeter. Определите человека по полному имени И номеру телефона." },
   "Full name": { az: "Tam ad", ru: "Полное имя" },
