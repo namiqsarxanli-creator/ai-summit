@@ -11,15 +11,22 @@ import { AdminList } from "@/components/admin/AdminList";
 import { AuditLog } from "@/components/admin/AuditLog";
 import { PlaygroundAdmin } from "@/components/admin/PlaygroundAdmin";
 import { CompetitionAdmin } from "@/components/admin/CompetitionAdmin";
-import { ConnectionHubAdmin } from "@/components/admin/ConnectionHubAdmin";
 import { MasterclassAdmin } from "@/components/admin/MasterclassAdmin";
 import { SystemStatus } from "@/components/admin/SystemStatus";
 import { Records, type RecordValue } from "@/components/admin/Records";
 
-type Section = "competition" | "connection-hub" | "playground" | "attendees" | "masterclasses" | "booths" | "interests" | "staff" | "tasks" | "presets" | "event-config" | "points-log" | "audit" | "otp-deliveries" | "system" | "demo-otps";
+type Section = "competition" | "playground" | "attendees" | "masterclasses" | "booths" | "interests" | "staff" | "points-log" | "audit" | "otp-deliveries" | "system" | "demo-otps";
 
-const sections: Section[] = ["attendees", "competition", "connection-hub", "playground", "masterclasses", "booths", "interests", "staff", "tasks", "presets", "event-config", "points-log", "audit", "otp-deliveries", "system", "demo-otps"];
-const titles: Record<Section, string> = { competition: "Beyond Now competition", "connection-hub": "Connection Hub", playground: "AI Playground", attendees: "Attendees", masterclasses: "Masterclass programme", booths: "Booths", interests: "Interests", staff: "Staff", tasks: "Tasks", presets: "Point presets (legacy)", "event-config": "Event settings", "points-log": "Points ledger", audit: "Audit log", "otp-deliveries": "Email delivery", system: "System status", "demo-otps": "Demo codes" };
+// Two groups: what the event is set up with, and what only shows how the system
+// runs. The old +10 booth activities, point presets, feedback points and the
+// Connection Hub (no Match Corner, no mentor groups) are gone from here (7 Nov
+// 2026): the competition rules replaced them. Their API stays for history.
+const groups: { label: string; items: Section[] }[] = [
+  { label: "Event", items: ["attendees", "staff", "competition", "masterclasses", "playground", "booths", "interests", "points-log"] },
+  { label: "Technical", items: ["system", "audit", "otp-deliveries", "demo-otps"] },
+];
+const sections: Section[] = groups.flatMap((group) => group.items);
+const titles: Record<Section, string> = { competition: "Beyond Now competition", playground: "AI Playground", attendees: "Attendees", masterclasses: "Masterclass programme", booths: "Booths", interests: "Interests", staff: "Staff", "points-log": "Points ledger", audit: "Audit log", "otp-deliveries": "Email delivery", system: "System status", "demo-otps": "Demo codes" };
 
 type DeliveryPage = {
   items: RecordValue[];
@@ -100,7 +107,6 @@ export default function AdminPage() {
   // The reset email: which staff member, and the language of the letter.
   const [resetId, setResetId] = useState("");
   const [resetLanguage, setResetLanguage] = useState("");
-  const [points, setPoints] = useState("");
   const [weight, setWeight] = useState("");
   // The "Demo codes" tab exists only on a DEMO_MODE backend: the endpoint
   // answers with an error everywhere else, so probe it once after sign-in
@@ -115,10 +121,6 @@ export default function AdminPage() {
     return () => { cancelled = true; };
   }, [signedIn]);
   const [role, setRole] = useState("BOOTH_STAFF");
-  const [repeatDefault, setRepeatDefault] = useState(false);
-  // An activity's repeat policy: inherit the booth / event setting, or override it.
-  const [taskRepeat, setTaskRepeat] = useState<"inherit" | "allow" | "deny">("inherit");
-  const taskRepeatValue = taskRepeat === "inherit" ? null : taskRepeat === "allow";
 
   // Every load of a plain section takes a number; only the newest number may
   // write to the screen. Switching section, pressing Refresh and the refresh
@@ -131,7 +133,7 @@ export default function AdminPage() {
   // The paged lists (attendees, ledger) own their loading; this makes them reload.
   const [refreshKey, setRefreshKey] = useState(0);
   // Sections whose component loads (and reloads) its own data.
-  const paged = (item: Section) => item === "competition" || item === "connection-hub" || item === "playground" || item === "attendees" || item === "points-log" || item === "audit" || item === "masterclasses";
+  const paged = (item: Section) => item === "competition" || item === "playground" || item === "attendees" || item === "points-log" || item === "audit" || item === "masterclasses";
 
   const load = useCallback((target: Section): Promise<void> => {
     const mine = ++newestLoad.current;
@@ -201,7 +203,6 @@ export default function AdminPage() {
   const id = Number(recordId);
   const booth = Number(boothId);
   const interest = Number(interestId);
-  const pointValue = Number(points);
   const weightValue = Number(weight);
 
   return <main id="main-content" className="fm-admin mx-auto flex max-w-5xl flex-col gap-6 px-4 py-8 text-(--fm-ink) sm:px-6">
@@ -213,8 +214,13 @@ export default function AdminPage() {
       </label>
       <button className="min-h-11 rounded-xl bg-(--fm-red) text-white p-3 font-semibold" onClick={() => void login()}>{t("Sign in")}</button>
     </section> : <>
-      <nav className="-mx-4 flex snap-x gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0" aria-label={t("Admin sections")}>
-        {sections.filter((item) => item !== "demo-otps" || demoOtpsAvailable).map((item) => <button key={item} aria-current={item === section ? "page" : undefined} className={`min-h-11 shrink-0 snap-start whitespace-nowrap rounded-xl px-3 py-2 text-sm font-semibold ${item === section ? "bg-(--fm-red) text-white text-(--fm-ink)" : "border border-(--fm-line-strong) bg-(--fm-tint) text-(--fm-ink)"}`} onClick={() => { setSection(item); setNotice(""); setError(""); }}>{t(titles[item])}</button>)}
+      <nav className="grid gap-3" aria-label={t("Admin sections")}>
+        {groups.map((group) => <div key={group.label} className="grid gap-1">
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-(--fm-muted)">{t(group.label)}</p>
+          <div className="-mx-4 flex snap-x gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0">
+            {group.items.filter((item) => item !== "demo-otps" || demoOtpsAvailable).map((item) => <button key={item} aria-current={item === section ? "page" : undefined} className={`min-h-11 shrink-0 snap-start whitespace-nowrap rounded-xl px-3 py-2 text-sm font-semibold ${item === section ? "bg-(--fm-red) text-white" : "border border-(--fm-line-strong) bg-(--fm-tint) text-(--fm-ink)"}`} onClick={() => { setSection(item); setNotice(""); setError(""); }}>{t(titles[item])}</button>)}
+          </div>
+        </div>)}
       </nav>
       <div className="flex flex-wrap gap-2">
         <button className="min-h-11 w-fit rounded-xl border border-(--fm-line-strong) bg-(--fm-tint) px-4 py-2" onClick={() => void refresh()}>{t("Refresh")}</button>
@@ -223,7 +229,7 @@ export default function AdminPage() {
       </div>
       <section className="min-w-0 rounded-2xl border border-(--fm-line) bg-white p-4" aria-label={`${section} data`}>
         <h2 className="mb-4 text-xl font-semibold">{t(titles[section])}</h2>
-        {section === "competition" ? <CompetitionAdmin key={`${section}-${refreshKey}`} /> : section === "connection-hub" ? <ConnectionHubAdmin key={`${section}-${refreshKey}`} /> : section === "playground" ? <PlaygroundAdmin /> : section === "masterclasses"
+        {section === "competition" ? <CompetitionAdmin key={`${section}-${refreshKey}`} /> : section === "playground" ? <PlaygroundAdmin /> : section === "masterclasses"
           ? <MasterclassAdmin key={`${section}-${refreshKey}`} />
           : section === "audit"
           ? <AuditLog key={section} refreshKey={refreshKey} />
@@ -241,7 +247,7 @@ export default function AdminPage() {
       {section === "attendees" && <p className="text-sm text-(--fm-ink-soft)">{t("Attendee records are for inspection only.")}</p>}
       {section === "points-log" && <p className="text-sm text-(--fm-ink-soft)">{t("The ledger itself is never edited. An award can be reversed in full, with a reason: the reversal is a new entry linked to it.")}</p>}
       {section === "demo-otps" && <p className="text-sm text-(--fm-ink-soft)">{t("Recent codes are visible only in demo mode to signed-in administrators.")}</p>}
-      {section !== "attendees" && section !== "competition" && section !== "masterclasses" && section !== "playground" && section !== "points-log" && section !== "audit" && section !== "otp-deliveries" && section !== "system" && section !== "demo-otps" && <fieldset disabled={busy} className="grid max-w-lg gap-3 rounded-2xl border border-(--fm-line) bg-white p-5 disabled:opacity-60">
+      {(section === "staff" || section === "booths" || section === "interests") && <fieldset disabled={busy} className="grid max-w-lg gap-3 rounded-2xl border border-(--fm-line) bg-white p-5 disabled:opacity-60">
         <h2 className="text-lg font-medium">{t("Manage")} {t(titles[section])}</h2>
         {section === "staff" && <>
           <Field label={t("Email" )} value={email} set={setEmail} /><Field label={t("Full name" )} value={name} set={setName} />
@@ -275,43 +281,6 @@ export default function AdminPage() {
           <Field label={t("Interest ID" )} value={interestId} set={setInterestId} />
           <button className="rounded bg-(--fm-red-soft) p-2" onClick={() => void change(`interests/${interest}`, "PATCH", { name })}>{t("Rename interest")}</button>
           <button className="rounded bg-(--fm-red-soft) p-2" onClick={() => void change(`interests/${interest}`, "PATCH", { is_active: false })}>{t("Deactivate interest")}</button>
-        </>}
-        {section === "tasks" && <>
-          <Field label={t("Booth ID" )} value={boothId} set={setBoothId} /><Field label={t("Title" )} value={name} set={setName} />
-          <Field label={t("Points per award (1–100)" )} value={points} set={setPoints} />
-          <label className="flex flex-col gap-1 text-sm text-(--fm-ink-soft)">{t("Repeat policy")}
-            <select className="min-h-11 rounded-xl border border-(--fm-line-strong) bg-white p-3 text-(--fm-ink)" value={taskRepeat} onChange={(event) => setTaskRepeat(event.target.value as "inherit" | "allow" | "deny")}>
-              <option value="inherit">{t("Inherit from booth / event")}</option>
-              <option value="allow">{t("Allow repeats")}</option>
-              <option value="deny">{t("Once per attendee")}</option>
-            </select>
-          </label>
-          <p className="text-xs text-(--fm-muted)">{t("Staff cannot change the points: each award pays exactly this value.")}</p>
-          <button className="rounded bg-(--fm-red) text-white p-2" onClick={() => void change("tasks", "POST", { booth_id: booth, title: name, points: pointValue, allow_repeat_points: taskRepeatValue })}>{t("Create task")}</button>
-          <Field label={t("Task ID" )} value={recordId} set={setRecordId} />
-          <button className="rounded bg-(--fm-red-soft) p-2" onClick={() => void change(`tasks/${id}`, "PATCH", { points: pointValue })}>{t("Set task points")}</button>
-          <button className="rounded bg-(--fm-red-soft) p-2" onClick={() => void change(`tasks/${id}`, "PATCH", { allow_repeat_points: taskRepeatValue })}>{t("Set repeat policy")}</button>
-          <button className="rounded bg-(--fm-red-soft) p-2" onClick={() => void change(`tasks/${id}`, "PATCH", { title: name })}>{t("Rename task")}</button>
-          <button className="rounded bg-(--fm-red-soft) p-2" onClick={() => void change(`tasks/${id}`, "PATCH", { is_active: false })}>{t("Deactivate task")}</button>
-        </>}
-        {section === "presets" && <>
-          <div role="note" className="grid gap-1 rounded border border-(--fm-warn-line) bg-(--fm-warn-soft) p-3 text-sm text-(--fm-warn)">
-            <p className="font-semibold">{t("Legacy — these presets no longer affect new activity points.")}</p>
-            <p>{t("Awards now pay the points set on each activity (Tasks). Presets are kept as-is for history and are not used when awarding.")}</p>
-          </div>
-          <Field label={t("Booth ID (blank for global)" )} value={boothId} set={setBoothId} /><Field label={t("Points" )} value={points} set={setPoints} />
-          <button className="rounded bg-(--fm-red) text-white p-2" onClick={() => void change("presets", "POST", { booth_id: boothId === "" ? null : booth, points: pointValue })}>{t("Create preset")}</button>
-          <Field label={t("Preset ID" )} value={recordId} set={setRecordId} />
-          <button className="rounded bg-(--fm-red-soft) p-2" onClick={() => void change(`presets/${id}`, "PATCH", { points: pointValue })}>{t("Change preset value")}</button>
-          <button className="rounded bg-(--fm-red-soft) p-2" onClick={() => void change(`presets/${id}`, "PATCH", { is_active: false })}>{t("Deactivate preset")}</button>
-        </>}
-        {section === "event-config" && <>
-          <Field label={t("Feedback reward points" )} value={points} set={setPoints} />
-          <button className="rounded bg-(--fm-red) text-white p-2" onClick={() => void change("event-config", "PATCH", { feedback_points: pointValue })}>{t("Set feedback points")}</button>
-          <Field label={t("Leaderboard top N" )} value={recordId} set={setRecordId} />
-          <button className="rounded bg-(--fm-red-soft) p-2" onClick={() => void change("event-config", "PATCH", { leaderboard_top_n: id })}>{t("Set top N")}</button>
-          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={repeatDefault} onChange={(event) => setRepeatDefault(event.target.checked)} />{t("Allow repeat task points by default")}</label>
-          <button className="rounded bg-(--fm-red-soft) p-2" onClick={() => void change("event-config", "PATCH", { allow_repeat_task_points_default: repeatDefault })}>{t("Set repeat default")}</button>
         </>}
       </fieldset>}
     </>}

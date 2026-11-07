@@ -171,47 +171,6 @@ describe("AdminPage", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/admin/otp-deliveries?before_id=2", expect.anything());
   });
 
-  it("creates an activity with its point rule and repeat policy, and edits them separately", async () => {
-    const bodies: Record<string, unknown>[] = [];
-    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
-      if (url === "/api/staff/auth/login") return new Response(null, { status: 204 });
-      if (url === "/api/staff/me") return jsonResponse(200, { role: "ADMIN" });
-      if (url === "/api/admin/tasks" && init?.method === "POST") {
-        bodies.push(JSON.parse(init.body as string));
-        return jsonResponse(201, { id: 31, points: 12 });
-      }
-      if (url.startsWith("/api/admin/tasks/") && init?.method === "PATCH") {
-        bodies.push({ url, ...JSON.parse(init.body as string) });
-        return jsonResponse(200, { id: 31 });
-      }
-      return jsonResponse(200, []);
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    render(<AdminPage />);
-    fireEvent.change(screen.getByLabelText("Staff email"), { target: { value: "admin@example.com" } });
-    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "password" } });
-    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Tasks" }));
-
-    fireEvent.change(screen.getByLabelText("Booth ID"), { target: { value: "4" } });
-    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Quiz corner" } });
-    fireEvent.change(screen.getByLabelText("Points per award (1–100)"), { target: { value: "12" } });
-    fireEvent.change(screen.getByLabelText("Repeat policy"), { target: { value: "allow" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create task" }));
-    await waitFor(() => expect(bodies).toHaveLength(1));
-    expect(bodies[0]).toEqual({ booth_id: 4, title: "Quiz corner", points: 12, allow_repeat_points: true });
-
-    fireEvent.change(screen.getByLabelText("Task ID"), { target: { value: "31" } });
-    fireEvent.change(screen.getByLabelText("Repeat policy"), { target: { value: "inherit" } });
-    fireEvent.click(screen.getByRole("button", { name: "Set repeat policy" }));
-    await waitFor(() => expect(bodies).toHaveLength(2));
-    expect(bodies[1]).toEqual({ url: "/api/admin/tasks/31", allow_repeat_points: null });
-
-    fireEvent.change(screen.getByLabelText("Points per award (1–100)"), { target: { value: "20" } });
-    fireEvent.click(screen.getByRole("button", { name: "Set task points" }));
-    await waitFor(() => expect(bodies).toHaveLength(3));
-    expect(bodies[2]).toEqual({ url: "/api/admin/tasks/31", points: 20 });
-  });
 
   function deferred() {
     let resolve!: (value: Response) => void;
@@ -299,21 +258,21 @@ describe("AdminPage", () => {
     expect(reads[1]).toBe("/api/admin/attendees");
   });
 
-  it("labels the old booth presets as legacy and not affecting activity points", async () => {
-    vi.stubGlobal("fetch", vi.fn(async (url: string) =>
-      url === "/api/staff/me" ? jsonResponse(200, { role: "ADMIN" }) : jsonResponse(200, []),
-    ));
+  it("shows only the event and technical sections, none of the old point rules", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url === "/api/staff/auth/login") return new Response(null, { status: 204 });
+      if (url === "/api/staff/me") return jsonResponse(200, { role: "ADMIN" });
+      return jsonResponse(200, []);
+    }));
     render(<AdminPage />);
-    fireEvent.change(screen.getByLabelText("Staff email"), { target: { value: "admin@example.com" } });
-    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "password" } });
-    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Point presets (legacy)" }));
-
-    const note = await screen.findByRole("note");
-    expect(note).toHaveTextContent("Legacy — these presets no longer affect new activity points.");
-    expect(note).toHaveTextContent("not used when awarding");
-    // The data stays manageable (nothing is removed) - only labelled.
-    expect(screen.getByRole("button", { name: "Create preset" })).toBeInTheDocument();
+    await signIn();
+    const nav = within(await screen.findByLabelText("Admin sections"));
+    expect(nav.getByText("Event")).toBeInTheDocument();
+    expect(nav.getByText("Technical")).toBeInTheDocument();
+    for (const gone of ["Tasks", "Point presets (legacy)", "Event settings", "Connection Hub"]) {
+      expect(nav.queryByRole("button", { name: gone })).toBeNull();
+    }
+    expect(nav.getByRole("button", { name: "Beyond Now competition" })).toBeInTheDocument();
   });
 
   it("lets an administrator start a reset email for a staff member - confirmed first, and without ever seeing a code or choosing a password", async () => {

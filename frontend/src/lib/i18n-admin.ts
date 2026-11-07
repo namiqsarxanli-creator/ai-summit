@@ -78,6 +78,7 @@ export const adminTranslations: Record<string, { az: string; ru: string }> = {
   "accepted means the email provider took the message, not that it reached an inbox.": { az: "\"accepted\" e-poçt provayderinin məktubu qəbul etməsi deməkdir, məktubun gələnlər qutusuna çatması demək deyil.", ru: "«accepted» означает, что почтовый провайдер принял письмо, а не что оно дошло до почтового ящика." },
   "Demo codes": { az: "Demo kodları", ru: "Демо-коды" },
   "Admin records": { az: "Administrator qeydləri", ru: "Записи администратора" },
+  "Technical": { az: "Texniki", ru: "Технические" },
   "Admin sections": { az: "Administrator bölmələri", ru: "Разделы администратора" },
   "No records to show yet.": { az: "Hələ göstəriləcək qeyd yoxdur.", ru: "Пока нет записей для показа." },
   "AI Summit · Operations": { az: "AI Summit · İdarəetmə", ru: "AI Summit · Управление" },

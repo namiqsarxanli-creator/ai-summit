@@ -8,7 +8,7 @@ const json = (status: number, body: unknown) =>
 
 afterEach(() => vi.unstubAllGlobals());
 
-const ADMIN_SECTIONS = ["attendees", "competition", "connection-hub", "playground", "masterclasses", "booths", "interests", "staff", "tasks", "presets", "event-config", "points-log", "audit", "otp-deliveries", "demo-otps"];
+const ADMIN_SECTIONS = ["attendees", "staff", "competition", "masterclasses", "playground", "booths", "interests", "points-log", "system", "audit", "otp-deliveries", "demo-otps"];
 
 describe("SetupChecklist", () => {
   it("lists the server's checks, keeps missing ones visibly incomplete and links each to its admin section", async () => {

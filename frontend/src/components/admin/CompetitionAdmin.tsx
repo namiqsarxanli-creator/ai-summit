@@ -37,6 +37,7 @@ export function CompetitionAdmin() {
   const inFlight = useRef(false);
   const [eventId, setEventId] = useState("");
   const [closesAt, setClosesAt] = useState("");
+  const [topN, setTopN] = useState("");
   const [code, setCode] = useState("");
   const [title, setTitle] = useState("");
   const [starts, setStarts] = useState("");
@@ -92,6 +93,8 @@ export function CompetitionAdmin() {
         <Field label="Event ID" value={eventId} set={setEventId} />
         <Field label="Competition closes at (with offset, e.g. 2026-11-13T17:30+04:00)" value={closesAt} set={setClosesAt} />
         <button className="rounded bg-(--fm-red-soft) p-2" onClick={() => void change(() => apiRequest(`/api/admin/masterclass-events/${int(eventId)}`, "PATCH", { competition_closes_at: closesAt.trim() || null }))}>{t("Save the close")}</button>
+        <Field label="Leaderboard top N" value={topN} set={setTopN} />
+        <button className="rounded bg-(--fm-red-soft) p-2" onClick={() => void change(() => apiRequest("/api/admin/event-config", "PATCH", { leaderboard_top_n: int(topN) }))}>{t("Set top N")}</button>
       </fieldset>
 
       <section className="grid gap-2">
