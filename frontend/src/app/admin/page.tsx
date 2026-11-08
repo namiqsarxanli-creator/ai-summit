@@ -14,6 +14,7 @@ import { CompetitionAdmin } from "@/components/admin/CompetitionAdmin";
 import { MasterclassAdmin } from "@/components/admin/MasterclassAdmin";
 import { SystemStatus } from "@/components/admin/SystemStatus";
 import { Records, type RecordValue } from "@/components/admin/Records";
+import { confirmAction } from "@/lib/confirm";
 
 type Section = "competition" | "playground" | "attendees" | "masterclasses" | "booths" | "interests" | "staff" | "points-log" | "audit" | "otp-deliveries" | "system" | "demo-otps";
 
@@ -127,6 +128,10 @@ export default function AdminPage() {
   // The reset email: which staff member, and the language of the letter.
   const [resetId, setResetId] = useState("");
   const [resetLanguage, setResetLanguage] = useState("");
+  // A new password set directly, no email (8 Nov 2026): which account, typed twice.
+  const [newPasswordId, setNewPasswordId] = useState("");
+  const [newStaffPassword, setNewStaffPassword] = useState("");
+  const [newStaffPasswordAgain, setNewStaffPasswordAgain] = useState("");
   const [weight, setWeight] = useState("");
   // The "Demo codes" tab exists only on a DEMO_MODE backend: the endpoint
   // answers with an error everywhere else, so probe it once after sign-in
@@ -197,7 +202,7 @@ export default function AdminPage() {
 
   async function change(path: string, method: string, body?: RecordValue) {
     if (changeInFlight.current) return;
-    if ((path.endsWith("/deactivate") || method === "DELETE") && !window.confirm(t("Confirm this change?"))) return;
+    if ((path.endsWith("/deactivate") || method === "DELETE") && !(await confirmAction(t("Confirm this change?")))) return;
     changeInFlight.current = true;
     setBusy(true); setNotice("");
     try { await request(path, method, body); await refresh(); setError(""); setNotice("Change saved and recorded in the admin audit."); }
@@ -210,7 +215,7 @@ export default function AdminPage() {
   async function sendResetEmail() {
     if (changeInFlight.current) return;
     if (!/^[1-9][0-9]{0,15}$/.test(resetId.trim())) { setError("Enter a whole number greater than zero."); return; }
-    if (!window.confirm(t("Send a password reset email to this staff member? They get a one-time code at their own address and choose the new password themselves; you will not see either."))) return;
+    if (!(await confirmAction(t("Send a password reset email to this staff member? They get a one-time code at their own address and choose the new password themselves; you will not see either.")))) return;
     changeInFlight.current = true;
     setBusy(true); setNotice(""); setError("");
     const result = await startStaffPasswordReset(Number(resetId.trim()), resetLanguage || language);
@@ -218,6 +223,24 @@ export default function AdminPage() {
     setBusy(false);
     if (result.ok) setNotice("A reset email was queued for that staff member. You cannot see the code, and only they can choose the new password.");
     else setError(messageFor(result.error.code));
+  }
+
+  // The administrator types the new password and tells its owner; every session of
+  // that account ends. Never for an administrator account (the server refuses it).
+  async function setStaffPassword() {
+    if (changeInFlight.current) return;
+    if (!/^[1-9][0-9]{0,15}$/.test(newPasswordId.trim())) { setError("Enter a whole number greater than zero."); return; }
+    if (newStaffPassword.length < 12) { setError("The password must be at least 12 characters."); return; }
+    if (newStaffPassword !== newStaffPasswordAgain) { setError("The two passwords are not the same."); return; }
+    if (!(await confirmAction(t("Set this new password? The staff member is signed out on every device and signs in with the new password.")))) return;
+    changeInFlight.current = true;
+    setBusy(true); setNotice(""); setError("");
+    try {
+      await request(`staff/${Number(newPasswordId.trim())}/password`, "POST", { new_password: newStaffPassword, new_password_confirmation: newStaffPasswordAgain });
+      setNewStaffPassword(""); setNewStaffPasswordAgain("");
+      setNotice("The new password is set. Tell it to the staff member.");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Change failed"); }
+    finally { changeInFlight.current = false; setBusy(false); }
   }
 
   const id = Number(recordId);
@@ -284,6 +307,15 @@ export default function AdminPage() {
             </select>
           </label>
           <button className="rounded bg-(--fm-red-soft) p-2" onClick={() => void sendResetEmail()}>{t("Send password reset email")}</button>
+          <h3 className="mt-2 text-base font-semibold">{t("Set a new password (no email)")}</h3>
+          <Field label={t("Staff ID")} value={newPasswordId} set={setNewPasswordId} />
+          <label className="flex flex-col gap-1 text-sm text-(--fm-ink-soft)">{t("New password (at least 12 characters)")}
+            <input type="password" autoComplete="new-password" className="min-h-11 w-full rounded-xl border border-(--fm-line-strong) bg-white p-3 text-base text-(--fm-ink)" value={newStaffPassword} onChange={(event) => setNewStaffPassword(event.target.value)} />
+          </label>
+          <label className="flex flex-col gap-1 text-sm text-(--fm-ink-soft)">{t("The new password again")}
+            <input type="password" autoComplete="new-password" className="min-h-11 w-full rounded-xl border border-(--fm-line-strong) bg-white p-3 text-base text-(--fm-ink)" value={newStaffPasswordAgain} onChange={(event) => setNewStaffPasswordAgain(event.target.value)} />
+          </label>
+          <button className="rounded bg-(--fm-red) text-white p-2" onClick={() => void setStaffPassword()}>{t("Set the new password")}</button>
         </>}
         {section === "booths" && <>
           <Field label={t("Slug" )} value={slug} set={setSlug} /><Field label={t("Name" )} value={name} set={setName} />

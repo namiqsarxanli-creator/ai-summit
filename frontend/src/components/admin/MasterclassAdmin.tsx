@@ -6,6 +6,7 @@ import { useLanguage } from "@/components/ui/LanguageProvider";
 import { apiGet, apiPost, apiRequest, type ApiResult } from "@/lib/api";
 import { programLabel } from "@/lib/masterclasses";
 import { messageFor } from "@/lib/errors";
+import { confirmAction } from "@/lib/confirm";
 
 type Row = Record<string, unknown>;
 type ProgramRows = { events: Row[]; blocks: Row[]; rooms: Row[]; masterclasses: Row[] };
@@ -252,7 +253,7 @@ export function MasterclassAdmin() {
         <button className="rounded bg-(--fm-red) text-white p-2" onClick={saveMasterclass}>{t("Save masterclass")}</button>
         <button className="rounded bg-(--fm-red-soft) p-2" onClick={() => {
           const id = int(mcId);
-          if (id !== null && window.confirm(t("Confirm this change?"))) void change(() => apiRequest(`/api/admin/masterclasses/${id}`, "DELETE"));
+          if (id !== null) void confirmAction(t("Confirm this change?")).then((ok) => { if (ok) void change(() => apiRequest(`/api/admin/masterclasses/${id}`, "DELETE")); });
         }}>{t("Delete masterclass")}</button>
       </fieldset>
 
@@ -284,7 +285,7 @@ export function MasterclassAdmin() {
       <fieldset disabled={busy} className="grid max-w-lg gap-3 rounded-2xl border border-(--fm-line) bg-white p-5 disabled:opacity-60">
         <legend className="px-1 text-lg font-medium">{t("Add an event")}</legend>
         <p className="text-sm text-(--fm-ink-soft)">{t("The confirmed frame: 13 November 2026, Asia/Baku, the two blocks (11:30-13:00, 16:00-17:30) and five rooms. It adds no masterclass, speaker or close; re-running adds only what is missing.")}</p>
-        <button className="rounded bg-(--fm-red-soft) p-2" onClick={() => { if (window.confirm(t("Confirm this change?"))) void change(() => apiPost("/api/admin/masterclass-skeleton", {})); }}>{t("Create the confirmed event frame")}</button>
+        <button className="rounded bg-(--fm-red-soft) p-2" onClick={() => { void confirmAction(t("Confirm this change?")).then((ok) => { if (ok) void change(() => apiPost("/api/admin/masterclass-skeleton", {})); }); }}>{t("Create the confirmed event frame")}</button>
         <Field label="Code" value={evCode} set={setEvCode} />
         <Field label="Title" value={evTitle} set={setEvTitle} />
         <Field label="Venue" value={evVenue} set={setEvVenue} />

@@ -95,6 +95,11 @@ class StaffPasswordResetStart(BaseModel):
     language: RequestLanguage = DEFAULT_LANGUAGE
 
 
+class StaffPasswordSet(_NewPassword):
+    """`POST /api/admin/staff/{id}/password`: an administrator sets a staff
+    member's new password directly (no email), typed twice."""
+
+
 class StaffMe(BaseModel):
     """`GET /api/staff/me` — "returning booth name so staff always see
     which booth they are awarding for" (M09). `booth_name` is `None`

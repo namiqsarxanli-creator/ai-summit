@@ -218,6 +218,12 @@ button.fm-link { min-height: var(--fm-tap); padding: 0; border: 0; background: n
 .fm-chips { display: flex; flex-wrap: wrap; gap: 8px; list-style: none; padding: 0; margin: 0; }
 .fm-badge { display: inline-flex; align-items: center; min-height: 32px; padding: 4px 12px; border: 1px solid #e9c9c3; border-radius: 999px; background: var(--fm-red-soft); color: var(--fm-red); font-size: 15px; font-weight: 800; }
 
+/* The site's confirmation dialog (components/ui/ConfirmHost.tsx), in place of the browser's box. */
+.fm-dialog-backdrop { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 16px; background: #2a10148c; backdrop-filter: blur(3px); }
+.fm-dialog { width: min(100%, 420px); color-scheme: light; color: var(--fm-ink); border-top: 4px solid var(--fm-red); }
+.fm-dialog-text { margin: 0 0 18px; font-size: 16px; line-height: 1.5; white-space: pre-line; }
+.fm-dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
+.fm-dialog-actions .fm-btn { flex: 1 1 140px; }
 .fm-alert { padding: 12px 14px; border: 1px solid var(--fm-line-strong); border-radius: var(--fm-radius-control); background: var(--fm-tint); color: var(--fm-ink); font-size: 15px; line-height: 1.45; }
 .fm-alert-error { border-color: #e7b3ad; background: var(--fm-red-soft); color: #7e1119; }
 .fm-alert-warn { border-color: var(--fm-warn-line); background: var(--fm-warn-soft); color: var(--fm-warn); }

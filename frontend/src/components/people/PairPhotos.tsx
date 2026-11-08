@@ -16,6 +16,7 @@ import {
   type PairPhoto,
 } from "@/lib/pairPhotos";
 import { fetchConnections, type ConnectionRow } from "@/lib/people";
+import { confirmAction } from "@/lib/confirm";
 
 type Notice = { tone: "ok" | "warn"; text: string } | null;
 
@@ -137,7 +138,7 @@ export function PairPhotos() {
                     {t("May be shown on the main screen")}
                   </label>
                 )}
-                <button type="button" disabled={busy} className="fm-btn fm-btn-quiet" onClick={() => { if (window.confirm(t("Withdraw and delete this photo for both of you?"))) void run(() => withdrawPairPhoto(p.id), "Withdrawn. The photo was deleted."); }}>{t("Withdraw the photo")}</button>
+                <button type="button" disabled={busy} className="fm-btn fm-btn-quiet" onClick={() => { void confirmAction(t("Withdraw and delete this photo for both of you?")).then((ok) => { if (ok) void run(() => withdrawPairPhoto(p.id), "Withdrawn. The photo was deleted."); }); }}>{t("Withdraw the photo")}</button>
               </li>
             );
           })}

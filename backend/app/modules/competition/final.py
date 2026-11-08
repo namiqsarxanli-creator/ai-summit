@@ -7,9 +7,12 @@
   Founder / Lucky Draw eligible list and a ledger watermark, frozen as data.
 * They review it and PUBLISH it explicitly; publishing a later version
   supersedes the earlier one in the same transaction. A DRAFT can be discarded.
-* Publication is refused while it would be known to be wrong: when an offline
-  scan still waits for review (`offline_reviews_pending`), or when the ranking or
-  the Founder list as computed NOW differs from the draft (`stale_snapshot`).
+* Publication is refused while it would be known to be wrong: while the Grand
+  Final check-in is still open (`grand_final_open`: a late check-in can still add
+  a Founder bonus, so the result could change after it is announced - review of
+  8 Nov 2026), when an offline scan still waits for review
+  (`offline_reviews_pending`), or when the ranking or the Founder list as
+  computed NOW differs from the draft (`stale_snapshot`).
   Taking a snapshot and publishing one both hold SHARE locks on users,
   offline_scans and points_log (in that order, the order every writer already
   takes them in), so no award, correction or offline submission/review can
@@ -43,6 +46,8 @@ from app.modules.attendees.models import User
 from app.modules.competition.final_models import FinalResult
 from app.modules.competition.founder import live_founder, rule_confirmed
 from app.modules.competition.ledger import closes_at, eligible
+from app.modules.competition.models import Panel
+from app.modules.competition.rules import GRAND_FINAL_CODE
 from app.modules.competition.scopes import has_scope
 from app.modules.masterclasses.models import MasterclassEvent
 from app.modules.points.models import PointsEntryType, PointsLog, PointsSource
@@ -235,6 +240,11 @@ def publish(db: Session, staff: StaffAccount, result_id: int, now: datetime) -> 
         return _summary(row)  # a repeated publish
     if row.status != "DRAFT":
         raise FinalError("not_a_draft")
+    check_in_ends = db.execute(
+        select(Panel.ends_at).where(Panel.code == GRAND_FINAL_CODE)
+    ).scalar_one_or_none()
+    if check_in_ends is not None and now < check_in_ends:
+        raise FinalError("grand_final_open")
     _freeze_writers(db)  # nothing may commit between these checks and the publication
     from app.modules.competition.offline import pending_count
 

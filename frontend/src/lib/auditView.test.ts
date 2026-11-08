@@ -81,7 +81,7 @@ describe("audit texts", () => {
       "staff.create", "staff.deactivate", "booth.create", "booth.update", "booth.weight", "booth.weight.remove",
       "interest.create", "interest.update", "task.create", "task.update", "preset.create", "preset.update",
       "event_config.update", "points.reverse", "staff.password_change", "staff.password_reset_requested",
-      "staff.password_reset", "export.started", "export.finished", "export.rejected",
+      "staff.password_reset", "staff.password_admin_set", "export.started", "export.finished", "export.rejected",
     ]);
     for (const [code] of ACTION_OPTIONS) expect(actionLabel(code)).not.toBeNull();
     for (const [code] of TARGET_OPTIONS) expect(targetLabel(code)).not.toBeNull();

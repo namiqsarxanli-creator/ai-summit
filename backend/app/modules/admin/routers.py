@@ -54,7 +54,7 @@ from app.modules.points.service import maintenance_fast_path_check
 from app.modules.realtime.service import publish_award_signals
 from app.modules.staff import password as staff_password
 from app.modules.staff.models import StaffAccount
-from app.modules.staff.schemas import StaffPasswordResetStart
+from app.modules.staff.schemas import StaffPasswordResetStart, StaffPasswordSet
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -228,6 +228,23 @@ def start_staff_password_reset(
             tx, raw_session_token=token, staff_id=staff_id, language=payload.language
         )
     return {"status": "queued"}
+
+
+@router.post("/staff/{staff_id}/password", status_code=204)
+def set_staff_password(
+    staff_id: Annotated[int, Path(ge=1, le=2**53)],
+    payload: StaffPasswordSet,
+    token: SessionToken,
+    db: DbSession,
+) -> None:
+    """Sets a staff member's new password without email (staff/password.py,
+    `set_by_admin`). Every session of that account ends; the password is never
+    logged, returned or audited."""
+    maintenance_fast_path_check(db)
+    with mutating_transaction(db) as tx:
+        staff_password.set_by_admin(
+            tx, raw_session_token=token, staff_id=staff_id, new_password=payload.new_password
+        )
 
 
 # --- CSV exports --------------------------------------------------------------

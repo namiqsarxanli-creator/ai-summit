@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useLanguage } from "@/components/ui/LanguageProvider";
 import { apiGet, apiPost, apiRequest, type ApiResult } from "@/lib/api";
 import { messageFor } from "@/lib/errors";
+import { confirmAction } from "@/lib/confirm";
 
 type Panel = { id: number; event_id: number; code: string; title: string; starts_at: string; ends_at: string; qr_version: number };
 type ScopeRow = { id: number; staff_account_id: number; scope: string; target_id: number | null; revoked: boolean };
@@ -85,10 +86,10 @@ export function CompetitionAdmin() {
       <fieldset disabled={busy} className="grid max-w-lg gap-3 rounded-2xl border border-(--fm-line) p-5">
         <legend className="px-1 text-lg font-medium">{t("Activation")}</legend>
         <p className="text-sm text-(--fm-ink-soft)">{t("Run the read-only report first: python -m app.cli competition-report. Turning this on ranks only the competition; old booth points stay as history.")}</p>
-        <button className="rounded bg-(--fm-red) text-white p-2" onClick={() => { if (window.confirm(t("Confirm this change?"))) void change(() => apiRequest("/api/admin/event-config", "PATCH", { competition_mode: true })); }}>{t("Turn the competition ranking on")}</button>
+        <button className="rounded bg-(--fm-red) text-white p-2" onClick={() => { void confirmAction(t("Confirm this change?")).then((ok) => { if (ok) void change(() => apiRequest("/api/admin/event-config", "PATCH", { competition_mode: true })); }); }}>{t("Turn the competition ranking on")}</button>
         <button className="rounded bg-(--fm-red-soft) p-2" onClick={() => void change(() => apiRequest("/api/admin/event-config", "PATCH", { competition_mode: false }))}>{t("Turn it off (legacy ranking)")}</button>
         <p className="text-sm text-(--fm-ink-soft)">{t("Reminder emails go only to attendees who opted in, through the sign-in email provider. Leave them off until the release is approved.")}</p>
-        <button className="rounded bg-(--fm-red-soft) p-2" onClick={() => { if (window.confirm(t("Confirm this change?"))) void change(() => apiRequest("/api/admin/event-config", "PATCH", { reminders_enabled: true })); }}>{t("Turn reminder emails on")}</button>
+        <button className="rounded bg-(--fm-red-soft) p-2" onClick={() => { void confirmAction(t("Confirm this change?")).then((ok) => { if (ok) void change(() => apiRequest("/api/admin/event-config", "PATCH", { reminders_enabled: true })); }); }}>{t("Turn reminder emails on")}</button>
         <button className="rounded bg-(--fm-red-soft) p-2" onClick={() => void change(() => apiRequest("/api/admin/event-config", "PATCH", { reminders_enabled: false }))}>{t("Turn reminder emails off")}</button>
         <Field label="Event ID" value={eventId} set={setEventId} />
         <Field label="Competition closes at (with offset, e.g. 2026-11-13T17:30+04:00)" value={closesAt} set={setClosesAt} />
@@ -116,7 +117,7 @@ export function CompetitionAdmin() {
         <Field label="Ends" value={ends} set={setEnds} />
         <button className="rounded bg-(--fm-red) text-white p-2" onClick={() => void change(() => apiPost("/api/admin/panels", { event_id: int(eventId), code: code.trim(), title: title.trim(), starts_at: starts.trim(), ends_at: ends.trim() }))}>{t("Save panel")}</button>
         <Field label="Panel ID" value={panelId} set={setPanelId} />
-        <button className="rounded bg-(--fm-red-soft) p-2" onClick={() => { if (window.confirm(t("Every code shown before stops working. Continue?"))) void change(() => apiRequest(`/api/admin/panels/${int(panelId)}`, "PATCH", { rotate_qr: true })); }}>{t("Rotate the screen codes")}</button>
+        <button className="rounded bg-(--fm-red-soft) p-2" onClick={() => { void confirmAction(t("Every code shown before stops working. Continue?")).then((ok) => { if (ok) void change(() => apiRequest(`/api/admin/panels/${int(panelId)}`, "PATCH", { rotate_qr: true })); }); }}>{t("Rotate the screen codes")}</button>
       </fieldset>
 
       <section className="grid gap-2">

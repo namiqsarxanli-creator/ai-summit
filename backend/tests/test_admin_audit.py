@@ -591,6 +591,7 @@ def test_every_admin_operation_is_shown_through_its_allowlist(
         "points.reverse",
         "staff.password_change",
         "staff.password_reset",
+        "staff.password_admin_set",
         "staff.password_reset_requested",
         # the masterclass programme (masterclasses/admin.py, tests/test_masterclasses.py)
         *(a for a in audit_view.FIELD_ALLOWLISTS if a.startswith("masterclass")),

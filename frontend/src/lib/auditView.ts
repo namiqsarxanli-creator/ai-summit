@@ -75,6 +75,7 @@ export const ACTION_OPTIONS: [string, string][] = [
   ["staff.password_change", "Password changed"],
   ["staff.password_reset_requested", "Password reset email requested"],
   ["staff.password_reset", "Password reset completed"],
+  ["staff.password_admin_set", "Password set by an administrator"],
   ["export.started", "CSV export started"],
   ["export.finished", "CSV export finished"],
   ["export.rejected", "CSV export refused"],

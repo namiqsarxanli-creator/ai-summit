@@ -696,6 +696,8 @@ def test_the_mutating_route_inventory_is_what_m16_expects() -> None:
         ("POST", "/api/admin/staff-scopes/{scope_id}/revoke"),
         ("POST", "/api/admin/staff/{staff_id}/deactivate"),
         # An administrator starts a reset EMAIL for a staff member (no password, no code).
+        # An administrator sets a staff member's new password without email (8 Nov 2026).
+        ("POST", "/api/admin/staff/{staff_id}/password"),
         ("POST", "/api/admin/staff/{staff_id}/password-reset"),
         ("POST", "/api/admin/tasks"),
         ("PUT", "/api/admin/booths/{booth_id}/weights/{interest_id}"),

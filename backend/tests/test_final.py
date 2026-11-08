@@ -306,7 +306,7 @@ def test_review_publish_and_a_new_version_never_rewrites_the_published_one(fin: 
     fin.rig.sql("UPDATE users SET first_name = 'Aysel', last_name = 'Məmmədova' WHERE id = :u", u=a)
     fin.all_zones(a)  # 26 + Founder 15 = 41
     fin.pay(b, PointsSource.PANEL, "panel:1", 8)
-    fin.clock.now = baku("17:35")
+    fin.clock.now = baku("17:46")  # after the Grand Final check-in
     gm = fin.game_master()
     draft = gm.post("/api/staff/final")
     assert draft.status_code == 201, draft.text
@@ -424,7 +424,7 @@ def test_an_unconfirmed_founder_rule_awards_nothing_and_names_no_one(
     assert all(mine["zones"].values())  # the evidence itself is still shown
     assert mine["founder_rule_confirmed"] is False
     assert mine["founder"] is False and mine["lucky_draw"] is False
-    fin.clock.now = baku("17:35")
+    fin.clock.now = baku("17:46")  # after the Grand Final check-in
     gm = fin.game_master()
     row = gm.post("/api/staff/final").json()
     assert row["founders"] == 0 and row["founder_rule_confirmed"] is False
@@ -492,6 +492,18 @@ def test_a_draft_the_ledger_has_moved_past_cannot_be_published(fin: Final) -> No
     assert fin.rig.scalar("SELECT status FROM final_results WHERE id = :i", i=draft["id"]) == (
         "DRAFT"
     )
+
+
+def test_the_result_is_published_only_after_the_grand_final_check_in_closes(fin: Final) -> None:
+    fin.grand_final()  # 17:25-17:45: a check-in can still add a Founder bonus until then
+    fin.clock.now = baku("17:40")
+    gm = fin.game_master()
+    draft = gm.post("/api/staff/final").json()  # a draft for review is fine
+    refused = gm.post(f"/api/staff/final/{draft['id']}/publish")
+    assert refused.status_code == 409
+    assert refused.json()["error"]["details"]["reason"] == "grand_final_open"
+    fin.clock.now = baku("17:45")
+    assert gm.post(f"/api/staff/final/{draft['id']}/publish").json()["status"] == "published"
 
 
 def test_unresolved_offline_reviews_block_publication(fin: Final) -> None:

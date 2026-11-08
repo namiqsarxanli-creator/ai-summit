@@ -19,6 +19,7 @@ import {
 } from "@/lib/final";
 
 import { OfflineReview } from "./OfflineReview";
+import { confirmAction } from "@/lib/confirm";
 
 type Notice = { tone: "ok" | "warn"; text: string } | null;
 type State = { kind: "loading" } | { kind: "error"; text: string } | { kind: "ok"; data: Versions };
@@ -112,7 +113,7 @@ export function FinalReview() {
                     type="button"
                     disabled={busy}
                     className="fm-btn fm-btn-primary fm-btn-block"
-                    onClick={() => { if (window.confirm(t("Publish this version on the big screen and to every attendee?"))) void run(() => publishVersion(v.id), "Published."); }}
+                    onClick={() => { void confirmAction(t("Publish this version on the big screen and to every attendee?")).then((ok) => { if (ok) void run(() => publishVersion(v.id), "Published."); }); }}
                   >
                     {t("Publish")}
                   </button>

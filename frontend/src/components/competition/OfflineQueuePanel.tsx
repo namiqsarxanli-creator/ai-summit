@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLanguage } from "@/components/ui/LanguageProvider";
 import { messageFor } from "@/lib/errors";
 import { claim, discard, durableQueueSupported, flush, queueState, type FlushReport, type Owner, type QueueState } from "@/lib/offlineQueue";
+import { confirmAction } from "@/lib/confirm";
 
 const TICK_MS = 30_000;
 
@@ -108,7 +109,7 @@ export function OfflineQueuePanel({ owner: given }: { owner: Owner }) {
           <p>{t("{n} scans on this phone belong to another account or to an earlier event dataset. They are not sent as yours.").replace("{n}", String(others.length))}</p>
           <p className="fm-small">{t("Sign in with the account that made them to send them.")} {others[0]?.owner?.name ? `(${others[0].owner.name})` : ""}</p>
           <button type="button" className="fm-btn fm-btn-quiet" onClick={() => {
-            if (window.confirm(t("Delete these scans from this phone? They were never sent."))) decide(discard(others.map((s) => s.client_scan_id)));
+            void confirmAction(t("Delete these scans from this phone? They were never sent.")).then((ok) => { if (ok) decide(discard(others.map((s) => s.client_scan_id))); });
           }}>{t("Delete them from this phone")}</button>
         </div>
       )}
@@ -116,10 +117,10 @@ export function OfflineQueuePanel({ owner: given }: { owner: Owner }) {
         <div className="fm-alert fm-alert-warn" data-testid="offline-quarantine-unfiled">
           <p>{t("{n} scans were saved by an older version of this page, without the account that made them.").replace("{n}", String(unfiled.length))}</p>
           <button type="button" className="fm-btn fm-btn-secondary fm-btn-block" onClick={() => {
-            if (window.confirm(t("Send them as your scans? Only do this if you made them on this phone."))) decide(claim(unfiled.map((s) => s.client_scan_id), owner), () => void send());
+            void confirmAction(t("Send them as your scans? Only do this if you made them on this phone.")).then((ok) => { if (ok) decide(claim(unfiled.map((s) => s.client_scan_id), owner), () => void send()); });
           }}>{t("I made them: send as mine")}</button>
           <button type="button" className="fm-btn fm-btn-quiet" onClick={() => {
-            if (window.confirm(t("Delete these scans from this phone? They were never sent."))) decide(discard(unfiled.map((s) => s.client_scan_id)));
+            void confirmAction(t("Delete these scans from this phone? They were never sent.")).then((ok) => { if (ok) decide(discard(unfiled.map((s) => s.client_scan_id))); });
           }}>{t("Delete them from this phone")}</button>
         </div>
       )}
@@ -127,7 +128,7 @@ export function OfflineQueuePanel({ owner: given }: { owner: Owner }) {
         <div className="fm-alert fm-alert-warn" data-testid="offline-expired">
           <p>{t("{n} scans on this phone are older than a day and are no longer sent automatically.").replace("{n}", String(state.expired.length))}</p>
           <button type="button" className="fm-btn fm-btn-quiet" onClick={() => {
-            if (window.confirm(t("Delete these scans from this phone? They were never sent."))) decide(discard(state.expired.map((s) => s.client_scan_id)));
+            void confirmAction(t("Delete these scans from this phone? They were never sent.")).then((ok) => { if (ok) decide(discard(state.expired.map((s) => s.client_scan_id))); });
           }}>{t("Delete them from this phone")}</button>
         </div>
       )}

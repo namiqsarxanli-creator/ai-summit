@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { ConfirmHost } from "@/components/ui/ConfirmHost";
 import { PwaRegistration } from "@/components/ui/PwaRegistration";
 import { LanguageProvider, LanguageSwitcher, T } from "@/components/ui/LanguageProvider";
 import { BRAND, SITE_DESCRIPTION, siteOrigin } from "@/lib/site";
@@ -43,7 +44,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className="min-h-screen antialiased"><LanguageProvider><a href="#main-content" className="fm-skip"><T id="Skip to content" /></a><LanguageSwitcher />{children}<PwaRegistration /></LanguageProvider></body>
+      <body className="min-h-screen antialiased"><LanguageProvider><a href="#main-content" className="fm-skip"><T id="Skip to content" /></a><LanguageSwitcher />{children}<ConfirmHost /><PwaRegistration /></LanguageProvider></body>
     </html>
   );
 }

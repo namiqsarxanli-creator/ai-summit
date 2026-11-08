@@ -842,7 +842,7 @@ def test_an_administrator_can_start_a_reset_email_but_never_sees_the_code(
     assert event["actor_id"] == admin_id and event["hidden_field_count"] == 0
 
 
-def test_the_administrator_has_no_way_to_set_a_password_or_see_a_code(rig: Rig, mail: Mail) -> None:
+def test_the_reset_email_takes_no_password_and_shows_no_code(rig: Rig, mail: Mail) -> None:
     target = _staff_id(rig, STAFF_EMAIL)
     rig.sign_in(StaffRole.ADMIN)
     for forbidden in (
@@ -947,3 +947,46 @@ def test_the_admin_email_delivery_list_shows_a_reset_email_without_its_address_o
     assert item["purpose"] == "STAFF_PASSWORD_RESET" and item["status"] == "accepted"
     assert item["email_masked"] == "a***@staff.facemark.demo"
     assert STAFF_EMAIL not in response.text and code not in response.text
+
+
+# --- an administrator sets the password, no email (8 Nov 2026) ------------------
+
+
+def test_an_administrator_sets_a_staff_password_without_email(rig: Rig) -> None:
+    target = _staff_id(rig, STAFF_EMAIL)
+    assert _login(rig, STAFF_EMAIL, SEED_STAFF_PASSWORD).status_code == 204
+    assert _sessions(rig, target)[0] >= 1
+    rig.sign_in(StaffRole.ADMIN)
+    body = {"new_password": NEW_PASSWORD, "new_password_confirmation": NEW_PASSWORD}
+    url = f"/api/admin/staff/{target}/password"
+    assert rig.client.post(url, json=body).status_code == 204
+    assert _sessions(rig, target)[0] == 0  # every session of the account ended
+    assert rig.scalar("SELECT count(*) FROM otp_challenges") == 0  # no email, no code
+    row = rig.sql(
+        "SELECT after_value::text FROM admin_audit WHERE action = 'staff.password_admin_set'"
+    )[0]
+    assert NEW_PASSWORD not in row[0] and "argon2" not in row[0]
+    assert _login(rig, STAFF_EMAIL, SEED_STAFF_PASSWORD).status_code == 401
+    assert _login(rig, STAFF_EMAIL, NEW_PASSWORD).status_code == 204
+
+
+def test_setting_a_password_is_for_administrators_on_active_non_admin_accounts(
+    rig: Rig,
+) -> None:
+    target = _staff_id(rig, STAFF_EMAIL)
+    admin = _staff_id(rig, ADMIN_EMAIL)
+    body = {"new_password": NEW_PASSWORD, "new_password_confirmation": NEW_PASSWORD}
+    rig.sign_in(StaffRole.BOOTH_STAFF)
+    assert rig.client.post(f"/api/admin/staff/{target}/password", json=body).status_code == 403
+    rig.sign_in(StaffRole.ADMIN)
+    assert _error(rig.client.post(f"/api/admin/staff/{admin}/password", json=body))[0] == 400
+    short = {"new_password": "short", "new_password_confirmation": "short"}
+    assert _error(rig.client.post(f"/api/admin/staff/{target}/password", json=short)) == (
+        422,
+        "VALIDATION_ERROR",
+    )
+    mismatch = {"new_password": NEW_PASSWORD, "new_password_confirmation": OTHER_NEW_PASSWORD}
+    assert rig.client.post(f"/api/admin/staff/{target}/password", json=mismatch).status_code == 422
+    assert rig.client.post("/api/admin/staff/999999/password", json=body).status_code == 404
+    rig.sql("UPDATE staff_accounts SET is_active = false WHERE id = :s", s=target)
+    assert _error(rig.client.post(f"/api/admin/staff/{target}/password", json=body))[0] == 400

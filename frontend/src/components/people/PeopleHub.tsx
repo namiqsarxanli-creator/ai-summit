@@ -12,6 +12,7 @@ import { resolveCardText } from "@/lib/competition";
 import { messageFor } from "@/lib/errors";
 import { labelOf } from "@/lib/interestCard";
 import { eventTime } from "@/lib/masterclasses";
+import { confirmAction } from "@/lib/confirm";
 import {
   REASON_TEXT,
   blockPerson,
@@ -124,7 +125,7 @@ export function PeopleHub() {
                 <ul className="fm-chips">{p.shared_topics.map((topic) => <li key={topic} className="fm-chip">{t(labelOf("topics", topic))}</li>)}</ul>
               )}
               <button type="button" disabled={busy} className="fm-btn fm-btn-primary fm-btn-block" onClick={() => void run(`p${p.user_id}`, () => sendRequest(p.user_id, crypto.randomUUID()), "Request sent.")}>{t("Let's meet")}</button>
-              <button type="button" disabled={busy} className="fm-btn fm-btn-quiet" onClick={() => { if (window.confirm(t("Block this person? You will not see each other here."))) void run(`p${p.user_id}`, () => blockPerson(p.user_id), "Blocked."); }}>{t("Block")}</button>
+              <button type="button" disabled={busy} className="fm-btn fm-btn-quiet" onClick={() => { void confirmAction(t("Block this person? You will not see each other here.")).then((ok) => { if (ok) void run(`p${p.user_id}`, () => blockPerson(p.user_id), "Blocked."); }); }}>{t("Block")}</button>
               {line(`p${p.user_id}`)}
             </li>
           ))}

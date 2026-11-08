@@ -365,6 +365,7 @@ FIELD_ALLOWLISTS: Mapping[str, Mapping[str, _Coerce]] = {
     "points.reverse": _REVERSAL,
     "staff.password_change": _PASSWORD_CHANGED,
     "staff.password_reset": _PASSWORD_CHANGED,
+    "staff.password_admin_set": _PASSWORD_CHANGED,
     "staff.password_reset_requested": _PASSWORD_RESET_REQUESTED,
     "masterclass_event.create": _MC_EVENT,
     "masterclass_event.update": _MC_EVENT,

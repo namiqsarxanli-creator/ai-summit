@@ -9,7 +9,11 @@ Three flows, all inside the caller's fenced `mutating_transaction`:
   the new password set the password;
 * `start_reset_for` - an administrator makes the system email that code to a
   staff member's OWN address. The administrator never sees the code and never
-  chooses the new password: they only trigger the letter.
+  chooses the new password: they only trigger the letter;
+* `set_by_admin` - an administrator sets a staff member's new password
+  directly, with no email (owner's decision, 8 Nov 2026: the booth logins use
+  addresses that receive no mail). Never for an administrator account, never for
+  a deactivated one; every session of the account ends, as with any change.
 
 Rules that hold for all three:
 
@@ -74,7 +78,7 @@ from app.modules.admin.models import AdminAudit
 from app.modules.admin.service import AdminInvalid, AdminNotFound, authenticate_admin
 from app.modules.attendees.models import OtpChallenge, OtpPurpose
 from app.modules.attendees.service import OTP_MAX_ATTEMPTS, issue_otp
-from app.modules.staff.models import StaffAccount
+from app.modules.staff.models import StaffAccount, StaffRole
 from app.modules.staff.service import FAILED_LOGIN_LOCK_THRESHOLD, LOCKOUT_DURATION
 
 logger = logging.getLogger(__name__)
@@ -83,6 +87,7 @@ logger = logging.getLogger(__name__)
 AUDIT_PASSWORD_CHANGE = "staff.password_change"
 AUDIT_RESET_REQUESTED = "staff.password_reset_requested"
 AUDIT_RESET_DONE = "staff.password_reset"
+AUDIT_ADMIN_SET = "staff.password_admin_set"
 AUDIT_TARGET = "staff_account"
 
 
@@ -256,6 +261,34 @@ def start_reset_for(
         staff_id=staff.id,
         after={"initiated_by": "admin"},
     )
+
+
+# --- set by an administrator, without email ---------------------------------------
+
+
+def set_by_admin(
+    db: Session, *, raw_session_token: str | None, staff_id: int, new_password: str
+) -> int:
+    """An administrator gives a staff account a new password and tells its owner.
+    Authority is checked here, inside the fence. Returns the sessions ended."""
+    admin = authenticate_admin(db, raw_session_token)
+    limiter.check([(ADMIN_RESET_START_PER_ADMIN, str(admin.id))])
+    staff = db.get(StaffAccount, staff_id)
+    if staff is None:
+        raise AdminNotFound("No such staff account.")
+    if staff.role == StaffRole.ADMIN:
+        raise AdminInvalid("An administrator changes their own password with the current one.")
+    if not staff.is_active:
+        raise AdminInvalid("A deactivated account cannot get a new password.")
+    ended = _set_password(db, staff, new_password)
+    _audit(
+        db,
+        actor_id=admin.id,
+        action=AUDIT_ADMIN_SET,
+        staff_id=staff.id,
+        after={"sessions_revoked": ended},
+    )
+    return ended
 
 
 # --- reset by email: finishing it -----------------------------------------------

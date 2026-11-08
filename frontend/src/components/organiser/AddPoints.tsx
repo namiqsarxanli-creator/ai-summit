@@ -6,6 +6,7 @@ import { useLanguage } from "@/components/ui/LanguageProvider";
 import { apiPost } from "@/lib/api";
 import { CATEGORY_LABEL, OUTCOME_TEXT, type AwardOutcome } from "@/lib/competition";
 import { messageFor } from "@/lib/errors";
+import { confirmAction } from "@/lib/confirm";
 
 const SOURCES = ["PROFILE", "PANEL", "QMETER", "MASTERCLASS", "PLAYGROUND", "CONNECTION"] as const;
 
@@ -31,7 +32,7 @@ export function AddPoints({ onAdded }: { onAdded: () => void }) {
 
   async function submit() {
     if (!ready || busy) return;
-    if (!window.confirm(t("Add {p} points to attendee {n}?").replace("{p}", String(amount)).replace("{n}", String(id)))) return;
+    if (!(await confirmAction(t("Add {p} points to attendee {n}?").replace("{p}", String(amount)).replace("{n}", String(id))))) return;
     setBusy(true);
     setNotice(null);
     command.current ??= crypto.randomUUID();

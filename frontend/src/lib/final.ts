@@ -49,6 +49,7 @@ const REASONS: Record<string, string> = {
   newer_version_published: "A newer version is already published.",
   stale_snapshot: "Points changed after this snapshot. Take a new snapshot, check it, and publish that one.",
   offline_reviews_pending: "Late scans still wait for review. Approve or reject them, then take a new snapshot.",
+  grand_final_open: "The Grand Final check-in is still open: a late check-in can still add a Founder bonus. Publish after it closes.",
   founder_rule_unconfirmed: "The Founder rule is not confirmed yet, so there is no Lucky Draw list.",
   not_configured: "The event is not set up yet.",
 };
