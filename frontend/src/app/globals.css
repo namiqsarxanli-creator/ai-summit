@@ -254,7 +254,7 @@ body:has(.fm-home) .fm-language-switcher { position: absolute; top: 0; left: 50%
 .fm-back { display: inline-flex; align-items: center; gap: 4px; min-width: var(--fm-tap); min-height: var(--fm-tap); color: var(--fm-red-ink); font-size: 15px; font-weight: 650; text-decoration: none; }
 .fm-back span { font-size: 28px; line-height: 1; }
 .fm-page-heading { position: relative; isolation: isolate; overflow: hidden; min-height: 177px; padding: 22px 12px 22px 0; border-bottom: 1px solid #f1e5e1; }
-.fm-page-heading::before { content: ''; position: absolute; z-index: -2; top: 0; bottom: 0; right: calc(-1 * var(--fm-gutter)); width: 55%; background: url('/summit-hero-clean.png') 67% 67% / 290px auto no-repeat; }
+.fm-page-heading::before { content: ''; position: absolute; z-index: -2; top: 0; bottom: 0; right: calc(-1 * var(--fm-gutter)); width: 55%; background: url('/summit-hero.webp') 67% 67% / 290px auto no-repeat; }
 .fm-page-heading::after { content: ''; position: absolute; z-index: -1; inset: 0; background: linear-gradient(90deg,#fff 25%,#ffffffe8 49%,#ffffff00 88%); }
 .fm-page-symbol { display: grid; width: 40px; height: 40px; place-items: center; border-radius: 12px; background: #f9e9e6; color: var(--fm-red); margin-bottom: 12px; }
 .fm-page-symbol svg { width: 22px; height: 22px; }
@@ -284,7 +284,7 @@ body:has(.fm-home) .fm-language-switcher { position: absolute; top: 0; left: 50%
 /* 8. Screens -------------------------------------------------------------- */
 /* Home: artwork contains no lettering; all text is live and localised. */
 .fm-hero { position: relative; isolation: isolate; aspect-ratio: 1 / 1.12; overflow: hidden; background: #fff; }
-.fm-hero-art { position: absolute; inset: 0; z-index: -1; background: url('/summit-hero-clean.png') center bottom / 100% auto no-repeat; }
+.fm-hero-art { position: absolute; inset: 0; z-index: -1; background: url('/summit-hero.webp') center bottom / 100% auto no-repeat; }
 .fm-hero-content { padding: 78px 22px 0; }
 .fm-hero-brand h1 { font-family: "Arial Black", Arial, sans-serif; font-stretch: condensed; font-weight: 900; letter-spacing: -.06em; color: #ac1822; line-height: .98; font-size: clamp(41px, 12vw, 54px); }
 .fm-hero-tagline { margin-top: 10px; color: #a61922; font-size: clamp(22px, 6.4vw, 27px); font-weight: 800; letter-spacing: -.01em; line-height: 1.1; }
@@ -332,7 +332,7 @@ body:has(.fm-home) .fm-language-switcher { position: absolute; top: 0; left: 50%
 .fm-hub-wide .fm-hub-title { font-size: 24px; }
 .fm-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .fm-action { position: relative; isolation: isolate; overflow: hidden; min-height: 173px; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; padding: 17px 14px 45px; border: 1px solid #f0e7e5; border-radius: 17px; box-shadow: 0 7px 18px #42151a0c; text-decoration: none; }
-.fm-action::before { content: ''; position: absolute; inset: 0; z-index: -2; background-image: url('/summit-original-concept.png'); background-repeat: no-repeat; background-size: 226% auto; }
+.fm-action::before { content: ''; position: absolute; inset: 0; z-index: -2; background-image: url('/summit-concept.webp'); background-repeat: no-repeat; background-size: 226% auto; }
 .fm-action-booths { color: #fff; background: #a4101b; }
 .fm-action-booths::before { background-position: 8.2% 83.7%; }
 .fm-action-booths::after { content: ''; position: absolute; inset: 0; z-index: -1; background: linear-gradient(90deg,#a4101b 0%,#a4101b 54%,#a4101be8 59%,#a4101b00 76%); }
@@ -353,7 +353,7 @@ body:has(.fm-home) .fm-language-switcher { position: absolute; top: 0; left: 50%
 .fm-session-profession { color: var(--fm-muted); font-size: 13px; }
 
 /* Avatars: a profile photo over the summit robot, which is the circle's own background. */
-.fm-avatar { position: relative; display: block; flex: none; overflow: hidden; border-radius: 50%; background: #fae9e5 url('/summit-hero-clean.png') 69% 54% / 570% auto no-repeat; }
+.fm-avatar { position: relative; display: block; flex: none; overflow: hidden; border-radius: 50%; background: #fae9e5 url('/summit-hero.webp') 69% 54% / 570% auto no-repeat; }
 .fm-avatar-img { object-fit: cover; }
 .fm-rank-avatar { width: 46px; height: 46px; border: 2px solid #fff; box-shadow: 0 3px 10px #52151a1a; }
 .fm-avatar-profile { width: 88px; height: 88px; border: 5px solid #fbece8; box-shadow: 0 4px 14px #52151a14; }
@@ -389,10 +389,10 @@ body:has(.fm-home) .fm-language-switcher { position: absolute; top: 0; left: 50%
 .fm-booth-blurb { margin: 0; color: var(--fm-ink); font-size: 15px; line-height: 1.55; }
 .fm-booth-about { display: grid; gap: 6px; padding: 16px 18px; border: 1px solid #f0c9c4; border-left: 6px solid var(--fm-red); border-radius: 16px; background: linear-gradient(135deg, #fff4f2, #fff); box-shadow: 0 6px 18px #a7192314; }
 .fm-booth-about-text { margin: 0; color: var(--fm-ink); font-size: 17px; font-weight: 650; line-height: 1.5; }
-.fm-booth-card::before { content: ''; position: absolute; inset: 0 0 auto; height: 96px; background: linear-gradient(90deg,#a71923 0%,#a7192388 38%,#a7192300),url('/summit-hero-clean.png') 80% 45% / 450px auto no-repeat; }
+.fm-booth-card::before { content: ''; position: absolute; inset: 0 0 auto; height: 96px; background: linear-gradient(90deg,#a71923 0%,#a7192388 38%,#a7192300),url('/summit-hero.webp') 80% 45% / 450px auto no-repeat; }
 .fm-booth-name { color: var(--fm-red-ink); font-size: 19px; font-weight: 800; line-height: 1.2; letter-spacing: -.02em; }
 .fm-booth-name a { color: inherit; text-decoration: none; display: inline-flex; align-items: center; min-height: var(--fm-tap); }
-.fm-booth-hero { padding: 128px 20px 22px; border: 1px solid #efdfd9; border-radius: 18px; background: linear-gradient(0deg,#fff 4%,#ffffff00),url('/summit-hero-clean.png') 75% 49% / cover; }
+.fm-booth-hero { padding: 128px 20px 22px; border: 1px solid #efdfd9; border-radius: 18px; background: linear-gradient(0deg,#fff 4%,#ffffff00),url('/summit-hero.webp') 75% 49% / cover; }
 .fm-booth-hero h1 { color: var(--fm-red); font-size: 26px; font-weight: 800; line-height: 1.12; letter-spacing: -.03em; }
 .fm-activity { padding: 14px 16px; border: 1px solid #f0e1dc; border-left: 3px solid #b43138; border-radius: 14px; background: #fffaf8; }
 

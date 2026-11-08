@@ -31,6 +31,12 @@ const nextConfig: NextConfig = {
   // in the path does not leak to LinkedIn on tap; §9.5: `noindex`.
   async headers() {
     return [
+      // The page backgrounds (8 Nov 2026: 1.4 MB PNGs became small WebP files). A
+      // new picture gets a new file name, so a week in the browser is safe.
+      ...["/summit-hero.webp", "/summit-concept.webp"].map((source) => ({
+        source,
+        headers: [{ key: "Cache-Control", value: "public, max-age=604800, stale-while-revalidate=86400" }],
+      })),
       {
         source: "/phone-ca.mobileconfig",
         headers: [
