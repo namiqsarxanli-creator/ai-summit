@@ -13,7 +13,7 @@ blocks in five rooms with published masterclasses, two Main Stage panels, the
 each, mentor sessions of at most six, Match Corner tables, and the staff scopes
 that let every door, mentor group and booth be scanned.
 
-The 13 Nov agenda (Gundelik, 2 Nov) moved Panel 1 to 10:20 and has neither a
+The final 13 Nov agenda (8 Nov) has Panel 1 at 10:30-11:30 and neither a
 Meet the Mentor slot nor room for a Match Corner: with no mentor session or no
 active table that activity is reported as "info" (not used), not as missing.
 """
@@ -236,7 +236,7 @@ def check(db: Session) -> list[Check]:
         ),
         "expected event-day blocks 11:30-13:00 / 16:00-17:30, deadlines 11:00 / 15:30",
     )
-    expected_panels = {(time(10, 20), time(11, 30)), (time(14), time(15, 30))}
+    expected_panels = {(time(10, 30), time(11, 30)), (time(14), time(15, 30))}
     actual_panels = {
         (p.starts_at.astimezone(ZoneInfo(zone)).time(), p.ends_at.astimezone(ZoneInfo(zone)).time())
         for p in panels
@@ -249,7 +249,7 @@ def check(db: Session) -> list[Check]:
             and p.ends_at.astimezone(ZoneInfo(zone)).date() == EVENT_DATE
             for p in panels
         ),
-        "expected event-day panels 10:20-11:30 / 14:00-15:30",
+        "expected event-day panels 10:30-11:30 / 14:00-15:30",
     )
 
     mode = bool(

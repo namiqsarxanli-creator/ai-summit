@@ -19,14 +19,14 @@ const BEFORE = [
 ] as const;
 
 const ROUTE = [
-  { title: "Panel 1 · The future of AI", time: "Shusha Hall · 10:20–11:30", tag: "8 points", detail: "Scan the entry code on the big screen in the first 15 minutes and the exit code in the last 10 minutes. Both are needed." },
+  { title: "Panel 1 · The future of AI", time: "Shusha Hall · 10:30–11:30", tag: "8 points", detail: "Scan the entry code on the big screen in the first 15 minutes and the exit code in the last 10 minutes. Both are needed." },
   { title: "Qmeter questions", time: "During the panels", tag: "Up to 4 points", detail: "Ask your question in Qmeter. Points are recorded by name and phone number, so use the details you have in the app." },
   { title: "Masterclass 1", time: "11:30–13:00", tag: "12 points", detail: "Go to the masterclass you chose. Show your QR card to the volunteer at the door when you enter and when you leave." },
-  { title: "AI Playground", time: "09:00–18:00", tag: "Up to 24 points", detail: "Come to the booth at your 15-minute session, alone or in a team of 2–3, and play. At the end, show your QR card to be scanned." },
+  { title: "AI Playground", time: "09:00–18:00", tag: "Up to 24 points", detail: "Come to the booth at your 15-minute session, alone or in a team of 2–3, and play. When you finish, show your QR card to be scanned." },
   { title: "Connection Hub", time: "All day", tag: "Up to 12 points", detail: "Meet new people and scan each other's QR in People. The same person counts only once." },
   { title: "Panel 2 · Humans and AI", time: "Shusha Hall · 14:00–15:30", tag: "8 points", detail: "Scan the entry and exit codes the same way as in Panel 1." },
   { title: "Masterclass 2", time: "16:00–17:30", tag: "12 points", detail: "Show your QR card at the door when you enter and when you leave." },
-  { title: "Grand Final", time: "Shusha Hall · code open 17:25–17:45", tag: "Founder", detail: "Scan the code on the screen as you enter the hall: it confirms you stayed to the end. Then the final game and the Lucky Draw." },
+  { title: "Grand Final", time: "Shusha Hall · code open 17:30–18:00", tag: "Founder", detail: "Scan the code on the screen as you enter the hall: it confirms you stayed to the end. Then the final game and the Lucky Draw." },
 ] as const;
 
 const POINTS = [
@@ -44,7 +44,7 @@ const RULES = [
   { title: "Your code is yours", detail: "Scan only for yourself. Points written in someone else's name are cancelled." },
   { title: "Watch the time windows", detail: "Panels: the entry code works in the first 15 minutes, the exit code in the last 10. Masterclasses: entry in the first 10 minutes, exit in the last 10." },
   { title: "Do not be late for a booth", detail: "More than 3 minutes late, your place goes to the queue." },
-  { title: "Plan your booths", detail: "The free times are 09:00–10:15, 13:00–14:00 and 15:30–16:00. A session during a panel costs you that panel's points." },
+  { title: "Plan your booths", detail: "The free times are 09:00–10:30, 13:00–14:00 and 15:30–16:00. A session during a panel costs you that panel's points." },
   { title: "Keep your phone charged", detail: "Points can be earned until 17:30; the Grand Final code comes after that." },
 ] as const;
 

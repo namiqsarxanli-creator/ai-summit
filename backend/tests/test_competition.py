@@ -1168,14 +1168,14 @@ def test_readiness_accepts_a_complete_programme_without_writing(comp: Comp) -> N
     from app.modules.competition.readiness import check, ready
 
     comp.rig.sql("UPDATE event_config SET competition_mode = true")
-    # The 13 Nov agenda: Panel 1 at 10:20-11:30.
-    comp.rig.sql("UPDATE panels SET starts_at = :s WHERE id = :p", s=baku("10:20"), p=comp.panel1)
+    # The final 13 Nov agenda: Panel 1 at 10:30-11:30.
+    comp.rig.sql("UPDATE panels SET starts_at = :s WHERE id = :p", s=baku("10:30"), p=comp.panel1)
     comp.rig.sql(
         "INSERT INTO panels (event_id, code, title, starts_at, ends_at) "
         "VALUES (:e, 'grand-final', 'Grand Final', :s, :f)",
         e=comp.event,
-        s=baku("17:25"),
-        f=baku("17:45"),
+        s=baku("17:30"),
+        f=baku("18:00"),
     )
     for block in (comp.b1, comp.b2):
         for _ in range(5):
