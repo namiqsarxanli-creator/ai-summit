@@ -26,7 +26,7 @@ const ROUTE = [
   { title: "Connection Hub", time: "All day", tag: "Up to 12 points", detail: "Meet new people and scan each other's QR in People. The same person counts only once." },
   { title: "Panel 2 · Humans and AI", time: "Shusha Hall · 14:00–15:30", tag: "8 points", detail: "Scan the entry and exit codes the same way as in Panel 1." },
   { title: "Masterclass 2", time: "16:00–17:30", tag: "12 points", detail: "Show your QR card at the door when you enter and when you leave." },
-  { title: "Grand Final", time: "Shusha Hall · code open 17:30–18:00", tag: "Founder", detail: "Scan the code on the screen as you enter the hall: it confirms you stayed to the end. Then the final game and the Lucky Draw." },
+  { title: "Grand Final", time: "Shusha Hall · code open 17:30–17:45", tag: "Founder", detail: "Scan the code on the screen as you enter the hall: it confirms you stayed to the end. Then the final game and the Lucky Draw." },
 ] as const;
 
 const POINTS = [

@@ -41,7 +41,7 @@ export const guideTranslations: Record<string, { az: string; ru: string }> = {
   "Masterclass 2": { az: "Masterklas 2", ru: "Мастер-класс 2" },
   "16:00–17:30": { az: "16:00–17:30", ru: "16:00–17:30" },
   "Show your QR card at the door when you enter and when you leave.": { az: "Girəndə və çıxanda QR kartınızı qapıda göstərin.", ru: "Покажите QR-карту у двери при входе и при выходе." },
-  "Shusha Hall · code open 17:30–18:00": { az: "Şuşa zalı · kod 17:30–18:00 arası aktivdir", ru: "Зал Шуша · код активен 17:30–18:00" },
+  "Shusha Hall · code open 17:30–17:45": { az: "Şuşa zalı · kod 17:30–17:45 arası aktivdir", ru: "Зал Шуша · код активен 17:30–17:45" },
   "Founder": { az: "Founder", ru: "Founder" },
   "Scan the code on the screen as you enter the hall: it confirms you stayed to the end. Then the final game and the Lucky Draw.": { az: "Zala girəndə ekrandakı kodu skan edin: bu, sonadək qaldığınızı təsdiqləyir. Ardınca final oyunu və Lucky Draw.", ru: "При входе в зал отсканируйте код на экране: это подтверждает, что вы остались до конца. Затем финальная игра и Lucky Draw." },
 
