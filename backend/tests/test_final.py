@@ -792,3 +792,20 @@ def test_public_statuses_agree_when_the_close_is_missing_or_the_ranking_is_off(
     fin.rig.sql("UPDATE event_config SET competition_mode = true")
     assert TestClient(app).get("/api/final").json()["status"] == "open"
     assert TestClient(app).get("/api/screen/live").json()["state"] == "open"
+
+
+def test_the_game_master_opens_the_grand_final_check_in_for_fifteen_minutes(fin: Final) -> None:
+    final = fin.grand_final()  # set up in advance at 17:25-17:45
+    gm = fin.game_master()
+    fin.clock.now = baku("17:52")  # the programme slipped
+    opened = gm.post("/api/staff/grand-final/open")
+    assert opened.status_code == 200, opened.text
+    starts, ends = fin.rig.sql("SELECT starts_at, ends_at FROM panels WHERE id = :p", p=final)[0]
+    assert starts == baku("17:52") and ends == baku("18:07")
+    assert fin.rig.scalar("SELECT count(*) FROM admin_audit WHERE action = 'panel.update'") == 1
+    draft = gm.post("/api/staff/final").json()
+    fin.clock.now = baku("18:00")
+    refused = gm.post(f"/api/staff/final/{draft['id']}/publish")
+    assert refused.json()["error"]["details"]["reason"] == "grand_final_open"
+    fin.clock.now = baku("18:07")
+    assert gm.post(f"/api/staff/final/{draft['id']}/publish").json()["status"] == "published"

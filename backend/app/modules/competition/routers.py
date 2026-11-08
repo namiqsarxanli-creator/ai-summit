@@ -39,15 +39,20 @@ from app.core.ratelimit import RateLimit, limiter
 from app.core.sessions import resolve_staff_session
 from app.db.session import DbSession, mutating_transaction
 from app.modules.admin import service as admin
+from app.modules.admin.models import AdminAudit
 from app.modules.admin.routers import _read
 from app.modules.admin.schemas import PointsLogPage, PointsLogQuery
-from app.modules.admin.service import AdminInvalid, AdminResult, required
+from app.modules.admin.service import AdminInvalid, AdminNotFound, AdminResult, required
 from app.modules.attendees.models import User
 from app.modules.attendees.profile import lock_attendee
 from app.modules.booths.models import Booth
 from app.modules.competition import attendance, manual, organiser, panels
 from app.modules.competition.models import SCOPES, Panel, StaffScope
-from app.modules.competition.rules import CATEGORIES
+from app.modules.competition.rules import (
+    CATEGORIES,
+    GRAND_FINAL_CHECKIN_MINUTES,
+    GRAND_FINAL_CODE,
+)
 from app.modules.masterclasses.models import Masterclass, MasterclassEvent
 from app.modules.mentors.models import MentorSession
 from app.modules.points import reversal
@@ -250,6 +255,40 @@ class ManualPoints(Strict):
     points: int = Field(ge=1, le=24)
     reason: str = Field(min_length=3, max_length=280)
     command_id: UUID
+
+
+@router.post("/staff/grand-final/open")
+def organiser_open_grand_final(token: SessionToken, db: DbSession) -> dict[str, Any]:
+    """The Game Master (or an administrator) opens the Grand Final check-in NOW,
+    for GRAND_FINAL_CHECKIN_MINUTES: the programme on the day decides when, not a
+    time set in advance. Pressing it again starts a fresh window. The final result
+    can be published only after the window closes (final.py)."""
+    maintenance_fast_path_check(db)
+    with mutating_transaction(db) as tx:
+        staff = organiser.authenticate_organiser(tx, token)
+        panel = tx.execute(
+            select(Panel).where(Panel.code == GRAND_FINAL_CODE).with_for_update()
+        ).scalar_one_or_none()
+        if panel is None:
+            raise AdminNotFound("The Grand Final check-in is not set up.")
+        before = panel_view(panel)
+        now = _now()
+        panel.starts_at = now
+        panel.ends_at = now + timedelta(minutes=GRAND_FINAL_CHECKIN_MINUTES)
+        tx.flush()
+        after = panel_view(panel)
+        tx.add(
+            AdminAudit(
+                staff_account_id=staff.id,
+                action=AUDIT_PANEL_UPDATE,
+                target_type="panel",
+                target_id=str(panel.id),
+                before_value=before,
+                after_value=after,
+            )
+        )
+        tx.flush()
+        return {"starts_at": after["starts_at"], "ends_at": after["ends_at"]}
 
 
 @router.post("/staff/points-log/award")

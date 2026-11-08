@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { AdminList } from "@/components/admin/AdminList";
 import { AttendanceDesk } from "@/components/competition/AttendanceDesk";
 import { FinalReview } from "@/components/competition/FinalReview";
+import { GrandFinalOpen } from "@/components/organiser/GrandFinalOpen";
 import { useLanguage } from "@/components/ui/LanguageProvider";
 import { AddPoints } from "@/components/organiser/AddPoints";
 import { IdReference } from "@/components/organiser/IdReference";
@@ -118,6 +119,7 @@ export function OrganiserPanel() {
               <li>{t("A connection with a person the app recommended, confirmed by a mutual QR scan, earns 3 points; no meeting booking is needed.")}</li>
               <li>{t("The Founder rule is not confirmed by the organisers yet: no Founder bonus is awarded or named.")}</li>
             </ul>
+            <GrandFinalOpen />
             <FinalReview />
           </>
         )}

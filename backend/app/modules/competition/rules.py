@@ -69,6 +69,9 @@ assert sum(c.maximum for c in CATEGORIES.values()) == 100
 # one ENTRY code for the row's whole time; scanning it records that the person
 # stayed to the end, which Beyond Now Founder requires (competition/founder.py).
 GRAND_FINAL_CODE: Final = "grand-final"
+# The Game Master opens the check-in when the hall is ready (FACEMARK, 8 Nov 2026:
+# "the programme always slips"): from that moment, for this many minutes.
+GRAND_FINAL_CHECKIN_MINUTES: Final = 15
 
 # Scan windows (PDF "Kim, nəyi, nə vaxt skan edir").
 PANEL_ENTRY_MINUTES: Final = 15  # first 15 minutes

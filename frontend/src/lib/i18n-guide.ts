@@ -41,9 +41,9 @@ export const guideTranslations: Record<string, { az: string; ru: string }> = {
   "Masterclass 2": { az: "Masterklas 2", ru: "Мастер-класс 2" },
   "16:00–17:30": { az: "16:00–17:30", ru: "16:00–17:30" },
   "Show your QR card at the door when you enter and when you leave.": { az: "Girəndə və çıxanda QR kartınızı qapıda göstərin.", ru: "Покажите QR-карту у двери при входе и при выходе." },
-  "Shusha Hall · code open 17:30–17:45": { az: "Şuşa zalı · kod 17:30–17:45 arası aktivdir", ru: "Зал Шуша · код активен 17:30–17:45" },
+  "Shusha Hall · after the awards, the code is open for 15 minutes": { az: "Şuşa zalı · kod elan olunduqdan sonra 15 dəqiqə aktivdir", ru: "Зал Шуша · после объявления код активен 15 минут" },
   "Founder": { az: "Founder", ru: "Founder" },
-  "Scan the code on the screen as you enter the hall: it confirms you stayed to the end. Then the final game and the Lucky Draw.": { az: "Zala girəndə ekrandakı kodu skan edin: bu, sonadək qaldığınızı təsdiqləyir. Ardınca final oyunu və Lucky Draw.", ru: "При входе в зал отсканируйте код на экране: это подтверждает, что вы остались до конца. Затем финальная игра и Lucky Draw." },
+  "When the Game Master opens it, scan the code on the screen within 15 minutes: it confirms you stayed to the end. Then the results and the Lucky Draw.": { az: "Game Master kodu açanda ekrandakı kodu 15 dəqiqə ərzində skan edin: bu, sonadək qaldığınızı təsdiqləyir. Sonra nəticələr və Lucky Draw.", ru: "Когда Game Master откроет код, отсканируйте его с экрана в течение 15 минут: это подтверждает, что вы остались до конца. Затем результаты и Lucky Draw." },
 
   "How 100 points add up": { az: "100 bal necə yığılır", ru: "Из чего складываются 100 баллов" },
   "2 panels · entry + exit": { az: "2 panel · giriş + çıxış", ru: "2 панели · вход + выход" },

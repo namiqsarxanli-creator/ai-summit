@@ -619,6 +619,7 @@ def test_the_mutating_route_inventory_is_what_m16_expects() -> None:
         ("POST", "/api/staff/final"),
         ("POST", "/api/staff/final/{result_id}/discard"),
         ("POST", "/api/staff/final/{result_id}/publish"),
+        ("POST", "/api/staff/grand-final/open"),
         # M11: the award mutation itself.
         # Verified participation: a scoped door volunteer, the slot's own booth
         # staff, a Game Master. Each re-checks its scope inside the fence.
