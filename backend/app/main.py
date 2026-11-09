@@ -56,6 +56,7 @@ from app.modules.matching.routers import router as matching_router
 from app.modules.media.routers import router as media_router
 from app.modules.mentors.routers import admin_router as mentors_admin_router
 from app.modules.mentors.routers import router as mentors_router
+from app.modules.notifications.routers import router as notifications_router
 from app.modules.people.pair_photo_routers import admin_router as pair_photo_admin_router
 from app.modules.people.pair_photo_routers import router as pair_photo_router
 from app.modules.people.routers import admin_router as people_admin_router
@@ -327,6 +328,7 @@ def create_app() -> FastAPI:
     app.include_router(
         playground_admin_router, prefix="/api", include_in_schema=not settings.is_production
     )
+    app.include_router(notifications_router, prefix="/api")
     app.include_router(realtime_router, prefix="/api")
     app.include_router(reminders_router, prefix="/api")
     app.include_router(staff_router, prefix="/api")

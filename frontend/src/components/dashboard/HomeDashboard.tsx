@@ -6,6 +6,7 @@ import { HomeIcon } from "@/components/ui/HomeIcons";
 import { type MouseEvent, useEffect, useState } from "react";
 
 import { ScoreSummary } from "@/components/dashboard/ScoreSummary";
+import { NotificationBell } from "@/components/notifications/Notifications";
 import { AttendeeTabBar } from "@/components/nav/AttendeeTabBar";
 import type { ApiResult } from "@/lib/api";
 import { messageFor } from "@/lib/errors";
@@ -97,6 +98,7 @@ export function HomeDashboard() {
 
   return (
     <div className="fm-stack" onClickCapture={remember}>
+      <NotificationBell />
       <ScoreSummary />
 
       <div className="fm-actions" aria-label={t("Quick actions")}>
