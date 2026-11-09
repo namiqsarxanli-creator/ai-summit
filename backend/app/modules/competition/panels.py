@@ -1,13 +1,15 @@
 """Main Stage panels: signed screen QR, attendee scans, PANEL and QMETER awards.
 
 PANEL (8, at most 2 panels): the attendee scans the ENTRY code shown on the main
-screen in the first 15 minutes and the EXIT code in the last 10 minutes. Both are
-needed - entering late or only at the end earns nothing.
+screen while the panel runs, and the scan earns the panel. There is no exit code
+(FACEMARK, 9 Nov 2026: "the QR is taken down at the end; points at the entry") and no
+15-minute limit any more (owner, 9 Nov 2026: the hall need not scan in one minute).
+Before the start or after the end the code earns nothing.
 
 * The screen code is an HMAC over a domain-separated payload naming the panel,
-  the PHASE and the panel's `qr_version`. An entry code cannot be used as an exit
-  code, nor one panel's code for another, and rotating `qr_version` revokes every
-  code shown before. The phase window is checked against the SERVER clock.
+  the PHASE and the panel's `qr_version`. One panel's code cannot be used for
+  another, and rotating `qr_version` revokes every code shown before. The window
+  is checked against the SERVER clock.
 * Repeating a scan changes nothing (one row per panel, attendee and phase).
 * A person verified elsewhere during the panel (a Playground session they were
   scanned at, or a mentor group whose host scanned them) does not also earn the
@@ -15,7 +17,7 @@ needed - entering late or only at the end earns nothing.
 
 SHORT CODE: under the QR the screen also shows six digits (an HMAC of the same
 payload, reduced) for a phone whose camera fails; the attendee types them. One
-per panel and phase, revoked by the same rotation; guessing is bounded by the
+per panel, revoked by the same rotation; guessing is bounded by the
 attendee's scan rate limit (30 per 10 minutes against 1 000 000 values).
 
 SCREEN LINK: the hall computer shows a panel's codes WITHOUT an administrator
@@ -39,7 +41,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import re
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Protocol
 
 from sqlalchemy import func, select
@@ -53,8 +55,6 @@ from app.modules.competition.ledger import AwardResult, award
 from app.modules.competition.models import Panel, PanelScan
 from app.modules.competition.rules import (
     GRAND_FINAL_CODE,
-    PANEL_ENTRY_MINUTES,
-    PANEL_EXIT_MINUTES,
     PANEL_POINTS,
     QMETER_POINTS,
 )
@@ -101,7 +101,8 @@ def is_grand_final(panel: Panel) -> bool:
 
 
 def phases_of(panel: Panel) -> tuple[str, ...]:
-    return ("ENTRY",) if is_grand_final(panel) else ("ENTRY", "EXIT")
+    # Every panel has one code, the entry (9 Nov 2026); an old EXIT code is refused.
+    return ("ENTRY",)
 
 
 def short_code(panel: Panel, phase: str) -> str:
@@ -177,13 +178,10 @@ def read_code(db: Session, code: str) -> tuple[Panel, str]:
 
 
 def window(panel: Panel, phase: str) -> tuple[datetime, datetime]:
-    if is_grand_final(panel):  # one check-in code for the whole time; no exit
-        return (
-            (panel.starts_at, panel.ends_at) if phase == "ENTRY" else (panel.ends_at, panel.ends_at)
-        )
-    if phase == "ENTRY":
-        return panel.starts_at, panel.starts_at + timedelta(minutes=PANEL_ENTRY_MINUTES)
-    return panel.ends_at - timedelta(minutes=PANEL_EXIT_MINUTES), panel.ends_at
+    # One code for the whole row, a panel and the Grand Final alike (9 Nov 2026).
+    if phase != "ENTRY":
+        return panel.ends_at, panel.ends_at
+    return panel.starts_at, panel.ends_at
 
 
 def _verified_elsewhere(db: Session, user_id: int, panel: Panel) -> bool:
@@ -252,7 +250,7 @@ def scan(db: Session, user: User, code: str, now: datetime) -> dict[str, Any]:
             "award": None,
         }
     result: AwardResult | None = None
-    if phases == {"ENTRY", "EXIT"}:
+    if "ENTRY" in phases:  # the entry scan earns the panel
         if _verified_elsewhere(db, user.id, panel):
             result = AwardResult("not_scored", 0)
         else:

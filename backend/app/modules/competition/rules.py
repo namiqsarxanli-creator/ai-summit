@@ -7,7 +7,7 @@ of the category maximums, never a clamp on the total.
 | Category    | Per unit                         | Maximum |
 |-------------|----------------------------------|---------|
 | PROFILE     | 5, once                          | 5       |
-| PANEL       | 8 per panel (entry AND exit QR)  | 16      |
+| PANEL       | 8 per panel (QR while it runs)   | 16      |
 | QMETER      | 2 per panel (Game Master check)  | 4       |
 | MASTERCLASS | 12 per block (entry AND exit)    | 24      |
 | PLAYGROUND  | 3 per distinct booth, first 8    | 24      |
@@ -74,8 +74,6 @@ GRAND_FINAL_CODE: Final = "grand-final"
 GRAND_FINAL_CHECKIN_MINUTES: Final = 15
 
 # Scan windows (PDF "Kim, nəyi, nə vaxt skan edir").
-PANEL_ENTRY_MINUTES: Final = 15  # first 15 minutes
-PANEL_EXIT_MINUTES: Final = 10  # last 10 minutes
 MASTERCLASS_ENTRY_MINUTES: Final = 10
 MASTERCLASS_EXIT_MINUTES: Final = 10
 MASTERCLASS_NO_SHOW_MINUTES: Final = 5  # an unclaimed seat is released after +5

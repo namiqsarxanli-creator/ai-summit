@@ -1,7 +1,7 @@
 """HTTP surface of verified participation and the competition (migration 0020).
 
 Attendee (the session's own person; no request names anyone):
-* POST /api/attendees/me/panels/scan        - a panel's screen QR (entry / exit)
+* POST /api/attendees/me/panels/scan        - a panel's screen QR (entry)
 * GET  /api/attendees/me/competition         - own points per category, Founder
 * GET  /api/attendees/me/programme           - own chronological programme
 
@@ -47,6 +47,8 @@ from app.modules.attendees.models import User
 from app.modules.attendees.profile import lock_attendee
 from app.modules.booths.models import Booth
 from app.modules.competition import attendance, manual, organiser, panels
+from app.modules.competition.final import FinalError
+from app.modules.competition.final_models import FinalResult
 from app.modules.competition.models import SCOPES, Panel, StaffScope
 from app.modules.competition.rules import (
     CATEGORIES,
@@ -125,8 +127,8 @@ def _staff_write(db: DbSession, token: str | None, run: Any) -> dict[str, Any]:
 
 @router.post("/attendees/me/panels/scan")
 def scan_panel(payload: PanelScanRequest, token: SessionToken, db: DbSession) -> dict[str, Any]:
-    """Scan the code on the main screen. Entry in the first 15 minutes, exit in the
-    last 10; both earn the panel. Repeating a scan changes nothing."""
+    """Scan the code on the main screen while the panel runs: the scan earns the
+    panel. Repeating a scan changes nothing."""
     maintenance_fast_path_check(db)
     with mutating_transaction(db) as tx:
         user = lock_attendee(tx, token)
@@ -257,12 +259,26 @@ class ManualPoints(Strict):
     command_id: UUID
 
 
+class GrandFinalOpen(Strict):
+    restart: bool = False  # start a fresh 15 minutes although the code is open
+
+
 @router.post("/staff/grand-final/open")
-def organiser_open_grand_final(token: SessionToken, db: DbSession) -> dict[str, Any]:
+def organiser_open_grand_final(
+    token: SessionToken, db: DbSession, payload: GrandFinalOpen | None = None
+) -> dict[str, Any]:
     """The Game Master (or an administrator) opens the Grand Final check-in NOW,
     for GRAND_FINAL_CHECKIN_MINUTES: the programme on the day decides when, not a
-    time set in advance. Pressing it again starts a fresh window. The final result
-    can be published only after the window closes (final.py)."""
+    time set in advance. The final result can be published only after the window
+    closes (final.py).
+
+    * While the code is open, the request returns that window unchanged
+      (`already_open`): a double click or a second operator cannot stretch it.
+      Starting a fresh 15 minutes is the explicit `restart: true`.
+    * Once a final result is published it is refused (`final_published`): a new
+      check-in would change Founder bonuses and the ranking after the announcement.
+    """
+    restart = payload is not None and payload.restart
     maintenance_fast_path_check(db)
     with mutating_transaction(db) as tx:
         staff = organiser.authenticate_organiser(tx, token)
@@ -271,8 +287,19 @@ def organiser_open_grand_final(token: SessionToken, db: DbSession) -> dict[str, 
         ).scalar_one_or_none()
         if panel is None:
             raise AdminNotFound("The Grand Final check-in is not set up.")
+        published = tx.execute(
+            select(FinalResult.id).where(FinalResult.status == "PUBLISHED").limit(1)
+        ).first()
+        if published is not None:
+            raise FinalError("final_published")
         before = panel_view(panel)
         now = _now()
+        if panel.starts_at <= now < panel.ends_at and not restart:
+            return {
+                "starts_at": before["starts_at"],
+                "ends_at": before["ends_at"],
+                "already_open": True,
+            }
         panel.starts_at = now
         panel.ends_at = now + timedelta(minutes=GRAND_FINAL_CHECKIN_MINUTES)
         tx.flush()
@@ -288,7 +315,7 @@ def organiser_open_grand_final(token: SessionToken, db: DbSession) -> dict[str, 
             )
         )
         tx.flush()
-        return {"starts_at": after["starts_at"], "ends_at": after["ends_at"]}
+        return {"starts_at": after["starts_at"], "ends_at": after["ends_at"], "already_open": False}
 
 
 @router.post("/staff/points-log/award")
@@ -620,9 +647,7 @@ def _screen_payload(panel: Panel, event: MasterclassEvent) -> dict[str, Any]:
         "timezone": event.timezone,
         "kind": "grand_final" if panels.is_grand_final(panel) else "panel",
         "entry_code": panels.screen_code(panel, "ENTRY"),
-        "exit_code": panels.screen_code(panel, "EXIT"),
         "entry_short": panels.short_code(panel, "ENTRY"),
-        "exit_short": panels.short_code(panel, "EXIT"),
     }
 
 

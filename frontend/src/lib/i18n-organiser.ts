@@ -95,6 +95,8 @@ export const organiserTranslations: Record<string, { az: string; ru: string }> =
   "Open the Grand Final code now (15 minutes)": { az: "Grand Final kodunu indi aç (15 dəqiqə)", ru: "Открыть код Grand Final сейчас (15 минут)" },
   "Restart the 15 minutes from now": { az: "15 dəqiqəni indidən yenidən başlat", ru: "Перезапустить 15 минут с этого момента" },
   "Open the Grand Final code now? It works for 15 minutes from this moment, and the result can be published after that.": { az: "Grand Final kodu indi açılsın? Bu andan 15 dəqiqə işləyəcək, nəticə ondan sonra dərc edilə bilər.", ru: "Открыть код Grand Final сейчас? Он будет действовать 15 минут, итог можно опубликовать после этого." },
+  "The code was already open; nothing changed. It is open until": { az: "Kod artıq açıq idi, heç nə dəyişmədi. Bu saata qədər açıqdır:", ru: "Код уже был открыт, ничего не изменилось. Он открыт до" },
+  "Restart the Grand Final code? It will work for 15 minutes from now, and the result waits until then.": { az: "Grand Final kodu yenidən başladılsın? İndidən 15 dəqiqə işləyəcək, nəticə də o vaxta qədər gözləyəcək.", ru: "Перезапустить код Grand Final? Он будет работать 15 минут с этого момента, итог подождёт до тех пор." },
   "The Grand Final code is open until": { az: "Grand Final kodu bu saata qədər açıqdır:", ru: "Код Grand Final открыт до" },
   "Booth and staff IDs": { az: "Stend və heyət ID-ləri", ru: "ID стендов и сотрудников" },
   "Panel QR codes (Main Stage)": { az: "Panel QR kodları (Main Stage)", ru: "QR-коды панелей (Main Stage)" },

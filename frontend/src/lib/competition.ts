@@ -9,8 +9,8 @@ export type Award = { outcome: AwardOutcome; points: number };
 
 export type PanelScanResult = {
   panel_id: number;
-  phase: "entry" | "exit";
-  recorded: ("entry" | "exit")[];
+  phase: "entry";
+  recorded: "entry"[];
   award: Award | null;
   grand_final?: boolean;
 };

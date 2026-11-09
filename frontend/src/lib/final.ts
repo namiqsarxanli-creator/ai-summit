@@ -52,6 +52,7 @@ const REASONS: Record<string, string> = {
   grand_final_open: "The Grand Final check-in is still open: a late check-in can still add a Founder bonus. Publish after it closes.",
   founder_rule_unconfirmed: "The Founder rule is not confirmed yet, so there is no Lucky Draw list.",
   not_configured: "The event is not set up yet.",
+  final_published: "The final result is already published: the Grand Final code cannot be opened again.",
 };
 
 export function finalFailure(result: Extract<ApiResult<unknown>, { ok: false }>, messageFor: (code: string) => string): string {

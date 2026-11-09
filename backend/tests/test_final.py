@@ -809,3 +809,37 @@ def test_the_game_master_opens_the_grand_final_check_in_for_fifteen_minutes(fin:
     assert refused.json()["error"]["details"]["reason"] == "grand_final_open"
     fin.clock.now = baku("18:07")
     assert gm.post(f"/api/staff/final/{draft['id']}/publish").json()["status"] == "published"
+
+
+def test_pressing_again_while_open_changes_nothing_and_restart_is_explicit(fin: Final) -> None:
+    final = fin.grand_final()
+    gm, other = fin.game_master(), fin.game_master()
+    fin.clock.now = baku("17:50")
+    first = gm.post("/api/staff/grand-final/open", json={})
+    assert first.json()["already_open"] is False
+    fin.clock.now = baku("17:58")  # a double click, or a second operator
+    again = other.post("/api/staff/grand-final/open", json={})
+    assert again.status_code == 200 and again.json()["already_open"] is True
+    window = fin.rig.sql("SELECT starts_at, ends_at FROM panels WHERE id = :p", p=final)[0]
+    assert tuple(window) == (baku("17:50"), baku("18:05"))
+    assert fin.rig.scalar("SELECT count(*) FROM admin_audit WHERE action = 'panel.update'") == 1
+    restarted = gm.post("/api/staff/grand-final/open", json={"restart": True})
+    assert restarted.json()["already_open"] is False
+    window = fin.rig.sql("SELECT starts_at, ends_at FROM panels WHERE id = :p", p=final)[0]
+    assert tuple(window) == (baku("17:58"), baku("18:13"))
+
+
+def test_the_grand_final_cannot_be_opened_again_after_the_result_is_published(fin: Final) -> None:
+    final = fin.grand_final()
+    gm = fin.game_master()
+    fin.clock.now = baku("17:50")
+    assert gm.post("/api/staff/grand-final/open", json={}).status_code == 200
+    draft = gm.post("/api/staff/final").json()
+    fin.clock.now = baku("18:06")
+    assert gm.post(f"/api/staff/final/{draft['id']}/publish").json()["status"] == "published"
+    for body in ({}, {"restart": True}):
+        refused = gm.post("/api/staff/grand-final/open", json=body)
+        assert refused.status_code == 409
+        assert refused.json()["error"]["details"]["reason"] == "final_published"
+    window = fin.rig.sql("SELECT starts_at, ends_at FROM panels WHERE id = :p", p=final)[0]
+    assert tuple(window) == (baku("17:50"), baku("18:05"))  # untouched

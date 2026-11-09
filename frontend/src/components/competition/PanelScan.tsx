@@ -32,8 +32,8 @@ function fill(text: string, values: Record<string, string | number>): string {
 }
 
 // The attendee's competition page: own points per category, and the Main Stage
-// scan - the entry code in a panel's first 15 minutes, the exit code in its last
-// 10. The server checks the code and the time; this page only shows its answer.
+// scan - the panel's code earns the panel while the panel runs (one code, no exit and
+// no 15-minute limit since 9 Nov 2026). The server checks the code and the time; this page only shows its answer.
 export function PanelScan() {
   const { t, language } = useLanguage();
   const [state, setState] = useState<State>({ kind: "loading" });
@@ -85,7 +85,7 @@ export function PanelScan() {
       if (!result.ok) setNotice({ tone: "warn", text: scanFailure(result, messageFor) });
       else if (result.data.grand_final) setNotice({ tone: "ok", text: "Grand Final recorded. Stay for the Lucky Draw." });
       else if (result.data.award) setNotice({ tone: result.data.award.points > 0 ? "ok" : "warn", text: OUTCOME_TEXT[result.data.award.outcome] });
-      else setNotice({ tone: "ok", text: result.data.phase === "entry" ? "Entry recorded. Scan the exit code in the last 10 minutes of the panel." : "Exit recorded." });
+      else setNotice({ tone: "ok", text: "Entry recorded." });
       await load();
     } finally {
       inFlight.current = false;
@@ -153,7 +153,7 @@ export function PanelScan() {
 
       <section className="fm-section" aria-labelledby="comp-panels">
         <h2 id="comp-panels" className="fm-eyebrow">{t("Main Stage panels")}</h2>
-        <p className="fm-small">{t("Scan the entry code in the first 15 minutes and the exit code in the last 10 minutes. Both are needed.")}</p>
+        <p className="fm-small">{t("Scan the code on the big screen at any time during the panel: the scan earns its points.")}</p>
         {panels.length > 0 && (
           <ul className="fm-list">
             {panels.map((p) => (

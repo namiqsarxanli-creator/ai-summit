@@ -11,7 +11,7 @@ holds at least one LIVE (not reversed) competition award in it:
 
 | Zone           | Qualifying evidence (an unreversed award of)        |
 |----------------|------------------------------------------------------|
-| Main Stage     | PANEL (entry + exit scanned) or QMETER (verified)     |
+| Main Stage     | PANEL (entry scanned) or QMETER (verified)            |
 | Masterclass    | MASTERCLASS (door entry + exit scanned)               |
 | AI Playground  | PLAYGROUND (booth staff scanned the session's end)    |
 | Connection Hub | CONNECTION (mutual scan that paid) or MENTOR (host)   |

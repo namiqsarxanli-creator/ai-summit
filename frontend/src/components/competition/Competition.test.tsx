@@ -59,7 +59,7 @@ describe("PanelScan", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("This is not a panel code");
     expect(posts).toHaveLength(0);
     typeAndSend("Code from the screen", CODE);
-    expect(await screen.findByRole("status")).toHaveTextContent("Entry recorded. Scan the exit code");
+    expect(await screen.findByRole("status")).toHaveTextContent("Entry recorded.");
     expect(posts).toEqual([{ code: CODE }]);
   });
 

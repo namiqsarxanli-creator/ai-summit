@@ -29,4 +29,23 @@ describe("GrandFinalOpen", () => {
     expect(posts).toEqual(["/api/staff/grand-final/open"]);
     confirm.mockRestore();
   });
+
+  it("while the code is open offers only a confirmed restart, and shows a refusal after the result is published", async () => {
+    const bodies: unknown[] = [];
+    const now = Date.now();
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        bodies.push(JSON.parse(String(init.body)));
+        return json(409, { error: { code: "FINAL_REFUSED", message: "", details: { reason: "final_published" }, correlation_id: "c" } });
+      }
+      return json(200, [{ id: 6, title: "Grand Final", kind: "grand_final", starts_at: new Date(now - 60_000).toISOString(), ends_at: new Date(now + 600_000).toISOString(), timezone: "Asia/Baku" }]);
+    }));
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<GrandFinalOpen />);
+    expect(screen.queryByRole("button", { name: "Open the Grand Final code now (15 minutes)" })).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: "Restart the 15 minutes from now" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("The final result is already published");
+    expect(bodies).toEqual([{ restart: true }]);
+    confirm.mockRestore();
+  });
 });

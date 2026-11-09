@@ -204,6 +204,7 @@ def test_a_screen_link_shows_one_panels_codes_without_a_session_until_rotated(
     body = shown.json()
     assert body["id"] == comp.panel1 and len(body["entry_short"]) == 6
     assert body["entry_code"].startswith(f"P{comp.panel1}.ENTRY.")
+    assert "exit_code" not in body and "exit_short" not in body  # no exit code (9 Nov)
     # Another panel's id under this signature, a changed expiry, garbage: refused.
     pid, stamp, sig = key.split(".")
     for bad in (f"{comp.panel2}.{stamp}.{sig}", f"{pid}.{int(stamp) + 86400}.{sig}", "x" * 20):
@@ -328,18 +329,18 @@ def test_the_six_digit_code_scans_like_the_qr_and_wrong_digits_do_not(comp: Comp
         row = db.get(Panel, comp.panel1)
         assert row is not None
         entry = panels_module.short_code(row, "ENTRY")
-        exit_ = panels_module.short_code(row, "EXIT")
-    assert entry != exit_ and len(entry) == 6 and entry.isdigit()
+        old_exit = panels_module.short_code(row, "EXIT")
+    assert entry != old_exit and len(entry) == 6 and entry.isdigit()
     c = comp.client(uid)
     comp.clock.now = baku("10:05")
     wrong = f"{(int(entry) + 1) % 1_000_000:06d}"
     bad = c.post("/api/attendees/me/panels/scan", json={"code": wrong})
     assert bad.json()["error"]["details"]["reason"] == "invalid_code"
-    ok = c.post("/api/attendees/me/panels/scan", json={"code": entry})
+    gone = c.post("/api/attendees/me/panels/scan", json={"code": old_exit})
+    assert gone.json()["error"]["details"]["reason"] == "invalid_code"  # no exit code
+    ok = c.post("/api/attendees/me/panels/scan", json={"code": f"{entry[:3]}-{entry[3:]}"})
     assert ok.status_code == 200 and ok.json()["phase"] == "entry"
-    comp.clock.now = baku("11:25")
-    done = c.post("/api/attendees/me/panels/scan", json={"code": f"{exit_[:3]}-{exit_[3:]}"})
-    assert done.json()["award"] == {"outcome": "awarded", "points": 8}
+    assert ok.json()["award"] == {"outcome": "awarded", "points": 8}
     # Rotating the panel's codes revokes the digits too.
     comp.rig.sql("UPDATE panels SET qr_version = qr_version + 1 WHERE id = :p", p=comp.panel1)
     comp.clock.now = baku("10:05")
@@ -432,27 +433,36 @@ def test_a_complete_card_earns_profile_points_once_and_an_incomplete_one_none(co
 # --- panels ----------------------------------------------------------------------------
 
 
-def test_a_panel_needs_entry_and_exit_in_their_windows(comp: Comp) -> None:
+def test_the_entry_scan_earns_the_panel_and_there_is_no_exit_code(comp: Comp) -> None:
+    # FACEMARK, 9 Nov 2026: the QR is taken down at the end; the points at the entry.
     (uid,) = comp.users(1)
     c = comp.client(uid)
-    entry, exit_ = code_of(comp, comp.panel1, "ENTRY"), code_of(comp, comp.panel1, "EXIT")
+    entry, old_exit = code_of(comp, comp.panel1, "ENTRY"), code_of(comp, comp.panel1, "EXIT")
     comp.clock.now = baku("10:05")
     first = scan(c, entry)
-    assert first.status_code == 200 and first.json()["award"] is None
-    assert scan(c, entry).status_code == 200  # a repeat changes nothing
-    assert reason(scan(c, exit_)) == "outside_window"  # exit opens only at 11:20
+    assert first.status_code == 200, first.text
+    assert first.json()["award"] == {"outcome": "awarded", "points": 8}
+    assert first.json()["recorded"] == ["entry"]
+    assert scan(c, entry).json()["award"]["outcome"] == "already"  # a repeat changes nothing
     comp.clock.now = baku("11:25")
-    done = scan(c, exit_)
-    assert done.json()["award"] == {"outcome": "awarded", "points": 8}
-    assert scan(c, exit_).json()["award"]["outcome"] == "already"
+    assert reason(scan(c, old_exit)) == "invalid_code"
     assert comp.points(uid, "PANEL") == 8
 
 
-def test_a_late_entry_earns_nothing_and_codes_cannot_be_swapped_or_forged(comp: Comp) -> None:
+def test_the_code_works_for_the_whole_panel_only_and_cannot_be_swapped_or_forged(
+    comp: Comp,
+) -> None:
+    # Owner, 9 Nov 2026: no 15-minute limit; the code works from the start to the end.
+    late, early, after = comp.users(3)
+    comp.clock.now = baku("11:29")  # panel 1 runs 10:00-11:30
+    done = scan(comp.client(late), code_of(comp, comp.panel1, "ENTRY"))
+    assert done.json()["award"] == {"outcome": "awarded", "points": 8}
+    comp.clock.now = baku("09:59")
+    assert reason(scan(comp.client(early), code_of(comp, comp.panel1, "ENTRY"))) == "outside_window"
+    comp.clock.now = baku("11:30")
+    assert reason(scan(comp.client(after), code_of(comp, comp.panel1, "ENTRY"))) == "outside_window"
     (uid,) = comp.users(1)
     c = comp.client(uid)
-    comp.clock.now = baku("10:15")  # the entry window is [10:00, 10:15)
-    assert reason(scan(c, code_of(comp, comp.panel1, "ENTRY"))) == "outside_window"
     comp.clock.now = baku("10:05")
     exit_code = code_of(comp, comp.panel1, "EXIT")
     swapped = exit_code.replace(".EXIT.", ".ENTRY.")  # phase substitution
@@ -498,9 +508,7 @@ def test_playground_during_a_panel_is_not_also_a_panel(comp: Comp) -> None:
     c = comp.client(uid)
     _admitted_playground(comp, uid, 6)  # P06: 10:15-10:30, inside panel 1
     comp.clock.now = baku("10:05")
-    scan(c, code_of(comp, comp.panel1, "ENTRY"))
-    comp.clock.now = baku("11:25")
-    assert scan(c, code_of(comp, comp.panel1, "EXIT")).json()["award"]["outcome"] == "not_scored"
+    assert scan(c, code_of(comp, comp.panel1, "ENTRY")).json()["award"]["outcome"] == "not_scored"
     assert comp.points(uid, "PANEL") == 0
 
 
@@ -509,9 +517,7 @@ def test_a_playground_session_verified_after_a_paid_panel_reverses_it(comp: Comp
     c = comp.client(uid)
     booth = int(comp.rig.scalar("SELECT id FROM booths ORDER BY id LIMIT 1"))
     comp.clock.now = baku("10:05")
-    scan(c, code_of(comp, comp.panel1, "ENTRY"))
-    comp.clock.now = baku("11:22")
-    assert scan(c, code_of(comp, comp.panel1, "EXIT")).json()["award"]["outcome"] == "awarded"
+    assert scan(c, code_of(comp, comp.panel1, "ENTRY")).json()["award"]["outcome"] == "awarded"
     slot = _admitted_playground(comp, uid, 10)  # P10: 11:15-11:30
     staff_id = int(
         comp.rig.scalar(

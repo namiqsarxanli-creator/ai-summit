@@ -3,8 +3,8 @@
 Attendee (own session only): points per category and total, the published final
 place (or that the result is still under review), Founder / Lucky Draw, what they
 verifiably completed (`attended`: a masterclass with entry AND exit scanned, a
-completed Playground session, a mentor group the host confirmed, a panel with
-both scans), apart from what they only started (`not_completed`: a masterclass
+completed Playground session, a mentor group the host confirmed, a panel whose
+entry was scanned), apart from what they only started (`not_completed`: a masterclass
 whose exit was never scanned, a Playground session they were admitted to but
 whose end was never scanned - neither is a completion, neither earns points),
 their confirmed connections with the contact the pair opened, and their accepted
@@ -31,7 +31,7 @@ from app.core.errors import StaffNotAuthorizedError
 from app.modules.admin.models import AdminAudit
 from app.modules.attendees.models import User, UserStatus
 from app.modules.competition.models import Panel, PanelScan
-from app.modules.competition.rules import CATEGORIES
+from app.modules.competition.rules import CATEGORIES, GRAND_FINAL_CODE
 from app.modules.playground.models import PlaygroundBooking, PlaygroundSlot
 from app.modules.points.models import PointsLog
 from app.modules.staff.models import StaffAccount, StaffRole
@@ -67,8 +67,8 @@ def attendee_report(db: Session, user: User) -> dict[str, Any]:
             select(Panel.title, Panel.starts_at, Panel.ends_at)
             .join(PanelScan, PanelScan.panel_id == Panel.id)
             .where(PanelScan.user_id == user.id)
+            .where(PanelScan.phase == "ENTRY", Panel.code != GRAND_FINAL_CODE)
             .group_by(Panel.id)
-            .having(func.count(func.distinct(PanelScan.phase)) == 2)
             .order_by(Panel.starts_at)
         )
     ]

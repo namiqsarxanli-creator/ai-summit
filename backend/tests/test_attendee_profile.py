@@ -89,7 +89,9 @@ def test_profile_returns_registration_data_interests_and_consent(
     response = client.get(PROFILE)
     assert response.status_code == 200
     body = response.json()
+    assert isinstance(body["attendee_id"], int)  # the number staff can find them by
     assert body == {
+        "attendee_id": body["attendee_id"],
         "first_name": "Ada",
         "last_name": "Lovelace",
         "email": email.lower(),
@@ -135,7 +137,10 @@ def test_profile_never_includes_internal_ids_or_session_data(
     response = client.get(PROFILE)
     for leaked in ('"id"', '"user_id"', '"session"', '"status"', '"activated_at"'):
         assert leaked not in response.text
+    # attendee_id: the person's OWN number, shown so organisers can find them
+    # (owner's request, 6 Nov 2026) - never another person's, never a session.
     assert set(response.json()) == {
+        "attendee_id",
         "first_name",
         "last_name",
         "email",

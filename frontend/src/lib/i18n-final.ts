@@ -31,6 +31,7 @@ export const finalTranslations: Record<string, { az: string; ru: string }> = {
   "Founders: {n}": { az: "Founder-lər: {n}", ru: "Founders: {n}" },
   "The competition is still open. A final result can be taken after the close.": { az: "Yarış hələ açıqdır. Yekun nəticə bağlandıqdan sonra götürülə bilər.", ru: "Соревнование ещё открыто. Итог можно зафиксировать после закрытия." },
   "Only a draft can be published or discarded.": { az: "Yalnız qaralama dərc edilə və ya ondan imtina edilə bilər.", ru: "Опубликовать или отклонить можно только черновик." },
+  "The final result is already published: the Grand Final code cannot be opened again.": { az: "Yekun nəticə artıq dərc olunub: Grand Final kodunu yenidən açmaq olmaz.", ru: "Итог уже опубликован: код Grand Final нельзя открыть снова." },
   "A newer version is already published.": { az: "Artıq daha yeni versiya dərc edilib.", ru: "Уже опубликована более новая версия." },
   "The event is not set up yet.": { az: "Tədbir hələ qurulmayıb.", ru: "Мероприятие ещё не настроено." },
   "This result does not exist.": { az: "Belə nəticə yoxdur.", ru: "Такого результата нет." },
