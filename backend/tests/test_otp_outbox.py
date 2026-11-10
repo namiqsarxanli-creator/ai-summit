@@ -225,8 +225,8 @@ def test_login_request_queues_a_login_code_and_unknown_emails_queue_nothing(
     known = client.post(OTP_REQUEST, json={"email": unique_email})
     unknown = client.post(OTP_REQUEST, json={"email": new_address()})
 
-    assert known.status_code == unknown.status_code == 200
-    assert known.json() == unknown.json()  # no membership oracle
+    assert known.status_code == 200
+    assert unknown.status_code == 404  # EMAIL_NOT_REGISTERED (owner, 10 Nov 2026)
     rows = deliveries_for(unique_email)
     assert [r["purpose"] for r in rows] == ["ACTIVATION", "LOGIN"]
     assert count("otp_deliveries") == 2  # nothing queued for the unknown address

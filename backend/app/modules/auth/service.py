@@ -21,10 +21,8 @@ from app.modules.attendees.service import PendingOtpDelivery, issue_otp
 def request_otp(
     db: Session, email: str, language: str = DEFAULT_LANGUAGE
 ) -> PendingOtpDelivery | None:
-    """Returns None when no user exists for this email — the caller
-    (the router) must still return the standard generic response
-    either way (ARCHITECTURE.md §8.2: "returns the same response
-    whether or not the email is registered")."""
+    """Returns None when no user exists for this email; the router then answers
+    EMAIL_NOT_REGISTERED (owner's decision, 10 Nov 2026)."""
     normalized_email = email.strip().lower()
     user = db.execute(
         select(User).where(User.email == normalized_email).with_for_update()

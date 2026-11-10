@@ -11,9 +11,9 @@ import { apiPost } from "@/lib/api";
 import { messageFor } from "@/lib/errors";
 
 const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-// Mirrors the server's non-enumerating copy (§8.2): the UI never claims
-// to know whether the address is registered.
-const CODE_SENT = "If this email is registered, we've sent a 6-digit sign-in code.";
+// An address with no account is told so by the server (EMAIL_NOT_REGISTERED,
+// 10 Nov 2026) and pointed to registration instead of waiting for a code.
+const CODE_SENT = "We've sent a 6-digit sign-in code to your email.";
 
 type Step = "email" | "code";
 
@@ -27,6 +27,7 @@ export function LoginForm() {
   const [fieldError, setFieldError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [notRegistered, setNotRegistered] = useState(false);
   const [busy, setBusy] = useState(false);
 
   async function requestCode(): Promise<boolean> {
@@ -37,9 +38,11 @@ export function LoginForm() {
     });
     setBusy(false);
     if (!result.ok) {
+      setNotRegistered(result.error.code === "EMAIL_NOT_REGISTERED");
       setFormError(messageFor(result.error.code));
       return false;
     }
+    setNotRegistered(false);
     setNotice(CODE_SENT);
     return true;
   }
@@ -97,6 +100,12 @@ export function LoginForm() {
       {formError && (
         <p role="alert" className="fm-alert fm-alert-error">
           {t(formError)}
+          {notRegistered && (
+            <>
+              {" "}
+              <Link href="/register" className="fm-link">{t("Register as an attendee")}</Link>
+            </>
+          )}
         </p>
       )}
     </>

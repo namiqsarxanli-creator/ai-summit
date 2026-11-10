@@ -27,6 +27,7 @@ export const errorTranslations: Record<string, { az: string; ru: string }> = {
   "Your session has ended. Please sign in again.": { az: "Sessiyanız bitib. Yenidən daxil olun.", ru: "Сеанс завершён. Войдите снова." },
   "Please verify your email to continue.": { az: "Davam etmək üçün e-poçtunuzu təsdiqləyin.", ru: "Подтвердите почту, чтобы продолжить." },
   "This request couldn't be verified. Please reload the page and try again.": { az: "Sorğu təsdiqlənmədi. Səhifəni yeniləyib yenidən cəhd edin.", ru: "Запрос не удалось подтвердить. Обновите страницу и попробуйте снова." },
+  "There is no account with this email yet. Register first:": { az: "Bu e-poçtla hələ qeydiyyat yoxdur. Əvvəlcə qeydiyyatdan keçin:", ru: "С этим адресом ещё нет регистрации. Сначала зарегистрируйтесь:" },
   "Too many attempts. Please wait a moment and try again.": { az: "Çox cəhd etmisiniz. Bir qədər gözləyib yenidən cəhd edin.", ru: "Слишком много попыток. Подождите немного и попробуйте снова." },
   "Something went wrong on our side. Please try again.": { az: "Sistemdə xəta baş verdi. Yenidən cəhd edin.", ru: "На нашей стороне произошла ошибка. Попробуйте снова." },
   "We couldn't reach the server. Check your connection and try again.": { az: "Serverə qoşulmaq mümkün olmadı. İnternet bağlantınızı yoxlayıb yenidən cəhd edin.", ru: "Не удалось связаться с сервером. Проверьте подключение и попробуйте снова." },

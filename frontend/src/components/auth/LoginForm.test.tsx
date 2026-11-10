@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { messageFor } from "@/lib/errors";
@@ -30,7 +30,7 @@ let fetchMock: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   push.mockReset();
   requestResponse = () =>
-    jsonResponse(200, { message: "If this email is registered, a verification code has been sent." });
+    jsonResponse(200, { message: "A verification code has been sent." });
   verifyResponse = () => jsonResponse(200, { status: "ACTIVE" });
   fetchMock = vi.fn(async (url: string) => {
     if (url === "/api/auth/otp/request") return requestResponse();
@@ -66,13 +66,22 @@ describe("LoginForm", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("requests a code with non-committal copy, then asks for it", async () => {
+  it("an address with no account is told so and pointed to registration, and stays on the email step", async () => {
+    requestResponse = () => jsonResponse(404, { error: { code: "EMAIL_NOT_REGISTERED", message: "", correlation_id: "c" } });
+    render(<LoginForm />);
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: EMAIL } });
+    fireEvent.click(screen.getByRole("button", { name: "Send me a sign-in code" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("There is no account with this email yet. Register first:");
+    expect(within(alert).getByRole("link", { name: "Register as an attendee" })).toHaveAttribute("href", "/register");
+    expect(screen.queryByLabelText("Sign-in code")).not.toBeInTheDocument();
+  });
+
+  it("requests a code, says it was sent, then asks for it", async () => {
     await reachCodeStep();
     expect(bodies("/api/auth/otp/request")).toEqual([{ email: EMAIL, language: "en" }]);
-    expect(
-      screen.getByText("If this email is registered, we've sent a 6-digit sign-in code."),
-    ).toBeInTheDocument();
-    // What to do when no code comes, without saying whether the address is known.
+    expect(screen.getByText("We've sent a 6-digit sign-in code to your email.")).toBeInTheDocument();
+    // What to do when no code comes.
     expect(screen.getByText(/Check your spam or Promotions folder/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Register as an attendee" })).toHaveAttribute("href", "/register");
   });

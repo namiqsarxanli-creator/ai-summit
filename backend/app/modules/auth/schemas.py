@@ -18,10 +18,9 @@ class OtpRequestRequest(BaseModel):
 
 
 class OtpRequestResponse(BaseModel):
-    """Same body whether or not the email is registered
-    (ARCHITECTURE.md §8.2 enumeration resistance)."""
+    """A code was sent (an address with no account gets EMAIL_NOT_REGISTERED)."""
 
-    message: str = "If this email is registered, a verification code has been sent."
+    message: str = "A verification code has been sent."
 
 
 class OtpVerifyRequest(BaseModel):

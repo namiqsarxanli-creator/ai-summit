@@ -16,7 +16,7 @@ from typing import Annotated
 from fastapi import APIRouter, Cookie, Response
 
 from app.core.deps import ClientIp, SessionToken
-from app.core.errors import OtpInvalidError
+from app.core.errors import EmailNotRegisteredError, OtpInvalidError
 from app.core.ratelimit import (
     OTP_REQUEST_PER_EMAIL,
     OTP_REQUEST_PER_IP,
@@ -48,9 +48,10 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.post("/otp/request", response_model=OtpRequestResponse)
 def otp_request(payload: OtpRequestRequest, db: DbSession, ip: ClientIp) -> OtpRequestResponse:
-    """Returning-attendee login step 1 (and activation re-send). The
-    per-email limit applies whether or not the address is registered,
-    so the throttle itself is no membership oracle."""
+    """Returning-attendee login step 1 (and activation re-send). An address with
+    no account is told so (EMAIL_NOT_REGISTERED, owner's decision 10 Nov 2026), so
+    the attendee goes to registration instead of waiting for a code. The per-email
+    and per-IP limits apply first, either way."""
     email = payload.email.strip().lower()
     limiter.check([(OTP_REQUEST_PER_IP, ip), (OTP_REQUEST_PER_EMAIL, email)])
     maintenance_fast_path_check(db)
@@ -58,9 +59,9 @@ def otp_request(payload: OtpRequestRequest, db: DbSession, ip: ClientIp) -> OtpR
     with mutating_transaction(db) as tx:
         delivery = request_otp(tx, email, payload.language)
 
-    if delivery is not None:
-        deliver_otp(delivery)
-
+    if delivery is None:
+        raise EmailNotRegisteredError("There is no account with this email yet. Register first.")
+    deliver_otp(delivery)
     return OtpRequestResponse()
 
 

@@ -26,7 +26,7 @@ beforeEach(() => {
   fetchMock = vi.fn(async (url: string) => {
     if (url === "/api/auth/otp/verify") return verifyResponse();
     if (url === "/api/auth/otp/request") {
-      return jsonResponse(200, { message: "If this email is registered, a verification code has been sent." });
+      return jsonResponse(200, { message: "A verification code has been sent." });
     }
     throw new Error(`unexpected fetch ${url}`);
   });
@@ -112,12 +112,12 @@ describe("VerifyForm", () => {
     expect(await screen.findByText(messageFor("NETWORK_ERROR"))).toBeInTheDocument();
   });
 
-  it("requests a new code with a non-committal notice", async () => {
+  it("requests a new code and says it was sent", async () => {
     render(<VerifyForm />);
     fireEvent.click(screen.getByRole("button", { name: "Send me a new code" }));
 
     expect(
-      await screen.findByText("If this email is registered, a new code has been sent."),
+      await screen.findByText("A new code has been sent to your email."),
     ).toBeInTheDocument();
     expect(bodyOf("/api/auth/otp/request")).toEqual({ email: "grace@summit.example.org", language: "en" });
   });

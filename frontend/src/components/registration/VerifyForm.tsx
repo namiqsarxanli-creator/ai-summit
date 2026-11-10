@@ -16,7 +16,7 @@ import { isSixDigitCode } from "./validation";
 // SSR-safe read (empty on the server, the stored value on the client).
 const noSubscription = () => () => {};
 
-const RESEND_NOTICE = "If this email is registered, a new code has been sent.";
+const RESEND_NOTICE = "A new code has been sent to your email.";
 
 export function VerifyForm() {
   const { t, language } = useLanguage();

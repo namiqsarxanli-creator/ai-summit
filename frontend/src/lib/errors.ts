@@ -51,6 +51,7 @@ const MESSAGES: Record<string, string> = {
   REGISTRATION_NOT_VERIFIED: "Please verify your email to continue.",
   CSRF_REJECTED: "This request couldn't be verified. Please reload the page and try again.",
   RATE_LIMITED: "Too many attempts. Please wait a moment and try again.",
+  EMAIL_NOT_REGISTERED: "There is no account with this email yet. Register first:",
   INTERNAL_ERROR: "Something went wrong on our side. Please try again.",
   NETWORK_ERROR: "We couldn't reach the server. Check your connection and try again.",
   STAFF_NOT_AUTHORIZED: "This account cannot access that area.",

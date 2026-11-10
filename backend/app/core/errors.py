@@ -325,6 +325,15 @@ class BoothNotFoundError(DomainError):
     status_code = 404
 
 
+class EmailNotRegisteredError(DomainError):
+    """A sign-in code asked for an address that has no account (owner, 10 Nov 2026:
+    say so and point to registration rather than let people wait for a code that
+    never comes)."""
+
+    code = "EMAIL_NOT_REGISTERED"
+    status_code = 404
+
+
 class RateLimitedError(DomainError):
     """ARCHITECTURE.md §20.3: RATE_LIMITED, 429 — "Throttle exceeded".
     `retry_after` (seconds) is surfaced as a Retry-After header."""

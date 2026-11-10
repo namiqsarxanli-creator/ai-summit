@@ -231,19 +231,19 @@ def _login_after_activation(
     return token
 
 
-def test_unknown_email_login_is_indistinguishable(
+def test_unknown_email_login_says_register_first_and_creates_nothing(
     client: TestClient, unique_email: str, otp_log: pytest.LogCaptureFixture
 ) -> None:
-    """§8.2 enumeration resistance: requesting a code for an unknown
-    address looks exactly like a registered one and creates nothing;
-    verifying against it fails exactly like a wrong code."""
+    """Owner, 10 Nov 2026: a code for an address with no account says so
+    (EMAIL_NOT_REGISTERED) and creates nothing; verifying against it still fails
+    exactly like a wrong code."""
     unknown = new_email()
     _activate(client, otp_log, unique_email)
 
     r_known = client.post(OTP_REQUEST, json={"email": unique_email})
     r_unknown = client.post(OTP_REQUEST, json={"email": unknown})
-    assert r_known.status_code == r_unknown.status_code == 200
-    assert r_known.content == r_unknown.content
+    assert r_known.status_code == 200
+    assert _error(r_unknown) == (404, "EMAIL_NOT_REGISTERED")
     assert fetch_all("SELECT id FROM otp_challenges WHERE email = :e", e=unknown) == []
     assert fetch_all("SELECT id FROM users WHERE email = :e", e=unknown) == []
 
@@ -744,10 +744,17 @@ def test_foreign_origin_cannot_log_an_attendee_out(
 
 
 def test_referer_fallback_and_same_origin_succeed(unique_email: str) -> None:
+    # The address has no account: past the origin check it gets its own answer
+    # (EMAIL_NOT_REGISTERED), never the CSRF refusal.
     with TestClient(app, headers={"Referer": "http://localhost:3000/login"}) as c:
-        assert c.post(OTP_REQUEST, json={"email": unique_email}).status_code == 200
+        assert _error(c.post(OTP_REQUEST, json={"email": unique_email})) == (
+            404,
+            "EMAIL_NOT_REGISTERED",
+        )
     with make_client() as c:  # the browser case: a matching Origin
-        assert c.post(OTP_REQUEST, json={"email": unique_email}).status_code == 200
+        assert (
+            _error(c.post(OTP_REQUEST, json={"email": unique_email}))[1] == "EMAIL_NOT_REGISTERED"
+        )
 
 
 def test_safe_methods_are_not_subject_to_the_origin_assertion() -> None:
@@ -779,13 +786,15 @@ def test_fourth_otp_request_for_one_email_in_15_minutes_is_refused(
 def test_otp_request_throttle_is_not_a_membership_oracle(
     client: TestClient, unique_email: str, otp_log: pytest.LogCaptureFixture
 ) -> None:
-    """Registered and unregistered addresses are throttled identically."""
+    """Registered and unregistered addresses share the same throttle: the fourth
+    request in the window is refused for both."""
     _activate(client, otp_log, unique_email)
     limiter.reset()  # registration shares the issuance bucket; start both from zero
     unknown = new_email()
     known = [client.post(OTP_REQUEST, json={"email": unique_email}).status_code for _ in range(4)]
     ghost = [client.post(OTP_REQUEST, json={"email": unknown}).status_code for _ in range(4)]
-    assert known == ghost == [200, 200, 200, 429]
+    assert known == [200, 200, 200, 429]
+    assert ghost == [404, 404, 404, 429]
 
 
 def test_otp_verify_is_limited_per_email(client: TestClient, unique_email: str) -> None:
@@ -807,7 +816,8 @@ def test_limits_reset_when_the_window_rolls_over(
     assert client.post(OTP_REQUEST, json={"email": unique_email}).status_code == 429
     frozen = limiter.clock()
     limiter.clock = lambda: frozen + 15 * 60
-    assert client.post(OTP_REQUEST, json={"email": unique_email}).status_code == 200
+    # Throttled no more: the (unregistered) address gets its normal answer again.
+    assert client.post(OTP_REQUEST, json={"email": unique_email}).status_code == 404
 
 
 def test_venue_nat_200_registrations_from_one_ip_all_succeed() -> None:

@@ -45,6 +45,8 @@ export const flowTranslations: Record<string, { az: string; ru: string }> = {
   "Verify and activate": { az: "Təsdiqlə və aktivləşdir", ru: "Подтвердить и активировать" },
   "Sending…": { az: "Göndərilir…", ru: "Отправка…" },
   "Send me a new code": { az: "Yeni kod al", ru: "Получить новый код" },
+  "A new code has been sent to your email.": { az: "E-poçtunuza yeni kod göndərildi.", ru: "Новый код отправлен на вашу почту." },
+  "We've sent a 6-digit sign-in code to your email.": { az: "E-poçtunuza 6 rəqəmli giriş kodu göndərildi.", ru: "Мы отправили 6-значный код входа на вашу почту." },
   "If this email is registered, a new code has been sent.": { az: "Bu e-poçt qeydiyyatlıdırsa, yeni kod göndərilib.", ru: "Если эта почта зарегистрирована, создан новый код." },
   "No code after 1–2 minutes? Check your spam or Promotions folder and that the email is spelled correctly.": { az: "Kod 1–2 dəqiqəyə gəlmədi? Spam və ya \"Promotions\" qovluğuna baxın və e-poçtun düzgün yazıldığını yoxlayın.", ru: "Код не пришёл за 1–2 минуты? Проверьте папку «Спам» или «Промоакции» и правильность адреса." },
   "No account with this email yet? Register first:": { az: "Bu e-poçtla hələ hesabınız yoxdur? Əvvəlcə qeydiyyatdan keçin:", ru: "Ещё нет аккаунта с этой почтой? Сначала зарегистрируйтесь:" },

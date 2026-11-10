@@ -382,12 +382,11 @@ def test_login_code_from_the_active_branch_signs_in_without_reactivating(
 # --------------------------------------------------------------------------
 
 
-def test_otp_request_is_non_enumerating(
+def test_otp_request_answers_by_account_state(
     client: TestClient, otp_log: pytest.LogCaptureFixture
 ) -> None:
-    """§8.2: "returns the same response whether or not the email is
-    registered". Unknown -> nothing issued; PROVISIONAL -> fresh
-    ACTIVATION code; ACTIVE -> LOGIN code."""
+    """Unknown -> EMAIL_NOT_REGISTERED and nothing issued (owner, 10 Nov 2026);
+    PROVISIONAL -> fresh ACTIVATION code; ACTIVE -> LOGIN code."""
     unknown, provisional, active = new_email(), new_email(), new_email()
     try:
         _register(client, provisional)
@@ -397,8 +396,9 @@ def test_otp_request_is_non_enumerating(
         responses = [
             client.post(OTP_REQUEST, json={"email": e}) for e in (unknown, provisional, active)
         ]
-        assert {r.status_code for r in responses} == {200}
-        assert responses[0].content == responses[1].content == responses[2].content
+        assert [r.status_code for r in responses] == [404, 200, 200]
+        assert responses[0].json()["error"]["code"] == "EMAIL_NOT_REGISTERED"
+        assert responses[1].content == responses[2].content
 
         assert fetch_all("SELECT id FROM otp_challenges WHERE email = :e", e=unknown) == []
         live_provisional = fetch_all(
