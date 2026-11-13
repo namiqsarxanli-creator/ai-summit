@@ -30,6 +30,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from typing import Any
+from uuid import uuid4
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -288,24 +289,39 @@ def playground_complete(
     if not may_work_booth(db, staff, slot.booth_id):
         raise StaffNotAuthorizedError("Only this booth's staff can complete its sessions.")
     user = attendee or resolve_active_attendee(db, card_token or "")
+    # Owner, 13 Nov 2026 (event day): the end scan is the booth's confirmation that
+    # the person played - admitted, reserved, queued, or a walk-in with no booking.
     booking = db.execute(
         select(PlaygroundBooking)
         .where(
             PlaygroundBooking.slot_id == slot.id,
             PlaygroundBooking.user_id == user.id,
-            PlaygroundBooking.status.in_(("CHECKED_IN", "COMPLETED")),
+            PlaygroundBooking.status.in_(("CONFIRMED", "WAITLISTED", "CHECKED_IN", "COMPLETED")),
         )
         .with_for_update()
     ).scalar_one_or_none()
-    if booking is None:
-        raise AttendanceError("not_admitted")
     name = f"{user.first_name} {user.last_name[:1]}."
-    if booking.status == "CHECKED_IN":
+    if booking is None or booking.status != "COMPLETED":
         if not slot.starts_at <= now < slot.ends_at + PLAYGROUND_SCAN_AFTER_END:
             raise AttendanceError("outside_window")
-        booking.status = "COMPLETED"
-        booking.version += 1
-        booking.updated_at = now
+        from app.modules.playground.service import make_room
+
+        if booking is None or booking.status != "CHECKED_IN":
+            make_room(db, slot.id, now, keep=None if booking is None else booking.id)
+        if booking is None:  # a walk-in
+            booking = PlaygroundBooking(
+                slot_id=slot.id,
+                user_id=user.id,
+                command_id=f"walk-in:{uuid4()}",
+                status="COMPLETED",
+                created_at=now,
+                updated_at=now,
+            )
+            db.add(booking)
+        else:
+            booking.status = "COMPLETED"
+            booking.version += 1
+            booking.updated_at = now
         db.flush()
         reverse_overlapping_panel_awards(db, user.id, slot)
     if slot.number > 34:  # 17:30-18:00: walk-in, no points

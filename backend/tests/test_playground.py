@@ -178,7 +178,8 @@ def test_no_show_release_and_staff_scope(
     )
     assert r.status_code == 200, r.text
     assert r.json()["status"] == "checked_in"
-    assert pg.rig.scalar("SELECT count(*) FROM playground_bookings WHERE status='NO_SHOW'") == 1
+    # 13 Nov 2026: a place is released only when the session needs it (2 of 3 held here)
+    assert pg.rig.scalar("SELECT count(*) FROM playground_bookings WHERE status='NO_SHOW'") == 0
 
 
 def test_parallel_last_seat_and_idempotency(pg: PlaygroundProgram) -> None:
@@ -299,38 +300,32 @@ def test_a_reserved_attendee_within_three_minutes_is_checked_in(
     assert pg.rig.scalar("SELECT count(*) FROM points_log") == 0  # admission is not points
 
 
-def test_a_late_reserved_attendee_loses_the_place_and_can_rejoin_the_queue(
+def test_the_booth_admits_whoever_is_there_in_any_order_with_no_three_person_cap(
     pg: PlaygroundProgram, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Regression: the late attendee's NO_SHOW is COMMITTED (it used to be rolled
-    back together with an error), and they rejoin the queue at its end."""
-    late_uid, waiting_uid = pg.users(2)
-    late, waiting = pg.client(late_uid), pg.client(waiting_uid)
+    """Owner, 13 Nov 2026 (event day): reserved people did not come, sessions got
+    mixed up and more than three played. Staff confirm anyone queued at once, in any
+    order, beyond three; nobody's reservation is released for it."""
+    reserved_uids = pg.users(3)
+    queue_uids = pg.users(3)
     slot = pg.pg_slots[0]
-    reserved = book(late, slot).json()
-    queued = book(waiting, slot, queue=True).json()
+    reserved = [book(pg.client(u), slot).json() for u in reserved_uids]
+    queued = [book(pg.client(u), slot, queue=True).json() for u in queue_uids]
     start = _slot_start(pg, slot)
-    monkeypatch.setattr(service, "now", lambda: start + timedelta(minutes=3, seconds=1))
-
-    r = _admit(pg, reserved)
-    assert r.status_code == 200, r.text
-    assert (r.json()["status"], r.json()["admitted"], r.json()["reason"]) == (
-        "no_show",
-        False,
-        "late_arrival",
+    monkeypatch.setattr(service, "now", lambda: start + timedelta(minutes=1))
+    last = _admit(pg, queued[-1])  # the last in the queue, inside the first 3 minutes
+    assert last.status_code == 200, last.text
+    assert last.json()["status"] == "checked_in"
+    for row in [*queued[:-1], *reserved]:
+        assert _admit(pg, row).json()["status"] == "checked_in"
+    assert (
+        pg.rig.scalar(
+            "SELECT count(*) FROM playground_bookings WHERE slot_id = :s AND status = 'CHECKED_IN'",
+            s=slot,
+        )
+        == 6
     )
-    status = pg.rig.scalar("SELECT status FROM playground_bookings WHERE id=:b", b=reserved["id"])
-    assert status == "NO_SHOW"
-
-    mine = next(s for s in late.get("/api/playground").json()["slots"] if s["id"] == slot)
-    assert mine["mine"]["status"] == "no_show"
-    again = book(late, slot, queue=True)
-    assert again.status_code == 200 and again.json()["status"] == "waitlisted"
-    assert again.json()["id"] != reserved["id"]
-    assert (_queue_position(waiting, slot), _queue_position(late, slot)) == (1, 2)
-    # the late attendee cannot jump the queue; its head gets the freed place
-    assert _admit(pg, again.json()).json()["error"]["details"]["reason"] == "queue_order"
-    assert _admit(pg, queued).json()["status"] == "checked_in"
+    assert pg.rig.scalar("SELECT count(*) FROM playground_bookings WHERE status = 'NO_SHOW'") == 0
 
 
 def test_an_admission_with_a_stale_version_changes_nothing(
@@ -423,10 +418,11 @@ def test_masterclass_and_playground_race_cannot_reserve_overlapping_times(
     )
 
 
-def test_the_database_holds_three_places_per_slot_whoever_writes(pg: PlaygroundProgram) -> None:
+def test_the_database_holds_fifty_places_per_slot_whoever_writes(pg: PlaygroundProgram) -> None:
+    # Migration 0028 (13 Nov 2026): a safety net of 50 places, no 3-person cap.
     slot = pg.pg_slots[6]
-    users = pg.users(4)
-    for i, uid in enumerate(users[:3]):
+    users = pg.users(51)
+    for i, uid in enumerate(users[:50]):
         pg.rig.sql(
             "INSERT INTO playground_bookings (slot_id, user_id, command_id, status) "
             "VALUES (:s, :u, :c, 'CONFIRMED')",
@@ -439,7 +435,7 @@ def test_the_database_holds_three_places_per_slot_whoever_writes(pg: PlaygroundP
             "INSERT INTO playground_bookings (slot_id, user_id, command_id, status) "
             "VALUES (:s, :u, 'direct-4', 'CONFIRMED')",
             s=slot,
-            u=users[3],
+            u=users[50],
         )
     assert caught.value.orig.diag.constraint_name == "ck_playground_capacity"  # type: ignore[union-attr]
     # a queue entry is not a seat, so it is accepted
@@ -447,7 +443,7 @@ def test_the_database_holds_three_places_per_slot_whoever_writes(pg: PlaygroundP
         "INSERT INTO playground_bookings (slot_id, user_id, command_id, status) "
         "VALUES (:s, :u, 'direct-q', 'WAITLISTED')",
         s=slot,
-        u=users[3],
+        u=users[50],
     )
 
 

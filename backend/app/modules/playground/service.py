@@ -368,16 +368,50 @@ def release_no_shows(db: Session, slot: Slot, stamp: datetime) -> list[int]:
     return [row.id for row in released]
 
 
-def admit(db: Session, staff: StaffAccount, bid: int, expected: int) -> dict[str, Any]:
-    """Booth staff confirm that a person is at the booth for this session.
+HOLDS_PLACE = ("CONFIRMED", "INVITED", "CHECKED_IN", "COMPLETED")  # the DB guard's set
+# Owner, 13 Nov 2026: no 3-person cap at the booth; the database guard (migration 0028)
+# stops at 50 per session, a safety net only. Advance bookings keep their limit of 3.
+SESSION_PLACES = 50
+NOT_ARRIVED = ("CONFIRMED", "INVITED")
 
-    Outcomes (all committed, nothing half-done):
-    * a reserved attendee within 3 minutes of the start, or the head of the
-      on-site queue while a place is free -> ``checked_in``;
-    * a reserved attendee arriving later than that -> ``no_show`` with
-      ``admitted: false``: their place (and every other unclaimed one) is
-      released to the queue, and they may join the queue again like anyone else.
-    Admission is never points: that belongs to the end-of-session scan."""
+
+def make_room(db: Session, slot_id: int, stamp: datetime, keep: int | None = None) -> None:
+    """Owner, 13 Nov 2026: the person at the booth plays rather than wait for someone
+    who has not come. If the session's places (SESSION_PLACES, the database guard) are taken by
+    others, the latest places of people who have NOT arrived (reserved or invited)
+    are released, only as many as needed; 3 people actually playing is full."""
+    others = [
+        b
+        for b in db.scalars(
+            select(Booking)
+            .where(Booking.slot_id == slot_id, Booking.status.in_(HOLDS_PLACE))
+            .with_for_update()
+        )
+        if b.id != keep
+    ]
+    excess = len(others) - (SESSION_PLACES - 1)
+    if excess <= 0:
+        return
+    absent = sorted(
+        (b for b in others if b.status in NOT_ARRIVED),
+        key=lambda b: (b.created_at, b.id),
+        reverse=True,
+    )
+    if len(absent) < excess:
+        raise PlaygroundError("slot_full")
+    for b in absent[:excess]:
+        change(b, "NO_SHOW" if b.status == "CONFIRMED" else "EXPIRED", stamp)
+    db.flush()
+
+
+def admit(db: Session, staff: StaffAccount, bid: int, expected: int) -> dict[str, Any]:
+    """Booth staff confirm that a person is at the booth for this session: a
+    reserved or queued attendee is ``checked_in`` at once, during the session.
+
+    Owner, 13 Nov 2026 (event day): reserved people did not come and those at the
+    booth could not play, so the booth decides - no queue order, no 3-minute hold
+    for the reserved, no 3-place limit. Admission is never points: that belongs to
+    the end-of-session scan (which also scores a walk-in with no booking)."""
     b = db.get(Booking, bid)
     if b is None:
         raise PlaygroundMissing("No such booking.")
@@ -393,26 +427,12 @@ def admit(db: Session, staff: StaffAccount, bid: int, expected: int) -> dict[str
     if not slot.starts_at <= stamp < slot.ends_at:
         raise PlaygroundError("outside_slot")
     expire(db, slot.id, stamp)
-    release_no_shows(db, slot, stamp)
-    if b.status == "NO_SHOW":  # this reserved attendee was late: released above
-        return {**view(b), "admitted": False, "reason": "late_arrival"}
     if b.status == "WAITLISTED":
-        first = db.scalar(
-            select(Booking.id)
-            .where(Booking.slot_id == slot.id, Booking.status == "WAITLISTED")
-            .order_by(Booking.created_at, Booking.id)
-            .limit(1)
-        )
-        if b.id != first:
-            raise PlaygroundError("queue_order")
-        if count(db, slot.id, stamp) >= 3:
-            raise PlaygroundError("slot_full")
         assert b.user_id is not None
         user = db.get(User, b.user_id)
         assert user is not None
         check_member(db, user, slot, stamp, prebook=False)
-    elif b.status != "CONFIRMED":
-        raise PlaygroundError("join_queue_again")
+    make_room(db, slot.id, stamp, keep=b.id)
     change(b, "CHECKED_IN", stamp)
     db.flush()
     return {**view(b), "admitted": True}

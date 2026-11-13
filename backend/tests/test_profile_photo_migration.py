@@ -133,4 +133,4 @@ def test_the_new_head_is_the_only_head() -> None:
     with suite_db.scratch_database("photohead", migrate_to="head") as scratch:
         heads = _alembic(scratch.url, "heads")
         assert heads.count("(head)") == 1
-        assert "0027_review_evidence" in heads
+        assert "0028_playground_places" in heads

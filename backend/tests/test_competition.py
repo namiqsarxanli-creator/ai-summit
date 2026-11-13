@@ -699,8 +699,8 @@ def test_a_revoked_attendee_card_cannot_be_scanned(comp: Comp) -> None:
 # --- Playground completion ------------------------------------------------------------------
 
 
-def test_one_facemark_login_works_every_booth_but_only_for_admitted_people(comp: Comp) -> None:
-    uid, stranger = comp.users(2)
+def test_one_facemark_login_works_every_booth_and_scores_whoever_played(comp: Comp) -> None:
+    uid, stranger, latecomer = comp.users(3)
     slot = _admitted_playground(comp, uid, 10)  # P10: 11:15-11:30
     mc = comp.masterclass(comp.b1, capacity=5)
     scanner = comp.volunteer("MASTERCLASS_DOOR", mc)  # no booth of its own
@@ -712,20 +712,30 @@ def test_one_facemark_login_works_every_booth_but_only_for_admitted_people(comp:
     assert outsider.post(f"{url}/complete", json={"card_token": comp.card(uid)}).status_code == 403
     assert scanner.get(url).status_code == 200  # the arrivals list
 
-    # A wrong session or person is harmless: only someone admitted to it scores.
-    wrong = scanner.post(f"{url}/complete", json={"card_token": comp.card(stranger)})
-    assert reason(wrong) == "not_admitted"
+    # Owner, 13 Nov 2026: a walk-in with no booking scores at the end scan too.
+    walk_in = scanner.post(f"{url}/complete", json={"card_token": comp.card(stranger)})
+    assert walk_in.json()["award"] == {"outcome": "awarded", "points": 3}
+    assert (
+        comp.rig.scalar(
+            "SELECT status FROM playground_bookings WHERE slot_id = :s AND user_id = :u",
+            s=slot,
+            u=stranger,
+        )
+        == "COMPLETED"
+    )
+    again = scanner.post(f"{url}/complete", json={"card_token": comp.card(stranger)})
+    assert again.json()["award"]["outcome"] == "already"  # once per booth
     done = scanner.post(f"{url}/complete", json={"card_token": comp.card(uid)})
     assert done.json()["award"] == {"outcome": "awarded", "points": 3}
 
     # More than 5 minutes after the end it is too late, even for someone admitted.
-    late = _admitted_playground(comp, stranger, 10)
+    late = _admitted_playground(comp, latecomer, 10)
     comp.clock.now = baku("11:36")
     assert (
         reason(
             scanner.post(
                 f"/api/staff/playground/slots/{late}/complete",
-                json={"card_token": comp.card(stranger)},
+                json={"card_token": comp.card(latecomer)},
             )
         )
         == "outside_window"
