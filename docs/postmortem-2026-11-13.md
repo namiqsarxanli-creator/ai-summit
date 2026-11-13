@@ -7,7 +7,7 @@
 
 The platform stayed up all day. All 250 five-minute health checks over the event day passed. No data was lost and nothing was deleted, and the final result was published.
 
-The weak point was the physical workflow around the system, not the software itself. Door scanning at masterclasses mostly did not happen, so points that should have come from scans were restored by hand. The operators used scripts that are dry-run by default, idempotent and audited. 674 points entries were added this way. None of them double-paid anyone or broke a ledger limit.
+The one problem was at the masterclass doors: the volunteers did not scan attendees in and out. The masterclass points were therefore restored by hand from the booking list, 196 entries in total. This was done with scripts that are dry-run by default, idempotent and audited. None of the entries double-paid anyone or broke a ledger limit.
 
 ## The day in numbers
 
@@ -21,7 +21,7 @@ The weak point was the physical workflow around the system, not the software its
 | Beyond Now Founders (all four zones + Grand Final) | 13 |
 | Masterclass door scans | 10 entries, 5 exits, across 3 blocks and ~180 seats |
 | Ledger at close | 1,317 entries, 8,744 points |
-| Points added by hand on the organiser's decision | 674 entries (about 71% of all points) |
+| Masterclass points restored by hand | 196 entries: 66 (block 1), 20 (moved masterclass), 95 (block 2), 15 (waitlist) |
 | Pre-event load test (500 virtual users, production-size copy) | 0 errors, p95 1.0-1.6 s |
 
 ## Timeline (Baku time)
@@ -36,10 +36,8 @@ The weak point was the physical workflow around the system, not the software its
 - **13:00: a room change.** One masterclass moved from 11:30 in one hall to 14:00 in another room.
   - A masterclass cannot change block while it has reservations, because of a composite foreign key. So a new block, room and copy of the masterclass were created, and all 28 live reservations were re-pointed in a single `UPDATE`. Seat and queue order were kept and the old row was unpublished.
   - 24 attendees were emailed through the app's own mail provider. Each email had a per-person idempotency key, so a re-run would not send twice.
-- **Afternoon: panels.** One competition rule cancels a panel's points when the same person was verified at a Playground session overlapping the panel. It blocked 16 people who had scanned the panel. They were paid by hand.
-  - Later the organiser awarded both panels to every active attendee: 462 entries. Every existing award was skipped, and nobody went over the 16-point panel maximum.
 - **15:19-15:30: the moved masterclass.** Its scan window was reopened for 11 minutes with entry and exit both open. The logs show no scan attempt at all.
-- **16:20: masterclass block 2.** The entry window was reopened (16:20-16:30). The organiser then awarded the masterclass to every booking (115) and to the waitlist (15).
+- **16:20: masterclass block 2.** The entry window was reopened (16:20-16:30), but the doors were again not scanned. Every booking got the 12 points by hand: 95 in block 2 and the moved masterclass's 20. The waitlist got them too (15).
 - **17:30: Grand Final.** 46 people checked in and 13 became Founders automatically.
 - **Evening: publishing.** Publishing the final result was refused. Four offline door scans from a 07:17 pre-event test were still waiting for review, and the server will not publish while any are pending. They were rejected through the normal review service (status and reason recorded, audited, no points). After that, a new snapshot was taken and published.
 
@@ -59,7 +57,7 @@ The weak point was the physical workflow around the system, not the software its
 
 ## What went wrong, and why
 
-1. **Door scanning depended on the volunteer choosing the right room and phase, inside a 10-minute window.** One shared volunteer login held the scope for many masterclasses. The logs suggest the right room was not obvious on the phone. Once the window had passed, every attempt was refused and there was no way to recover from that screen.
+1. **The volunteers did not scan the masterclass doors.** Across three blocks there were 10 entry scans and 5 exit scans for about 180 seats. At the moved masterclass there was not a single attempt. Where volunteers did try, the scan depended on choosing the right room and phase inside a 10-minute window, from one shared login that held many masterclasses. Once the window had passed, every attempt was refused.
 2. **Anti-fraud windows were tuned for an ideal schedule.** Sessions ran late, rooms changed and people arrived when they could. Strict windows turned normal delays into lost points.
 3. **Schedule changes needed a developer.** Moving a block's window or a masterclass's room was done by SSH and one-off scripts. That was safe, but it put an engineer on the critical path for every change on the floor.
 4. **Test data was left in production.** Four test scans from the morning were still in the offline review queue in the evening and blocked publication. The blocker was shown on the page, but it was easy to miss.
