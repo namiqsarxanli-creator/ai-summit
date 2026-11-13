@@ -63,6 +63,32 @@ describe("PanelScan", () => {
     expect(posts).toEqual([{ code: CODE }]);
   });
 
+  it("keeps a code scanned while signed out and sends it once after sign-in brings the attendee back", async () => {
+    window.sessionStorage.clear();
+    window.history.pushState({}, "", `/points?code=${encodeURIComponent(CODE)}`);
+    vi.stubGlobal("fetch", vi.fn(async () => json(401, { error: { code: "UNAUTHENTICATED" } })));
+    const { unmount } = render(<PanelScan />);
+    expect(await screen.findByText(/the panel code you scanned is sent as soon as you are in/)).toBeInTheDocument();
+    expect(window.location.search).toBe("");
+    unmount();
+    vi.unstubAllGlobals();
+
+    const posts: unknown[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        posts.push(JSON.parse(String(init.body)));
+        return json(200, { panel_id: 1, phase: "entry", recorded: ["entry"], award: { outcome: "awarded", points: 8 } });
+      }
+      return url === "/api/panels" ? json(200, PANELS) : json(200, MINE);
+    }));
+    const second = render(<PanelScan />);
+    await waitFor(() => expect(posts).toEqual([{ code: CODE }]));
+    second.unmount();
+    render(<PanelScan />); // a later visit sends nothing again
+    await screen.findByRole("region", { name: "My points" });
+    expect(posts).toHaveLength(1);
+  });
+
   it("reads the screen's link from the in-app scanner as the code it carries", async () => {
     const posts: unknown[] = [];
     vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {

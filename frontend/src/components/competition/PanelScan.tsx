@@ -19,6 +19,7 @@ import {
   type PublicPanel,
 } from "@/lib/competition";
 import { messageFor } from "@/lib/errors";
+import { hasPendingPanelCode, rememberPanelCode, takePanelCode } from "@/lib/pendingPanelCode";
 import { ZONE_LABEL } from "@/lib/final";
 import { eventTime } from "@/lib/masterclasses";
 
@@ -56,6 +57,8 @@ export function PanelScan() {
   );
   // Opened from the screen's QR with a phone's camera (/points?code=...): the code is
   // sent once, as if scanned here, and taken out of the address so a reload sends nothing.
+  // Not signed in in this browser: the code waits in this tab while the attendee signs
+  // in, and is sent when sign-in brings them back here (lib/pendingPanelCode.ts).
   const sendRef = useRef<((text: string) => Promise<void>) | null>(null);
   useEffect(() => {
     let active = true;
@@ -64,7 +67,13 @@ export function PanelScan() {
     void Promise.all([fetchMyCompetition(), fetchPanels()]).then(([m, p]) => {
       if (!active) return;
       apply(m, p);
-      if (linked && m.ok) void sendRef.current?.(linked);
+      if (!m.ok) {
+        if (linked) rememberPanelCode(linked);
+        return;
+      }
+      const code = linked ?? takePanelCode();
+      if (linked) takePanelCode();
+      if (code) void sendRef.current?.(code);
     });
     return () => { active = false; };
   }, [apply]);
@@ -97,7 +106,7 @@ export function PanelScan() {
   if (state.kind === "signed-out") {
     return (
       <section className="fm-stack">
-        <p className="fm-alert fm-alert-info">{t("Sign in to scan panel codes and see your points.")}</p>
+        <p className="fm-alert fm-alert-info">{t(hasPendingPanelCode() ? "Sign in: the panel code you scanned is sent as soon as you are in. No need to scan it again." : "Sign in to scan panel codes and see your points.")}</p>
         <Link href="/login" className="fm-btn fm-btn-primary fm-btn-block">{t("Sign in")}</Link>
       </section>
     );

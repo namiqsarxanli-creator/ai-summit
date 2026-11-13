@@ -3,6 +3,7 @@ export const competitionTranslations: Record<string, { az: string; ru: string }>
   "My points": { az: "Xallarım", ru: "Мои баллы" },
   "Verified participation, up to 100 points": { az: "Təsdiqlənmiş iştirak, 100 bala qədər", ru: "Подтверждённое участие, до 100 баллов" },
   "Loading your points…": { az: "Xallarınız yüklənir…", ru: "Загружаем ваши баллы…" },
+  "Sign in: the panel code you scanned is sent as soon as you are in. No need to scan it again.": { az: "Daxil olun: skan etdiyiniz panel kodu daxil olan kimi göndəriləcək. Yenidən skan etməyə ehtiyac yoxdur.", ru: "Войдите: отсканированный код панели отправится сразу после входа. Сканировать заново не нужно." },
   "Sign in to scan panel codes and see your points.": { az: "Panel kodlarını skan etmək və xallarınızı görmək üçün daxil olun.", ru: "Войдите, чтобы сканировать коды панелей и видеть свои баллы." },
   "You take part in the event without competing for points.": { az: "Tədbirdə xal yarışına qatılmadan iştirak edirsiniz.", ru: "Вы участвуете в мероприятии без соревнования за баллы." },
   "{n} of {total}": { az: "{total} baldan {n}", ru: "{n} из {total}" },

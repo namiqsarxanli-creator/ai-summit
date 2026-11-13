@@ -9,6 +9,7 @@ import { TextField } from "@/components/ui/TextField";
 import { useLanguage } from "@/components/ui/LanguageProvider";
 import { apiPost } from "@/lib/api";
 import { messageFor } from "@/lib/errors";
+import { hasPendingPanelCode } from "@/lib/pendingPanelCode";
 
 const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // An address with no account is told so by the server (EMAIL_NOT_REGISTERED,
@@ -75,7 +76,8 @@ export function LoginForm() {
     });
     setBusy(false);
     if (result.ok) {
-      router.push("/");
+      // A panel code scanned before signing in goes on to My points, which sends it.
+      router.push(hasPendingPanelCode() ? "/points" : "/");
       return;
     }
     if (result.error.code === "OTP_INVALID") setCode("");

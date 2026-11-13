@@ -94,6 +94,15 @@ describe("LoginForm", () => {
     expect(bodies("/api/auth/otp/verify")).toEqual([{ email: EMAIL, code: "482913" }]);
   });
 
+  it("goes on to My points when a panel code waits from before signing in", async () => {
+    window.sessionStorage.setItem("fm-pending-panel-code", JSON.stringify({ code: "P1.ENTRY.1.x", at: Date.now() }));
+    await reachCodeStep();
+    fireEvent.change(screen.getByLabelText("Sign-in code"), { target: { value: "482913" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/points"));
+    window.sessionStorage.clear();
+  });
+
   it("requires six digits before verifying", async () => {
     await reachCodeStep();
     fireEvent.change(screen.getByLabelText("Sign-in code"), { target: { value: "12" } });
