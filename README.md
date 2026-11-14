@@ -7,13 +7,44 @@ recommendations matched to their interests, earn points at booths, and
 follow a live leaderboard. Booth staff scan attendee QR codes and award
 points; admins manage the event dataset.
 
-See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the system design and
-[`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) for the milestone plan
-this repository is built against. Both are locked reference documents.
+**Used in production** at the AI Summit in Baku on 13 November 2026, by 314 registered attendees,
+booth staff, volunteers and the organiser's Game Master. The event is over; the repository is kept as
+a reference. What happened on the day, and what I would change, is in the
+[event-day post-mortem](docs/postmortem-2026-11-13.md).
 
-**Current status:** milestones M01–M18 are implemented (backend, frontend,
-admin console, demo reset, PWA/UI polish, hardening); M19 is the summit
-rehearsal. The UI is available in Azerbaijani, English and Russian.
+### The day in numbers
+
+| | |
+|---|---|
+| Registered attendees | 314 (277 activated) |
+| Playground sessions scored | 188, 83 of them walk-ins |
+| Paid networking connections | 159 |
+| Grand Final check-ins | 46 |
+| Uptime checks passed (every 5 min) | 250 / 250 |
+| Load test before the event (500 virtual users) | 0 errors, p95 1.0-1.6 s |
+
+### What is in it
+
+- **Competition engine.** Points from panels, masterclasses, Playground booths, networking and a
+  Grand Final. Every award goes into an append-only ledger with a deduplication key. A correction
+  is a new reversal entry, never an edit, and every staff action is audited.
+- **Phone-first web app.** No install. Email OTP sign-in, a personal QR contact card, interest-based
+  booth recommendations, in-app notifications, a live leaderboard and venue screens over SSE.
+  Available in Azerbaijani, English and Russian.
+- **Staff tools.** Booth and door scanning, with an offline queue for when the network drops, a
+  Qmeter desk, points corrections, and the snapshot → review → publish flow for the final result.
+- **Operations.** Docker Compose behind Caddy on a single droplet. Nightly backups with a verified
+  restore drill, monitoring with Telegram alerts, and retag deploys with rollback.
+- **Quality.** `mypy --strict` and ruff on the backend. 96 backend test files run on isolated
+  PostgreSQL databases, 91 frontend test files run with Vitest, and 28 Alembic migrations.
+
+**Stack:** Python · FastAPI · SQLAlchemy 2 · PostgreSQL 16 · Alembic · Next.js 16 · React 19 ·
+TypeScript · Docker Compose · Caddy · Resend.
+
+**Design documents:** [`ARCHITECTURE.md`](ARCHITECTURE.md) (system design),
+[`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) (milestone plan),
+[`BEYOND_NOW.md`](BEYOND_NOW.md) (competition rules),
+[`DEPLOYMENT.md`](DEPLOYMENT.md) and [`OPERATIONS.md`](OPERATIONS.md).
 
 ---
 
