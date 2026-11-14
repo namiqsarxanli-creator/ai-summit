@@ -1,0 +1,257 @@
+# FACEMARK PRODUCTION stack. Separate from docker-compose.yml (development),
+# which is unchanged and must not be used on a server.
+#
+#   docker compose --env-file .env.production -f docker-compose.prod.yml <command>
+#
+# See DEPLOYMENT.md for the full procedure, migrations and rollback.
+#
+# Differences from development, all deliberate:
+#   - no source bind mounts; code comes from the images built from
+#     backend/Dockerfile.prod and frontend/Dockerfile.prod
+#   - ONLY the reverse proxy publishes ports (80/443). PostgreSQL, the
+#     backend and the frontend are reachable on the internal network only
+#   - exactly one backend worker, no --reload, non-root users, dropped
+#     capabilities, read-only root filesystems
+#   - the schema is migrated by an explicit one-shot `migrate` step, never
+#     implicitly on container start
+#   - ENVIRONMENT=production and DEMO_MODE=false are fixed here, not read
+#     from the env file, so they cannot be mis-set by editing it
+#
+# The project name is fixed so this file can never attach to the volumes
+# or network of the development stack (project "facemark").
+
+name: facemark-prod
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+x-hardening: &hardening
+  init: true
+  restart: unless-stopped
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  logging: *logging
+
+x-backend-environment: &backend-environment
+  ENVIRONMENT: production
+  DEMO_MODE: "false"
+  # The browser-facing https:// origin. Decides the Secure cookie flag and
+  # the CSRF Origin check.
+  APP_ORIGIN: ${APP_ORIGIN:?set APP_ORIGIN (https://your-domain) in the env file}
+  # Only the reverse proxy (fixed address below) may supply
+  # X-Forwarded-For; every other peer's headers are ignored.
+  TRUSTED_PROXY_CIDRS: ${PROXY_IPV4:-172.30.77.10}/32
+  SCAN_REF_SECRET: ${SCAN_REF_SECRET:?set SCAN_REF_SECRET in the env file}
+  RESEND_API_KEY: ${RESEND_API_KEY:?set RESEND_API_KEY in the env file}
+  OTP_FROM_EMAIL: ${OTP_FROM_EMAIL:?set OTP_FROM_EMAIL in the env file}
+  # Encrypts OTP codes while they wait in the delivery outbox (backend and
+  # worker share it). Generate: `$DC --profile ops run --rm cli generate-otp-key`.
+  OTP_OUTBOX_ENCRYPTION_KEY: ${OTP_OUTBOX_ENCRYPTION_KEY:?set OTP_OUTBOX_ENCRYPTION_KEY in the env file}
+  # Only during a key rotation (see DEPLOYMENT.md); empty otherwise.
+  OTP_OUTBOX_ENCRYPTION_KEY_PREVIOUS: ${OTP_OUTBOX_ENCRYPTION_KEY_PREVIOUS:-}
+  # The worker's own speed limit: at most LIMIT sends may START per WINDOW seconds.
+  # Keep it BELOW the e-mail provider's request limit (OPERATIONS.md, "OTP e-mail
+  # pacing"). Per worker process, so run ONE worker.
+  OTP_DELIVERY_RATE_LIMIT: ${OTP_DELIVERY_RATE_LIMIT:-2}
+  OTP_DELIVERY_RATE_WINDOW_SECONDS: ${OTP_DELIVERY_RATE_WINDOW_SECONDS:-1}
+  DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-facemark}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the env file}@db:5432/${POSTGRES_DB:-facemark}
+  # Where profile photos are kept: the `media_data` volume below. The root
+  # filesystem is read-only, so this is the only place the backend writes
+  # files that must outlive the container.
+  MEDIA_ROOT: /data/media
+  # Beyond Now Founder (BEYOND_NOW.md, "Runtime safeguards"): the qualification
+  # rule is NOT confirmed by the organiser. Stays "false" until it is; turning it
+  # on needs the explicit recomputation step documented there.
+  FOUNDER_RULE_CONFIRMED: ${FOUNDER_RULE_CONFIRMED:-false}
+  # Older profile interests in booth recommendations (BEYOND_NOW.md): off.
+  BOOTH_MATCH_PROFILE_INTERESTS: ${BOOTH_MATCH_PROFILE_INTERESTS:-false}
+
+services:
+  db:
+    <<: *hardening
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-facemark}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the env file}
+      POSTGRES_DB: ${POSTGRES_DB:-facemark}
+    # The postgres entrypoint needs a few capabilities to start as root and
+    # drop to the postgres user, so it does not get `cap_drop: ALL`.
+    cap_drop: []
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    # No `ports:` - the database is never published to the host.
+
+  backend:
+    <<: *hardening
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    image: facemark-backend:${FACEMARK_VERSION:-local}
+    environment: *backend-environment
+    depends_on:
+      db:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    volumes:
+      # Profile photos. A named volume: they survive `up --build`, image
+      # upgrades and container recreation (back it up with the database -
+      # see DEPLOYMENT.md). Writable by uid 10001 (see Dockerfile.prod).
+      - media_data:/data/media
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import sys,urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=4).status == 200 else 1)"
+      interval: 15s
+      timeout: 6s
+      retries: 3
+      start_period: 20s
+    # No `ports:` - reachable only by the reverse proxy.
+
+  frontend:
+    <<: *hardening
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    image: facemark-frontend:${FACEMARK_VERSION:-local}
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /app/.next/cache
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/robots.txt').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 15s
+      timeout: 6s
+      retries: 3
+      start_period: 15s
+    # No `ports:` - reachable only by the reverse proxy.
+
+  # Sends the OTP emails queued in the database outbox. Separate from the web
+  # process on purpose: queued codes survive restarts of either. Run exactly ONE:
+  # several workers would still never send a row twice (SKIP LOCKED + a lease),
+  # but each enforces OTP_DELIVERY_RATE_LIMIT on its own, so two would double the
+  # rate the provider sees.
+  worker:
+    <<: *hardening
+    image: facemark-backend:${FACEMARK_VERSION:-local}
+    environment: *backend-environment
+    command: ["python", "-m", "app.worker"]
+    stop_grace_period: 30s
+    depends_on:
+      db:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    healthcheck:
+      # The worker touches this file every poll; a wedged worker stops.
+      test:
+        - CMD
+        - python
+        - -c
+        - "import os,sys,time; sys.exit(0 if time.time()-os.path.getmtime('/tmp/otp-worker.heartbeat') < 60 else 1)"
+      interval: 20s
+      timeout: 6s
+      retries: 3
+      start_period: 30s
+
+  proxy:
+    <<: *hardening
+    image: caddy:2-alpine
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN (your public host name) in the env file}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in the env file}
+      CADDY_GLOBAL_OPTIONS: ${CADDY_GLOBAL_OPTIONS:-}
+      BACKEND_UPSTREAM: ${BACKEND_UPSTREAM:-backend:8000}
+      FRONTEND_UPSTREAM: ${FRONTEND_UPSTREAM:-frontend:3000}
+    # Binding 80/443 inside the container needs this one capability.
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+      - "${HTTPS_PORT:-443}:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data # certificates - back this up / do not delete
+      - caddy_config:/config
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    networks:
+      default:
+        # A fixed address, so the backend can trust exactly this one peer.
+        ipv4_address: ${PROXY_IPV4:-172.30.77.10}
+
+  # --- one-shot operator steps (not started by `up`) -------------------------
+
+  migrate:
+    <<: *hardening
+    profiles: ["ops"]
+    restart: "no"
+    image: facemark-backend:${FACEMARK_VERSION:-local}
+    environment: *backend-environment
+    depends_on:
+      db:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    command: ["alembic", "upgrade", "head"]
+
+  cli:
+    <<: *hardening
+    profiles: ["ops"]
+    restart: "no"
+    image: facemark-backend:${FACEMARK_VERSION:-local}
+    environment: *backend-environment
+    depends_on:
+      db:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    volumes:
+      # The photo janitor (`purge-orphan-photos`) works on the same files.
+      - media_data:/data/media
+    entrypoint: ["python", "-m", "app.cli"]
+
+volumes:
+  postgres_data:
+  media_data:
+  caddy_data:
+  caddy_config:
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${INTERNAL_SUBNET:-172.30.77.0/24}

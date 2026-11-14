@@ -1,0 +1,51 @@
+# FACEMARK backend - PRODUCTION image (multi-stage). The development image
+# (with dev extras and a bind-mounted source tree) stays in ./Dockerfile.
+#
+#   build   : installs ONLY the runtime dependencies (no [dev] extras: no
+#             pytest, ruff, mypy, hypothesis) into /opt/venv
+#   runtime : that venv + the application code + the Alembic migrations.
+#             No tests, no compilers, no pip cache, unprivileged user.
+#
+# Exactly ONE worker (ARCHITECTURE.md invariant #17): the realtime EventBus
+# and the rate limiter live in process memory, so a second worker would
+# silently split them. Do not raise --workers.
+
+FROM python:3.12-slim AS build
+ENV PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+WORKDIR /build
+COPY pyproject.toml ./
+COPY app ./app
+# Installing the project pulls in its dependencies; the project itself is
+# then removed again because the runtime image runs the source from /app.
+RUN pip install . && pip uninstall -y facemark-backend
+
+FROM python:3.12-slim AS runtime
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH="/opt/venv/bin:$PATH"
+RUN groupadd --system --gid 10001 facemark \
+    && useradd --system --uid 10001 --gid facemark --no-create-home \
+        --shell /usr/sbin/nologin facemark
+COPY --from=build /opt/venv /opt/venv
+# The profile-photo directory. docker-compose.prod.yml mounts a named volume
+# here; a new named volume takes the ownership of this directory, so the
+# unprivileged user can write to it while the root filesystem stays read-only.
+RUN mkdir -p /data/media && chown facemark:facemark /data/media
+WORKDIR /app
+COPY app ./app
+COPY alembic ./alembic
+COPY alembic.ini ./
+USER facemark
+EXPOSE 8000
+
+# --no-proxy-headers: uvicorn must not rewrite the client address from
+# X-Forwarded-For on its own. The application resolves the client IP itself
+# from TRUSTED_PROXY_CIDRS (ARCHITECTURE.md 21.7.1) and nothing else may.
+# --timeout-keep-alive: longer than the reverse proxy's idle upstream
+# connections (30 s in deploy/Caddyfile), so the proxy never reuses a
+# connection uvicorn has already closed.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", \
+     "--no-proxy-headers", "--no-server-header", "--timeout-keep-alive", "75"]

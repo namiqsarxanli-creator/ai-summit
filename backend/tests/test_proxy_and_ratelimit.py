@@ -132,8 +132,11 @@ def test_window_rolls_over_and_reports_retry_after() -> None:
     limiter.check([(limit, "k")])
 
 
-def test_every_bucket_is_counted_even_when_one_rejects() -> None:
-    """A request cannot dodge one bucket by tripping another first."""
+def test_a_refused_request_spends_no_bucket_after_the_one_that_refused() -> None:
+    """Pairs are counted in order and counting stops at the first refusal, so a
+    client over its (first-listed) shared-IP ceiling cannot spend the
+    per-identity bucket of whatever email it submits (security audit run-1).
+    The refusing bucket itself is always counted, so it cannot be dodged."""
     limiter = _limiter(FakeClock())
     tight = RateLimit("tight", 1, 60)
     loose = RateLimit("loose", 5, 60)
@@ -141,8 +144,12 @@ def test_every_bucket_is_counted_even_when_one_rejects() -> None:
     for _ in range(4):
         with pytest.raises(RateLimitedError):
             limiter.check([(tight, "k"), (loose, "k")])
-    with pytest.raises(RateLimitedError):  # loose is now spent too
+    for _ in range(4):  # loose was counted once only: 4 of its 5 remain
         limiter.check([(loose, "k")])
+    with pytest.raises(RateLimitedError):
+        limiter.check([(loose, "k")])
+    with pytest.raises(RateLimitedError):  # tight is still refusing
+        limiter.check([(tight, "k")])
 
 
 def test_store_prunes_windows_that_have_ended() -> None:

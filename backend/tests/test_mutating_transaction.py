@@ -13,6 +13,7 @@ from __future__ import annotations
 import threading
 import time
 from collections.abc import Iterator
+from typing import Any
 
 import psycopg
 import pytest
@@ -23,6 +24,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.locks import FACEMARK_RESET_FENCE
 from app.db.session import SessionLocal, mutating_transaction
+from tests.m04_support import ADVISORY_LOCKS_HERE
 
 _PSYCOPG_URL = get_settings().database_url.replace("postgresql+psycopg://", "postgresql://")
 
@@ -82,7 +84,7 @@ def test_fence_is_the_first_statement(db: Session) -> None:
         # at this point, so "a granted shared advisory lock exists at
         # all" is already a specific, meaningful assertion here.
         cur.execute(
-            "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' "
+            f"SELECT count(*) FROM pg_locks WHERE {ADVISORY_LOCKS_HERE} "
             "AND mode = 'ShareLock' AND granted"
         )
         (count,) = cur.fetchone()  # type: ignore[misc]
@@ -126,7 +128,7 @@ def test_commits_on_success(db: Session, committed_interest_id: int) -> None:
     # visible within `db`'s own uncommitted transaction.
     fresh = SessionLocal()
     try:
-        name = fresh.execute(
+        name: Any = fresh.execute(
             text("SELECT name FROM interests WHERE id = :i"), {"i": committed_interest_id}
         ).scalar_one()
     finally:
@@ -149,7 +151,7 @@ def test_rolls_back_on_exception(db: Session, committed_interest_id: int) -> Non
     # A fresh session sees the ORIGINAL value — the update never committed.
     fresh = SessionLocal()
     try:
-        name = fresh.execute(
+        name: Any = fresh.execute(
             text("SELECT name FROM interests WHERE id = :i"), {"i": committed_interest_id}
         ).scalar_one()
     finally:

@@ -1,9 +1,10 @@
 """`GET /api/leaderboard` and `GET /api/attendees/me/score` response
 contracts — ARCHITECTURE.md §16, §17.4, IMPLEMENTATION_PLAN.md M13.
 
-`LeaderboardEntry`'s field list is exactly the privacy allow-list M13's
-scope names: user id, first name, last name, profession, and the
-score/rank fields themselves. `last_award_at` — used only for
+`LeaderboardEntry`'s field list is the privacy allow-list: user id, the
+public short name ("Anar N.", app/core/names.py - the event's rules; the full
+surname stays on the person's own profile), profession, and the score/rank
+fields themselves. `reached_at` — used only for
 server-side tie-breaking (§16.2) — is never exposed: the ordering it
 drives is enforced entirely server-side, so a client has nothing to
 verify or reconstruct with it, and every other field this table could
@@ -24,11 +25,14 @@ class LeaderboardEntry(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     user_id: int
-    first_name: str
-    last_name: str
+    # First name and surname initial; never the full surname (PDF conformance
+    # audit, 18 Oct 2026).
+    name: str
     profession: str
     total_points: int
     rank: int
+    # The attendee's profile photo (small rendition), or None (the robot is shown).
+    photo_url: str | None = None
 
 
 class LeaderboardResponse(BaseModel):
@@ -60,6 +64,9 @@ class RecentAward(BaseModel):
     booth_name: str
     source: PointsSource
     created_at: datetime
+    # The activity name for awards made against one; None for awards that
+    # predate activities (and for feedback rewards).
+    task_title: str | None = None
 
 
 class ScoreSnapshotResponse(BaseModel):

@@ -231,19 +231,19 @@ def _login_after_activation(
     return token
 
 
-def test_unknown_email_login_is_indistinguishable(
+def test_unknown_email_login_says_register_first_and_creates_nothing(
     client: TestClient, unique_email: str, otp_log: pytest.LogCaptureFixture
 ) -> None:
-    """§8.2 enumeration resistance: requesting a code for an unknown
-    address looks exactly like a registered one and creates nothing;
-    verifying against it fails exactly like a wrong code."""
+    """Owner, 10 Nov 2026: a code for an address with no account says so
+    (EMAIL_NOT_REGISTERED) and creates nothing; verifying against it still fails
+    exactly like a wrong code."""
     unknown = new_email()
     _activate(client, otp_log, unique_email)
 
     r_known = client.post(OTP_REQUEST, json={"email": unique_email})
     r_unknown = client.post(OTP_REQUEST, json={"email": unknown})
-    assert r_known.status_code == r_unknown.status_code == 200
-    assert r_known.content == r_unknown.content
+    assert r_known.status_code == 200
+    assert _error(r_unknown) == (404, "EMAIL_NOT_REGISTERED")
     assert fetch_all("SELECT id FROM otp_challenges WHERE email = :e", e=unknown) == []
     assert fetch_all("SELECT id FROM users WHERE email = :e", e=unknown) == []
 
@@ -570,34 +570,136 @@ def test_the_mutating_route_inventory_is_what_m16_expects() -> None:
     # unchanged.
     assert _count_mutating_api_routes(app.routes) == len(_mutating_routes())
     baseline = [
+        # Masterclass reservations: the session's own choice per block (cancel / set).
+        # Fenced, and no request names an attendee.
+        ("DELETE", "/api/attendees/me/masterclasses/{block_id}"),
+        # The attendee's own profile photo: removal (the upload is the PUT below).
+        ("DELETE", "/api/attendees/me/photo"),
         # M12: attendee feedback submission + automatic reward.
         ("POST", "/api/attendees/feedback"),
+        # Beyond Now: the attendee scans a panel's screen QR (own session only).
+        ("POST", "/api/attendees/me/blocks"),
+        # A card's typed short code -> its token (3 Nov 2026): a read sent as POST so
+        # the code stays out of URLs and logs; own session, rate-limited.
+        ("POST", "/api/attendees/me/cards/lookup"),
+        # People (migration 0021): mutual scan, requests; one's own session only.
+        ("POST", "/api/attendees/me/connections/scan"),
+        ("POST", "/api/attendees/me/meeting-requests"),
+        ("POST", "/api/attendees/me/meeting-requests/{request_id}/cancel"),
+        ("POST", "/api/attendees/me/meeting-requests/{request_id}/respond"),
+        # Pair photos (migration 0025): one's own upload, answer, consent, withdrawal.
+        ("POST", "/api/attendees/me/pair-photos"),
+        ("POST", "/api/attendees/me/pair-photos/{photo_id}/answer"),
+        ("POST", "/api/attendees/me/pair-photos/{photo_id}/screen"),
+        ("POST", "/api/attendees/me/pair-photos/{photo_id}/withdraw"),
+        ("POST", "/api/attendees/me/panels/scan"),
         ("POST", "/api/attendees/register"),
         ("POST", "/api/auth/logout"),
         ("POST", "/api/auth/otp/request"),
         ("POST", "/api/auth/otp/verify"),
+        # Meet the Mentor (migration 0022): the session's own booking only.
+        ("POST", "/api/mentor-bookings/{booking_id}/cancel"),
+        ("POST", "/api/mentor-sessions/{session_id}/book"),
+        ("POST", "/api/playground/bookings/{booking_id}/cancel"),
+        ("POST", "/api/playground/invitations/accept"),
+        ("POST", "/api/playground/invitations/inspect"),
+        ("POST", "/api/playground/slots/{slot_id}/book"),
+        ("POST", "/api/playground/slots/{slot_id}/invite"),
         ("POST", "/api/staff/auth/login"),
         ("POST", "/api/staff/auth/logout"),
+        # Staff passwords: change (signed in) and the emailed reset (public, no oracle).
+        ("POST", "/api/staff/auth/password"),
+        ("POST", "/api/staff/auth/password-reset/confirm"),
+        ("POST", "/api/staff/auth/password-reset/request"),
+        # Points corrections in the organiser panel (25 Oct 2026): an administrator or
+        # a Game Master, the same reversal and connection review as the admin console.
+        ("POST", "/api/staff/cards/lookup"),
+        ("POST", "/api/staff/connections/reconcile"),
+        # The final result (migration 0023): Game Master or administrator only.
+        ("POST", "/api/staff/final"),
+        ("POST", "/api/staff/final/{result_id}/discard"),
+        ("POST", "/api/staff/final/{result_id}/publish"),
+        ("POST", "/api/staff/grand-final/open"),
         # M11: the award mutation itself.
+        # Verified participation: a scoped door volunteer, the slot's own booth
+        # staff, a Game Master. Each re-checks its scope inside the fence.
+        ("POST", "/api/staff/masterclasses/{masterclass_id}/door"),
+        ("POST", "/api/staff/mentor-sessions/{session_id}/complete"),
+        # Offline scans (migration 0026): replay-safe submission and the review.
+        ("POST", "/api/staff/offline-scans"),
+        ("POST", "/api/staff/offline-scans/{scan_id}/approve"),
+        ("POST", "/api/staff/offline-scans/{scan_id}/reject"),
+        ("POST", "/api/staff/playground/bookings/{booking_id}/admit"),
+        ("POST", "/api/staff/playground/slots/{slot_id}/complete"),
+        ("POST", "/api/staff/points-log/award"),
+        ("POST", "/api/staff/points-log/{entry_id}/reverse"),
         ("POST", "/api/staff/points/award"),
+        ("POST", "/api/staff/qmeter/award"),
+        ("POST", "/api/staff/qmeter/identify"),
         # M06: a read, but a POST by definition (§13.1), so it is under
         # the Origin assertion like every other POST.
         ("POST", "/api/staff/scan/resolve"),
+        # The attendee's own profile (ARCHITECTURE.md §8.4): photo upload, details and
+        # interests, and sponsor consent. Each takes the reset fence first and names no
+        # attendee - who is edited is the session's.
+        ("PUT", "/api/attendees/me/masterclasses/{block_id}"),
+        ("PUT", "/api/attendees/me/photo"),
+        ("PUT", "/api/attendees/me/profile"),
+        # Programme reminders (migration 0024): the session's own opt-in only.
+        ("PUT", "/api/attendees/me/reminders"),
+        ("PUT", "/api/attendees/me/sponsor-consent"),
     ]
     routes = _mutating_routes()
     assert [entry for entry in routes if not entry[1].startswith("/api/admin/")] == baseline
     assert [entry for entry in routes if entry[1].startswith("/api/admin/")] == [
         ("DELETE", "/api/admin/booths/{booth_id}/weights/{interest_id}"),
+        # The masterclass programme (audited; refused when it would break reservations).
+        ("DELETE", "/api/admin/masterclasses/{masterclass_id}"),
         ("PATCH", "/api/admin/booths/{booth_id}"),
         ("PATCH", "/api/admin/event-config"),
         ("PATCH", "/api/admin/interests/{interest_id}"),
+        ("PATCH", "/api/admin/masterclass-blocks/{block_id}"),
+        ("PATCH", "/api/admin/masterclass-events/{event_id}"),
+        ("PATCH", "/api/admin/masterclass-rooms/{room_id}"),
+        ("PATCH", "/api/admin/masterclasses/{masterclass_id}"),
+        ("PATCH", "/api/admin/match-tables/{table_id}"),
+        ("PATCH", "/api/admin/mentor-sessions/{session_id}"),
+        # The competition: panels, a person's eligibility, staff scopes.
+        ("PATCH", "/api/admin/panels/{panel_id}"),
         ("PATCH", "/api/admin/presets/{preset_id}"),
         ("PATCH", "/api/admin/tasks/{task_id}"),
+        ("PATCH", "/api/admin/users/{user_id}/competition-eligibility"),
         ("POST", "/api/admin/booths"),
+        # CSV exports: step 1 of 2 (prepare + one-time ticket); the file itself is a GET.
+        # Unpaid connections: administrators pay selected, still-eligible sides
+        # through the ledger (people/reconcile.py); audited, fenced.
+        ("POST", "/api/admin/connections/reconcile"),
+        ("POST", "/api/admin/exports/attendees"),
+        ("POST", "/api/admin/exports/points-log"),
+        ("POST", "/api/admin/exports/sponsor-contacts"),
         ("POST", "/api/admin/interests"),
+        ("POST", "/api/admin/masterclass-blocks"),
+        ("POST", "/api/admin/masterclass-events"),
+        ("POST", "/api/admin/masterclass-rooms"),
+        # The confirmed programme frame (as the CLI); audited, fenced.
+        ("POST", "/api/admin/masterclass-skeleton"),
+        ("POST", "/api/admin/masterclasses"),
+        ("POST", "/api/admin/match-tables"),
+        ("POST", "/api/admin/mentor-sessions"),
+        ("POST", "/api/admin/pair-photos/{photo_id}/moderate"),
+        ("POST", "/api/admin/panels"),
+        # Points reversal: cancels one AWARD in full (administrators only).
+        ("POST", "/api/admin/playground/prepare"),
+        ("POST", "/api/admin/points-log/{entry_id}/reverse"),
         ("POST", "/api/admin/presets"),
         ("POST", "/api/admin/staff"),
+        ("POST", "/api/admin/staff-scopes"),
+        ("POST", "/api/admin/staff-scopes/{scope_id}/revoke"),
         ("POST", "/api/admin/staff/{staff_id}/deactivate"),
+        # An administrator starts a reset EMAIL for a staff member (no password, no code).
+        # An administrator sets a staff member's new password without email (8 Nov 2026).
+        ("POST", "/api/admin/staff/{staff_id}/password"),
+        ("POST", "/api/admin/staff/{staff_id}/password-reset"),
         ("POST", "/api/admin/tasks"),
         ("PUT", "/api/admin/booths/{booth_id}/weights/{interest_id}"),
     ]
@@ -642,10 +744,17 @@ def test_foreign_origin_cannot_log_an_attendee_out(
 
 
 def test_referer_fallback_and_same_origin_succeed(unique_email: str) -> None:
+    # The address has no account: past the origin check it gets its own answer
+    # (EMAIL_NOT_REGISTERED), never the CSRF refusal.
     with TestClient(app, headers={"Referer": "http://localhost:3000/login"}) as c:
-        assert c.post(OTP_REQUEST, json={"email": unique_email}).status_code == 200
+        assert _error(c.post(OTP_REQUEST, json={"email": unique_email})) == (
+            404,
+            "EMAIL_NOT_REGISTERED",
+        )
     with make_client() as c:  # the browser case: a matching Origin
-        assert c.post(OTP_REQUEST, json={"email": unique_email}).status_code == 200
+        assert (
+            _error(c.post(OTP_REQUEST, json={"email": unique_email}))[1] == "EMAIL_NOT_REGISTERED"
+        )
 
 
 def test_safe_methods_are_not_subject_to_the_origin_assertion() -> None:
@@ -664,6 +773,9 @@ def test_fourth_otp_request_for_one_email_in_15_minutes_is_refused(
 ) -> None:
     """IMPLEMENTATION_PLAN.md M05 acceptance #2 (second half)."""
     _activate(client, otp_log, unique_email)
+    # Registering counted against the same per-email issuance bucket (it issues
+    # a code too); measure the OTP request limit on its own.
+    limiter.reset()
     for _ in range(3):
         assert client.post(OTP_REQUEST, json={"email": unique_email}).status_code == 200
     fourth = client.post(OTP_REQUEST, json={"email": unique_email.upper()})  # same identity
@@ -674,12 +786,15 @@ def test_fourth_otp_request_for_one_email_in_15_minutes_is_refused(
 def test_otp_request_throttle_is_not_a_membership_oracle(
     client: TestClient, unique_email: str, otp_log: pytest.LogCaptureFixture
 ) -> None:
-    """Registered and unregistered addresses are throttled identically."""
+    """Registered and unregistered addresses share the same throttle: the fourth
+    request in the window is refused for both."""
     _activate(client, otp_log, unique_email)
+    limiter.reset()  # registration shares the issuance bucket; start both from zero
     unknown = new_email()
     known = [client.post(OTP_REQUEST, json={"email": unique_email}).status_code for _ in range(4)]
     ghost = [client.post(OTP_REQUEST, json={"email": unknown}).status_code for _ in range(4)]
-    assert known == ghost == [200, 200, 200, 429]
+    assert known == [200, 200, 200, 429]
+    assert ghost == [404, 404, 404, 429]
 
 
 def test_otp_verify_is_limited_per_email(client: TestClient, unique_email: str) -> None:
@@ -701,7 +816,8 @@ def test_limits_reset_when_the_window_rolls_over(
     assert client.post(OTP_REQUEST, json={"email": unique_email}).status_code == 429
     frozen = limiter.clock()
     limiter.clock = lambda: frozen + 15 * 60
-    assert client.post(OTP_REQUEST, json={"email": unique_email}).status_code == 200
+    # Throttled no more: the (unregistered) address gets its normal answer again.
+    assert client.post(OTP_REQUEST, json={"email": unique_email}).status_code == 404
 
 
 def test_venue_nat_200_registrations_from_one_ip_all_succeed() -> None:
@@ -825,3 +941,38 @@ def test_session_near_expiry_is_still_valid(
         h=hash_session_token(token),
     )
     assert _me(client, token).status_code == 200
+
+
+@pytest.mark.parametrize("remember", [False, True])
+def test_remembered_session_lifetime_and_revocation(
+    client: TestClient, unique_email: str, otp_log: pytest.LogCaptureFixture, remember: bool
+) -> None:
+    assert client.post(REGISTER, json=register_payload(unique_email)).status_code == 200
+    response = client.post(
+        VERIFY,
+        json={
+            "email": unique_email,
+            "code": captured_otp(otp_log.records, unique_email),
+            "remember_device": remember,
+        },
+    )
+    assert response.status_code == 200
+    token = response.cookies.get("session")
+    assert token
+    row = _session_row(token)
+    expected = timedelta(days=30) if remember else timedelta(hours=12)
+    assert row.expires_at - row.issued_at == expected
+    cookie = response.headers["set-cookie"]
+    assert f"Max-Age={int(expected.total_seconds())}" in cookie
+    assert "HttpOnly" in cookie and "SameSite=lax" in cookie
+    # Returning with the persisted cookie bypasses OTP but logout still revokes it.
+    assert _me(client, token).status_code == 200
+    assert client.post(LOGOUT, headers={"Cookie": f"session={token}"}).status_code == 204
+    assert _me(client, token).status_code == 401
+
+
+def test_remember_device_requires_a_boolean(client: TestClient) -> None:
+    response = client.post(
+        VERIFY, json={"email": "person@example.com", "code": "123456", "remember_device": "true"}
+    )
+    assert response.status_code == 422

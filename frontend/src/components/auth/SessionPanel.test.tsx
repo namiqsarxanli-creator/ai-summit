@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { messageFor } from "@/lib/errors";
@@ -35,55 +35,31 @@ describe("SessionPanel", () => {
       "href",
       "/register",
     );
+    // Staff and organisers have their own links; the attendee home names neither.
+    expect(screen.queryByRole("link", { name: "Staff sign in" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Organiser sign in" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Already registered? Sign in" })).toHaveAttribute(
       "href",
       "/login",
     );
   });
 
-  it("shows the signed-in attendee resolved from the server", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(200, ATTENDEE)));
-    render(<SessionPanel />);
-    expect(await screen.findByText("Marcus Lindqvist")).toBeInTheDocument();
-    expect(screen.getByText("Data Platform Engineer")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
+  it("shows nothing to a signed-in attendee: the profile has its own tab", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(200, ATTENDEE));
+    vi.stubGlobal("fetch", fetchMock);
+    const { container } = render(<SessionPanel />);
+    await waitFor(() => expect(screen.queryByText("Checking your session…")).not.toBeInTheDocument());
+    expect(fetchMock).toHaveBeenCalled();
+    expect(container).toBeEmptyDOMElement();
+    expect(screen.queryByText("Marcus Lindqvist")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Register as an attendee" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Sign out" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Staff sign in" })).not.toBeInTheDocument();
     // M08: navigation to My Card and Booths now lives in the single
     // shared AttendeeTabBar (rendered by HomeDashboard), not duplicated
     // here as separate quick-link buttons.
     expect(screen.queryByRole("link", { name: "My card & QR" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Booth matches" })).not.toBeInTheDocument();
-  });
-
-  it("signs out, then confirms with the server that the session is gone", async () => {
-    let signedIn = true;
-    const fetchMock = vi.fn(async (url: string) => {
-      if (url === "/api/auth/logout") {
-        signedIn = false;
-        return new Response(null, { status: 204 });
-      }
-      return signedIn ? jsonResponse(200, ATTENDEE) : errorResponse(401, "UNAUTHENTICATED");
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    render(<SessionPanel />);
-    fireEvent.click(await screen.findByRole("button", { name: "Sign out" }));
-
-    expect(await screen.findByRole("link", { name: "Register as an attendee" })).toBeInTheDocument();
-    const urls = fetchMock.mock.calls.map(([u]) => u);
-    expect(urls).toEqual(["/api/attendees/me", "/api/auth/logout", "/api/attendees/me"]);
-  });
-
-  it("keeps the attendee signed in and says why if logout is rejected", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (url: string) =>
-        url === "/api/auth/logout" ? errorResponse(403, "CSRF_REJECTED") : jsonResponse(200, ATTENDEE),
-      ),
-    );
-    render(<SessionPanel />);
-    fireEvent.click(await screen.findByRole("button", { name: "Sign out" }));
-    expect(await screen.findByText(messageFor("CSRF_REJECTED"))).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByText("Marcus Lindqvist")).toBeInTheDocument());
   });
 
   it("reports an unexpected failure but still offers the ways in", async () => {

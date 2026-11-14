@@ -89,7 +89,9 @@ def test_profile_returns_registration_data_interests_and_consent(
     response = client.get(PROFILE)
     assert response.status_code == 200
     body = response.json()
+    assert isinstance(body["attendee_id"], int)  # the number staff can find them by
     assert body == {
+        "attendee_id": body["attendee_id"],
         "first_name": "Ada",
         "last_name": "Lovelace",
         "email": email.lower(),
@@ -104,7 +106,18 @@ def test_profile_returns_registration_data_interests_and_consent(
             {"slug": "generative-ai", "name": "Generative AI"},
             {"slug": "data-analytics", "name": "Data Analytics"},
         ],
+        # Added with profile editing: what an edit must send back, the consent's
+        # time and wording (None while withheld), and the photo (None until set).
+        "sponsor_consent_at": body["sponsor_consent_at"],
+        "sponsor_consent_version": "registration-v1",
+        "version": 1,
+        "photo": None,
+        # Added with the interest card. The company is required at registration
+        # (23 Oct 2026); the card stays optional, empty when skipped.
+        "company": "Hopper Labs",
+        "interest_card": {"sector": None, "topics": [], "seeking": [], "offering": []},
     }
+    assert body["sponsor_consent_at"] is not None
 
 
 def test_profile_reflects_consent_false_and_no_linkedin(
@@ -124,7 +137,10 @@ def test_profile_never_includes_internal_ids_or_session_data(
     response = client.get(PROFILE)
     for leaked in ('"id"', '"user_id"', '"session"', '"status"', '"activated_at"'):
         assert leaked not in response.text
+    # attendee_id: the person's OWN number, shown so organisers can find them
+    # (owner's request, 6 Nov 2026) - never another person's, never a session.
     assert set(response.json()) == {
+        "attendee_id",
         "first_name",
         "last_name",
         "email",
@@ -132,7 +148,13 @@ def test_profile_never_includes_internal_ids_or_session_data(
         "profession",
         "linkedin_url",
         "sponsor_consent",
+        "sponsor_consent_at",
+        "sponsor_consent_version",
         "interests",
+        "version",
+        "photo",
+        "company",
+        "interest_card",
     }
 
 

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { type ChangeEvent, type FormEvent, useRef, useState, useSyncExternalStore } from "react";
 
 import { TextField } from "@/components/ui/TextField";
+import { useLanguage } from "@/components/ui/LanguageProvider";
 import { apiPost } from "@/lib/api";
 import { fieldErrorsFrom, messageFor } from "@/lib/errors";
 import { clearPendingEmail, readPendingEmail } from "@/lib/pendingEmail";
@@ -15,13 +16,15 @@ import { isSixDigitCode } from "./validation";
 // SSR-safe read (empty on the server, the stored value on the client).
 const noSubscription = () => () => {};
 
-const RESEND_NOTICE = "If this email is registered, a new code has been sent.";
+const RESEND_NOTICE = "A new code has been sent to your email.";
 
 export function VerifyForm() {
+  const { t, language } = useLanguage();
   const storedEmail = useSyncExternalStore(noSubscription, readPendingEmail, () => "");
   const [emailOverride, setEmailOverride] = useState<string | null>(null);
   const email = emailOverride ?? storedEmail;
 
+  const [remember, setRemember] = useState(false);
   const [code, setCode] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
@@ -33,22 +36,16 @@ export function VerifyForm() {
 
   if (activated) {
     return (
-      <div
-        role="status"
-        className="flex flex-col items-center gap-4 rounded-2xl border border-emerald-500/40 bg-emerald-500/10 p-8 text-center"
-      >
-        <div
-          aria-hidden
-          className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500 text-2xl text-slate-950"
-        >
+      <div role="status" className="fm-card fm-center fm-stack">
+        <div aria-hidden className="fm-success-mark">
           ✓
         </div>
-        <h2 className="text-xl font-semibold text-emerald-100">You&apos;re verified</h2>
-        <p className="text-sm text-emerald-200/80">
-          Your attendee account is now active and you&apos;re signed in on this device.
+        <h2 className="fm-h2">{t("You're verified")}</h2>
+        <p className="fm-text-soft">
+          {t("Your attendee account is now active and you're signed in on this device.")}
         </p>
-        <Link href="/" className="text-sm font-medium text-indigo-300 hover:text-indigo-200">
-          Back to home
+        <Link href="/" className="fm-btn fm-btn-primary fm-btn-block">
+          {t("Back to home")}
         </Link>
       </div>
     );
@@ -75,6 +72,7 @@ export function VerifyForm() {
     const result = await apiPost<{ status: string }>("/api/auth/otp/verify", {
       email: email.trim(),
       code,
+      ...(remember ? { remember_device: true } : {}),
     });
     inFlight.current = false;
     setSubmitting(false);
@@ -105,6 +103,7 @@ export function VerifyForm() {
     setResending(true);
     const result = await apiPost<{ message: string }>("/api/auth/otp/request", {
       email: email.trim(),
+      language,
     });
     inFlight.current = false;
     setResending(false);
@@ -117,7 +116,7 @@ export function VerifyForm() {
   }
 
   return (
-    <form noValidate onSubmit={onSubmit} className="flex flex-col gap-6" aria-busy={submitting}>
+    <form noValidate onSubmit={onSubmit} className="fm-form fm-auth-form" aria-busy={submitting}>
       <TextField
         id="email"
         label="Email"
@@ -138,34 +137,35 @@ export function VerifyForm() {
         onChange={onCodeChange}
         error={fieldErrors.code}
         hint="The 6-digit code expires 10 minutes after it was sent."
-        className="text-center font-mono text-2xl tracking-[0.5em]"
+        className="fm-input-code"
       />
 
+      <label className="fm-remember"><input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} />{t("Remember me")}</label>
       {notice && (
-        <p role="status" className="rounded-lg border border-indigo-500/40 bg-indigo-500/10 p-3 text-sm text-indigo-200">
-          {notice}
+        <p role="status" className="fm-alert fm-alert-info">
+          {t(notice)}
         </p>
       )}
       {formError && (
-        <p role="alert" className="rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-300">
-          {formError}
+        <p role="alert" className="fm-alert fm-alert-error">
+          {t(formError)}
         </p>
       )}
 
       <button
         type="submit"
         disabled={submitting}
-        className="rounded-lg bg-indigo-500 px-4 py-3 font-semibold text-white transition-colors hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-60"
+        className="fm-btn fm-btn-primary fm-btn-block"
       >
-        {submitting ? "Verifying…" : "Verify and activate"}
+        {submitting ? t("Verifying…") : t("Verify and activate")}
       </button>
       <button
         type="button"
         onClick={onResend}
         disabled={resending}
-        className="text-sm font-medium text-indigo-300 hover:text-indigo-200 disabled:opacity-60"
+        className="fm-btn fm-btn-quiet fm-btn-block"
       >
-        {resending ? "Sending…" : "Send me a new code"}
+        {resending ? t("Sending…") : t("Send me a new code")}
       </button>
     </form>
   );

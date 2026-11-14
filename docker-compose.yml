@@ -31,17 +31,28 @@ services:
     environment:
       ENVIRONMENT: ${ENVIRONMENT:-development}
       DEMO_MODE: ${DEMO_MODE:-false}
+      FOUNDER_RULE_CONFIRMED: ${FOUNDER_RULE_CONFIRMED:-false}
+      BOOTH_MATCH_PROFILE_INTERESTS: ${BOOTH_MATCH_PROFILE_INTERESTS:-false}
       # M05: required — the backend refuses to start without it.
       APP_ORIGIN: ${APP_ORIGIN}
       TRUSTED_PROXY_CIDRS: ${TRUSTED_PROXY_CIDRS:-}
       # M10 (ARCHITECTURE.md §13.3): scan_ref HMAC key. No fallback —
       # the backend refuses to start without it (invariant #14).
       SCAN_REF_SECRET: ${SCAN_REF_SECRET}
+      # Real OTP email via Resend (app/modules/auth/otp_delivery.py).
+      # Empty RESEND_API_KEY = no real email (DEMO_MODE log only).
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      OTP_FROM_EMAIL: ${OTP_FROM_EMAIL:-FACEMARK <info@aiworks.az>}
+      # Optional in development. Set it (python -m app.cli generate-otp-key) and
+      # run migrations to send OTP emails through the durable outbox + worker;
+      # without it the old in-process sender is used and the worker idles.
+      OTP_OUTBOX_ENCRYPTION_KEY: ${OTP_OUTBOX_ENCRYPTION_KEY:-}
       # Assembled here from the same POSTGRES_* values the `db` service
       # uses — a single source of truth for credentials, never
       # duplicated as a second literal in .env.
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
-      # Consumed only by `python -m app.cli seed` (M03) — no fallback,
+      # Consumed only by the demo seed, `python -m app.cli seed-demo`
+      # (DEMO_MODE only; not needed for a real event) — no fallback,
       # by design (ARCHITECTURE.md §19.8): the CLI fails loudly if unset
       # rather than seeding a known password.
       SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-}
@@ -53,6 +64,9 @@ services:
       # (outside /app) in the image, so this mount cannot shadow them —
       # see backend/Dockerfile.
       - ./backend:/app
+      # Profile photos (MEDIA_ROOT, default /data/media): a named volume, so
+      # they survive `docker compose up --build` and container recreation.
+      - facemark_media_data:/data/media
     depends_on:
       db:
         condition: service_healthy
@@ -61,6 +75,33 @@ services:
     # available for local development while still pinning --workers 1.
     command: >
       uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1 --reload
+
+  # OTP email worker (see DEPLOYMENT.md). Idles harmlessly while the outbox is
+  # not configured (no OTP_OUTBOX_ENCRYPTION_KEY).
+  worker:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      DEMO_MODE: ${DEMO_MODE:-false}
+      FOUNDER_RULE_CONFIRMED: ${FOUNDER_RULE_CONFIRMED:-false}
+      BOOTH_MATCH_PROFILE_INTERESTS: ${BOOTH_MATCH_PROFILE_INTERESTS:-false}
+      APP_ORIGIN: ${APP_ORIGIN}
+      TRUSTED_PROXY_CIDRS: ${TRUSTED_PROXY_CIDRS:-}
+      SCAN_REF_SECRET: ${SCAN_REF_SECRET}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      OTP_FROM_EMAIL: ${OTP_FROM_EMAIL:-FACEMARK <info@aiworks.az>}
+      OTP_OUTBOX_ENCRYPTION_KEY: ${OTP_OUTBOX_ENCRYPTION_KEY:-}
+      OTP_DELIVERY_RATE_LIMIT: ${OTP_DELIVERY_RATE_LIMIT:-2}
+      OTP_DELIVERY_RATE_WINDOW_SECONDS: ${OTP_DELIVERY_RATE_WINDOW_SECONDS:-1}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+    volumes:
+      - ./backend:/app
+    depends_on:
+      db:
+        condition: service_healthy
+    command: python -m app.worker
 
   frontend:
     build:
@@ -81,3 +122,4 @@ services:
 
 volumes:
   facemark_postgres_data:
+  facemark_media_data:

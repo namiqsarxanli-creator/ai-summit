@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import threading
 from collections import defaultdict
 from dataclasses import dataclass
@@ -41,6 +42,10 @@ QUEUE_MAXSIZE = 8
 class RealtimeEvent:
     event: str
     data: dict[str, object]
+    # A broadcast's `data` encoded ONCE, at publish: every stream sends these
+    # same bytes instead of encoding the payload again on the event loop (500
+    # streams x one leaderboard push blocked the loop for ~1 s in a load test).
+    raw: str | None = None
 
 
 class EventBus:
@@ -53,6 +58,10 @@ class EventBus:
         self._personal: dict[int, set[asyncio.Queue[RealtimeEvent]]] = defaultdict(set)
         self._broadcast: set[asyncio.Queue[RealtimeEvent]] = set()
         self._lock = threading.Lock()
+        # Bumped by every broadcast that means "the leaderboard may differ now"
+        # (an award, a reversal, a profile or dataset change). The leaderboard's
+        # shared ranking snapshot is valid only for the version it was built at.
+        self.leaderboard_version = 0
 
     def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         self._loop = loop
@@ -84,20 +93,36 @@ class EventBus:
             self._broadcast.discard(queue)
 
     def subscriber_count(self, user_id: int) -> int:
-        """Test/introspection helper only — never used for a routing
-        or correctness decision."""
+        """Open streams of one attendee; also the per-attendee stream cap's
+        input (`realtime.routers`)."""
         with self._lock:
             return len(self._personal.get(user_id, ()))
+
+    def total_subscribers(self) -> int:
+        """Open streams in this process; the global stream cap's input."""
+        with self._lock:
+            return len(self._broadcast)
 
     def publish_personal(self, user_id: int, event: str, data: dict[str, object]) -> None:
         with self._lock:
             queues = tuple(self._personal.get(user_id, ()))
         self._deliver(queues, RealtimeEvent(event, data))
 
+    def invalidate_leaderboard(self) -> None:
+        """The leaderboard may differ now: discard the shared ranking. Called
+        BEFORE the new ranking is built for a `leaderboard_changed` push."""
+        with self._lock:
+            self.leaderboard_version += 1
+
     def publish_broadcast(self, event: str, data: dict[str, object]) -> None:
         with self._lock:
+            if event == "dataset_reset":
+                self.leaderboard_version += 1
             queues = tuple(self._broadcast)
-        self._deliver(queues, RealtimeEvent(event, data))
+        if not queues:
+            return
+        raw = json.dumps(data, separators=(",", ":"), ensure_ascii=False, default=str)
+        self._deliver(queues, RealtimeEvent(event, data, raw))
 
     def _deliver(
         self, queues: tuple[asyncio.Queue[RealtimeEvent], ...], item: RealtimeEvent

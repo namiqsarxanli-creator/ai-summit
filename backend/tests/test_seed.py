@@ -30,6 +30,7 @@ import re
 import string
 from collections.abc import Iterator
 from decimal import Decimal
+from typing import Any
 
 import pytest
 from argon2 import PasswordHasher
@@ -329,7 +330,7 @@ def test_cli_seed_fails_loudly_when_admin_password_env_var_missing(
     monkeypatch.setenv("SEED_STAFF_PASSWORD", _TEST_STAFF_PASSWORD)
 
     with pytest.raises(SystemExit) as exc:
-        app_cli.main(["seed"])
+        app_cli.main(["seed-demo"])
     assert exc.value.code == 1
     assert "SEED_ADMIN_PASSWORD" in capsys.readouterr().err
 
@@ -341,7 +342,7 @@ def test_cli_seed_fails_loudly_when_staff_password_env_var_missing(
     monkeypatch.delenv("SEED_STAFF_PASSWORD", raising=False)
 
     with pytest.raises(SystemExit) as exc:
-        app_cli.main(["seed"])
+        app_cli.main(["seed-demo"])
     assert exc.value.code == 1
     assert "SEED_STAFF_PASSWORD" in capsys.readouterr().err
 
@@ -353,7 +354,7 @@ def test_cli_seed_never_falls_back_to_a_guessed_password(monkeypatch: pytest.Mon
     monkeypatch.setenv("SEED_ADMIN_PASSWORD", "")
     monkeypatch.setenv("SEED_STAFF_PASSWORD", _TEST_STAFF_PASSWORD)
     with pytest.raises(SystemExit):
-        app_cli.main(["seed"])
+        app_cli.main(["seed-demo"])
 
 
 # Sanity: ensure `text` import stays used even as tests evolve, and the
@@ -368,5 +369,21 @@ def test_public_tokens_contain_no_attendee_pii() -> None:
 
 def test_event_config_row_is_the_fixed_singleton(seed_session: Session) -> None:
     _run_seed(seed_session)
-    row_count = seed_session.execute(text("SELECT count(*) FROM event_config")).scalar_one()
+    row_count: Any = seed_session.execute(text("SELECT count(*) FROM event_config")).scalar_one()
     assert row_count == 1
+
+
+def test_every_demo_activity_carries_a_point_value(seed_session: Session) -> None:
+    """Activities are what staff award, so the demo ones must be awardable."""
+    _run_seed(seed_session)
+    for b in fx.BOOTHS:
+        for t in b.tasks:
+            assert 1 <= t.points <= 100
+            stored: Any = seed_session.execute(
+                text(
+                    "SELECT points FROM tasks WHERE title = :t AND booth_id = "
+                    "(SELECT id FROM booths WHERE slug = :s)"
+                ),
+                {"t": t.title, "s": b.slug},
+            ).scalar_one()
+            assert stored == t.points

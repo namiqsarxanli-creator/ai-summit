@@ -54,9 +54,34 @@ SCAN_RESOLVE_PER_STAFF = RateLimit("scan_resolve:staff", 120, 60)
 # password" by hammering one bucket differently. This is BESIDES the
 # persistent failed_login_count/locked_until brute-force gate (§21.8):
 # two independent defenses, mirroring OTP's own attempt-cap +
-# rate-limit pair.
-STAFF_LOGIN_PER_EMAIL = RateLimit("staff_login:email", 10, 15 * 60)
+# rate-limit pair. 60 (was 10; owner's decision, 25 Oct 2026): one staff account
+# may be shared by a team that signs in on many phones at once, and every sign-in
+# counts here. Guessing stays bounded by the lockout (10 wrong passwords).
+STAFF_LOGIN_PER_EMAIL = RateLimit("staff_login:email", 60, 15 * 60)
 STAFF_LOGIN_PER_IP = RateLimit("staff_login:ip", 600, 15 * 60)
+
+
+# Staff passwords. Changing one needs the current password, so a stolen session
+# must not be able to guess it: few tries per staff account.
+STAFF_PASSWORD_CHANGE_PER_STAFF = RateLimit("staff_password_change:staff", 5, 15 * 60)
+# Reset by email: limited per submitted address (known or not, so the limiter is
+# no oracle), exactly like the attendee OTP rows, plus the shared-IP ceiling.
+STAFF_RESET_REQUEST_PER_EMAIL = RateLimit("staff_reset_request:email", 3, 15 * 60)
+STAFF_RESET_REQUEST_PER_IP = RateLimit("staff_reset_request:ip", 600, 15 * 60)
+STAFF_RESET_CONFIRM_PER_EMAIL = RateLimit("staff_reset_confirm:email", 10, 15 * 60)
+STAFF_RESET_CONFIRM_PER_IP = RateLimit("staff_reset_confirm:ip", 1200, 15 * 60)
+# An administrator starting reset emails for other staff.
+ADMIN_RESET_START_PER_ADMIN = RateLimit("admin_reset_start:admin", 20, 60 * 60)
+
+
+# The attendee's own profile (app/modules/attendees/profile.py): per signed-in
+# attendee, generous for a person editing a form, tight for a script. Photos cost
+# CPU and disk, so they are limited harder (and per IP as a ceiling that a venue
+# behind one NAT address will not reach).
+PROFILE_UPDATE_PER_ATTENDEE = RateLimit("profile_update:attendee", 60, 10 * 60)
+CONSENT_UPDATE_PER_ATTENDEE = RateLimit("consent_update:attendee", 30, 10 * 60)
+PHOTO_UPLOAD_PER_ATTENDEE = RateLimit("photo_upload:attendee", 12, 10 * 60)
+PHOTO_UPLOAD_PER_IP = RateLimit("photo_upload:ip", 600, 10 * 60)
 
 
 class RateLimitStore(Protocol):
@@ -102,21 +127,23 @@ class RateLimiter:
         self.clock = clock
 
     def check(self, checks: Sequence[tuple[RateLimit, str]]) -> None:
-        """Counts the request against every (limit, identity) pair and
-        raises RateLimitedError if ANY is exceeded. All pairs are
-        counted, so a request cannot dodge one bucket by tripping
-        another first."""
+        """Counts the request against the (limit, identity) pairs IN ORDER
+        and raises RateLimitedError at the first one that is exceeded;
+        the pairs after it are not counted.
+
+        Callers list the shared-IP ceiling FIRST. A client already over
+        its own ceiling is then refused before it can spend anyone
+        else's per-identity bucket: the submitted email is attacker-chosen
+        input, so counting it on a refused request would let one address
+        lock any number of other people out of signing in. The pair that
+        refused is always counted, so a client cannot dodge it."""
         now = self.clock()
-        retry_after: int | None = None
         for limit, identity in checks:
             count, window_end = self.store.hit(
                 f"{limit.name}:{identity}", limit.window_seconds, now
             )
             if count > limit.limit:
-                wait = max(1, math.ceil(window_end - now))
-                retry_after = wait if retry_after is None else max(retry_after, wait)
-        if retry_after is not None:
-            raise RateLimitedError(retry_after)
+                raise RateLimitedError(max(1, math.ceil(window_end - now)))
 
     def reset(self) -> None:
         self.store.reset()

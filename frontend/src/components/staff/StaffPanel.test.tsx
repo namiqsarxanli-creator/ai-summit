@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { waitFor, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { messageFor } from "@/lib/errors";
@@ -18,10 +18,9 @@ function errorResponse(status: number, code: string): Response {
 
 const BOOTH_STAFF_ME = { full_name: "Noah Bergström", role: "BOOTH_STAFF", booth_name: "AIWorks" };
 const ADMIN_ME = { full_name: "Jordan Blake", role: "ADMIN", booth_name: null };
-const PRESETS = [
-  { points: 5, label: "Quick interaction" },
-  { points: 10, label: "Solid engagement" },
-  { points: 15, label: "Deep engagement" },
+const TASKS = [
+  { id: 1, title: "Watch the live demo", description: null, points: 10, repeatable: false },
+  { id: 2, title: "Ask about deployment", description: null, points: 5, repeatable: true },
 ];
 
 afterEach(() => {
@@ -29,38 +28,80 @@ afterEach(() => {
 });
 
 describe("StaffPanel", () => {
-  it("shows the signed-in staff identity and booth, derived from the server, plus presets", async () => {
+  it("shows the signed-in staff identity and booth, derived from the server, plus the activities and their points", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string) =>
-        url === "/api/staff/me" ? jsonResponse(200, BOOTH_STAFF_ME) : jsonResponse(200, PRESETS),
+        url === "/api/staff/me"
+          ? jsonResponse(200, BOOTH_STAFF_ME)
+          : url === "/api/final"
+            ? jsonResponse(200, { status: "disabled", missing: ["competition_mode"], closes_at: null })
+            : jsonResponse(200, TASKS),
       ),
     );
     render(<StaffPanel />);
     expect(await screen.findByText("Noah Bergström")).toBeInTheDocument();
     expect(screen.getByText("AIWorks")).toBeInTheDocument();
-    expect(screen.getByText("+5 · Quick interaction")).toBeInTheDocument();
-    expect(screen.getByText("+10 · Solid engagement")).toBeInTheDocument();
-    expect(screen.getByText("+15 · Deep engagement")).toBeInTheDocument();
+    expect(await screen.findByText("Watch the live demo · +10")).toBeInTheDocument();
+    expect(screen.getByText("Ask about deployment · +5")).toBeInTheDocument();
   });
 
-  it("shows an admin with no booth and no preset section", async () => {
+  it("hides the old booth activities and their points while the competition ranking is on", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        url === "/api/staff/me"
+          ? jsonResponse(200, BOOTH_STAFF_ME)
+          : url === "/api/final"
+            ? jsonResponse(200, { status: "open", closes_at: null })
+            : jsonResponse(200, TASKS),
+      ),
+    );
+    render(<StaffPanel />);
+    await screen.findByText("Noah Bergström");
+    await waitFor(() => expect(screen.queryByText("Watch the live demo · +10")).toBeNull());
+  });
+
+  it("shows an admin with no booth and no activities section", async () => {
     const fetchMock = vi.fn(async () => jsonResponse(200, ADMIN_ME));
     vi.stubGlobal("fetch", fetchMock);
     render(<StaffPanel />);
     expect(await screen.findByText("Jordan Blake")).toBeInTheDocument();
     expect(screen.getByText("Admin")).toBeInTheDocument();
-    expect(screen.queryByLabelText("Point presets")).not.toBeInTheDocument();
-    // Only /me was ever called — never /points/presets for an admin.
+    // The organiser console has its own link; the staff panel does not point to it.
+    expect(screen.queryByRole("link", { name: "Organiser panel" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Activities")).not.toBeInTheDocument();
+    // Never /staff/tasks for an admin (the public competition status is read too).
     const calls = fetchMock.mock.calls as unknown as [string, RequestInit][];
-    expect(calls.map(([u]) => u)).toEqual(["/api/staff/me"]);
+    expect(calls.map(([u]) => u).sort()).toEqual(["/api/final", "/api/staff/me"]);
+  });
+
+  it("hides the old booth-activity scanner while the competition ranking is on", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        url === "/api/staff/me"
+          ? jsonResponse(200, BOOTH_STAFF_ME)
+          : url === "/api/final"
+            ? jsonResponse(200, { status: "open", missing: [], closes_at: null })
+            : jsonResponse(200, TASKS),
+      ),
+    );
+    render(<StaffPanel />);
+    await screen.findByText("Noah Bergström");
+    await waitFor(() => expect(screen.queryByRole("link", { name: "Scan attendee" })).toBeNull());
+    expect(screen.getByRole("link", { name: "Attendance scanning" })).toHaveAttribute("href", "/staff/attendance");
   });
 
   it("offers scanning (M10) but no award controls yet", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string) =>
-        url === "/api/staff/me" ? jsonResponse(200, BOOTH_STAFF_ME) : jsonResponse(200, PRESETS),
+        url === "/api/staff/me"
+          ? jsonResponse(200, BOOTH_STAFF_ME)
+          : url === "/api/final"
+            ? jsonResponse(200, { status: "disabled", missing: ["competition_mode"], closes_at: null })
+            : jsonResponse(200, TASKS),
       ),
     );
     render(<StaffPanel />);
@@ -69,7 +110,7 @@ describe("StaffPanel", () => {
       "href",
       "/staff/scan",
     );
-    for (const preset of PRESETS) {
+    for (const preset of TASKS) {
       expect(
         screen.queryByRole("button", { name: new RegExp(`\\+${preset.points}`) }),
       ).not.toBeInTheDocument();
@@ -94,7 +135,7 @@ describe("StaffPanel", () => {
     expect(await screen.findByText(messageFor("MAINTENANCE"))).toBeInTheDocument();
   });
 
-  it("shows a presets error without pretending none are configured", async () => {
+  it("shows an activities error without pretending none are configured", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string) =>
@@ -104,7 +145,15 @@ describe("StaffPanel", () => {
     render(<StaffPanel />);
     await screen.findByText("Noah Bergström");
     expect(await screen.findByText(messageFor("MAINTENANCE"))).toBeInTheDocument();
-    expect(screen.queryByText("No point presets are configured yet.")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("No activities with a point value are set up for this booth yet."),
+    ).not.toBeInTheDocument();
+  });
+
+  it("links to the page where the signed-in person changes their own password", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => (url === "/api/staff/me" ? jsonResponse(200, BOOTH_STAFF_ME) : jsonResponse(200, TASKS))));
+    render(<StaffPanel />);
+    expect(await screen.findByRole("link", { name: "Change password" })).toHaveAttribute("href", "/staff/password");
   });
 
   it("signs out, then confirms the panel shows the sign-in link", async () => {
@@ -115,7 +164,7 @@ describe("StaffPanel", () => {
         return new Response(null, { status: 204 });
       }
       if (!signedIn) return errorResponse(401, "UNAUTHENTICATED");
-      return url === "/api/staff/me" ? jsonResponse(200, BOOTH_STAFF_ME) : jsonResponse(200, PRESETS);
+      return url === "/api/staff/me" ? jsonResponse(200, BOOTH_STAFF_ME) : jsonResponse(200, TASKS);
     });
     vi.stubGlobal("fetch", fetchMock);
 

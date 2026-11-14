@@ -6,36 +6,44 @@ import { type ChangeEvent, type FormEvent, useState } from "react";
 
 import { isSixDigitCode } from "@/components/registration/validation";
 import { TextField } from "@/components/ui/TextField";
+import { useLanguage } from "@/components/ui/LanguageProvider";
 import { apiPost } from "@/lib/api";
 import { messageFor } from "@/lib/errors";
+import { hasPendingPanelCode } from "@/lib/pendingPanelCode";
 
 const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-// Mirrors the server's non-enumerating copy (§8.2): the UI never claims
-// to know whether the address is registered.
-const CODE_SENT = "If this email is registered, we've sent a 6-digit sign-in code.";
+// An address with no account is told so by the server (EMAIL_NOT_REGISTERED,
+// 10 Nov 2026) and pointed to registration instead of waiting for a code.
+const CODE_SENT = "We've sent a 6-digit sign-in code to your email.";
 
 type Step = "email" | "code";
 
 export function LoginForm() {
+  const { t, language } = useLanguage();
   const router = useRouter();
   const [step, setStep] = useState<Step>("email");
   const [email, setEmail] = useState("");
+  const [remember, setRemember] = useState(false);
   const [code, setCode] = useState("");
   const [fieldError, setFieldError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [notRegistered, setNotRegistered] = useState(false);
   const [busy, setBusy] = useState(false);
 
   async function requestCode(): Promise<boolean> {
     setBusy(true);
     const result = await apiPost<{ message: string }>("/api/auth/otp/request", {
       email: email.trim(),
+      language,
     });
     setBusy(false);
     if (!result.ok) {
+      setNotRegistered(result.error.code === "EMAIL_NOT_REGISTERED");
       setFormError(messageFor(result.error.code));
       return false;
     }
+    setNotRegistered(false);
     setNotice(CODE_SENT);
     return true;
   }
@@ -64,10 +72,12 @@ export function LoginForm() {
     const result = await apiPost<{ status: string }>("/api/auth/otp/verify", {
       email: email.trim(),
       code,
+      ...(remember ? { remember_device: true } : {}),
     });
     setBusy(false);
     if (result.ok) {
-      router.push("/");
+      // A panel code scanned before signing in goes on to My points, which sends it.
+      router.push(hasPendingPanelCode() ? "/points" : "/");
       return;
     }
     if (result.error.code === "OTP_INVALID") setCode("");
@@ -85,13 +95,19 @@ export function LoginForm() {
   const banners = (
     <>
       {notice && (
-        <p role="status" className="rounded-lg border border-indigo-500/40 bg-indigo-500/10 p-3 text-sm text-indigo-200">
-          {notice}
+        <p role="status" className="fm-alert fm-alert-info">
+          {t(notice)}
         </p>
       )}
       {formError && (
-        <p role="alert" className="rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-300">
-          {formError}
+        <p role="alert" className="fm-alert fm-alert-error">
+          {t(formError)}
+          {notRegistered && (
+            <>
+              {" "}
+              <Link href="/register" className="fm-link">{t("Register as an attendee")}</Link>
+            </>
+          )}
         </p>
       )}
     </>
@@ -99,7 +115,7 @@ export function LoginForm() {
 
   if (step === "email") {
     return (
-      <form noValidate onSubmit={onRequest} className="flex flex-col gap-6" aria-busy={busy}>
+      <form noValidate onSubmit={onRequest} className="fm-form fm-auth-form" aria-busy={busy}>
         <TextField
           id="email"
           label="Email"
@@ -113,24 +129,22 @@ export function LoginForm() {
         <button
           type="submit"
           disabled={busy}
-          className="rounded-lg bg-indigo-500 px-4 py-3 font-semibold text-white transition-colors hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-60"
+          className="fm-btn fm-btn-primary fm-btn-block"
         >
-          {busy ? "Sending…" : "Send me a sign-in code"}
+          {busy ? t("Sending…") : t("Send me a sign-in code")}
         </button>
-        <p className="text-center text-sm text-slate-400">
-          New here?{" "}
-          <Link href="/register" className="font-medium text-indigo-300 hover:text-indigo-200">
-            Register as an attendee
-          </Link>
-        </p>
+        <p className="fm-small fm-center">{t("New here?")}</p>
+        <Link href="/register" className="fm-btn fm-btn-secondary fm-btn-block">
+          {t("Register as an attendee")}
+        </Link>
       </form>
     );
   }
 
   return (
-    <form noValidate onSubmit={onVerify} className="flex flex-col gap-6" aria-busy={busy}>
-      <p className="text-sm text-slate-400">
-        Signing in as <span className="font-medium text-slate-200">{email.trim()}</span>
+    <form noValidate onSubmit={onVerify} className="fm-form fm-auth-form" aria-busy={busy}>
+      <p className="fm-small">
+        {t("Signing in as")} <span className="fm-strong">{email.trim()}</span>
       </p>
       <TextField
         id="code"
@@ -145,17 +159,27 @@ export function LoginForm() {
         }
         error={fieldError ?? undefined}
         hint="The code expires 10 minutes after it was sent."
-        className="text-center font-mono text-2xl tracking-[0.5em]"
+        className="fm-input-code"
       />
+      <label className="fm-remember"><input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} />{t("Remember me")}</label>
       {banners}
+      {/* People without an account wait for a code that never comes (7 Nov 2026).
+          The help says what to check without saying whether this address is registered. */}
+      <div className="fm-small fm-muted">
+        <p>{t("No code after 1–2 minutes? Check your spam or Promotions folder and that the email is spelled correctly.")}</p>
+        <p>
+          {t("No account with this email yet? Register first:")}{" "}
+          <Link href="/register" className="fm-link">{t("Register as an attendee")}</Link>
+        </p>
+      </div>
       <button
         type="submit"
         disabled={busy}
-        className="rounded-lg bg-indigo-500 px-4 py-3 font-semibold text-white transition-colors hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-60"
+        className="fm-btn fm-btn-primary fm-btn-block"
       >
-        {busy ? "Signing in…" : "Sign in"}
+        {busy ? t("Signing in…") : t("Sign in")}
       </button>
-      <div className="flex justify-between text-sm">
+      <div className="fm-row-between">
         <button
           type="button"
           onClick={() => {
@@ -165,17 +189,17 @@ export function LoginForm() {
             setFormError(null);
             setFieldError(null);
           }}
-          className="font-medium text-slate-400 hover:text-slate-200"
+          className="fm-btn fm-btn-quiet"
         >
-          Use a different email
+          {t("Use a different email")}
         </button>
         <button
           type="button"
           onClick={onResend}
           disabled={busy}
-          className="font-medium text-indigo-300 hover:text-indigo-200 disabled:opacity-60"
+          className="fm-btn fm-btn-quiet"
         >
-          Send a new code
+          {t("Send a new code")}
         </button>
       </div>
     </form>

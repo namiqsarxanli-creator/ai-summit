@@ -52,7 +52,7 @@ TEST_PASSWORD_HASH = hash_password("m13-test-only-staff-password")  # noqa: S106
 def _insert_returning_id(sql: str, **params: Any) -> int:
     db = SessionLocal()
     try:
-        row = db.execute(text(sql), params).scalar_one()
+        row: Any = db.execute(text(sql), params).scalar_one()
         db.commit()
         return int(row)
     finally:
@@ -336,23 +336,25 @@ def test_deterministic_ordering_is_byte_identical_across_repeated_queries(rig: R
     assert first == second
 
 
-def test_null_last_award_at_sorts_after_non_null_within_same_total(rig: Rig) -> None:
+def test_zero_points_have_no_moment_whether_never_scored_or_reversed(rig: Rig) -> None:
     booth_id = rig.booth()
     zero = rig.active_attendee(first_name="ZeroAward", last_name="Sorts")
-    scored = rig.active_attendee(first_name="Scored", last_name="Sorts")
-    # Both must land in the SAME total_points group (0) to exercise the
-    # NULL-vs-non-NULL tiebreak: award then reverse the same amount so
-    # `scored`'s total is 0 but `last_award_at` is NOT NULL, while
-    # `zero` has no ledger rows at all (`last_award_at` IS NULL).
-    award_id = rig.award(scored, booth_id, 10)
-    rig.reverse(award_id, scored, booth_id, 10)
+    reversed_ = rig.active_attendee(first_name="Reversed", last_name="Sorts")
+    # `zero` has no ledger rows at all; `reversed_`'s only award was cancelled.
+    # Neither holds a standing award, so neither has a moment of reaching its
+    # total (`reached_at` IS NULL) and the stable user id orders them. (Before
+    # the audit of 18 Oct 2026 the reversal row itself dated the total and put
+    # `reversed_` first.) A total of 0 can only be reached this way: standing
+    # awards are positive and a reversal cancels its award whole.
+    award_id = rig.award(reversed_, booth_id, 10)
+    rig.reverse(award_id, reversed_, booth_id, 10)
 
     token = rig.session(zero)
     lb = _get(f"{LEADERBOARD}?view=all&limit=100", token).json()
     ids_in_order = [e["user_id"] for e in lb["entries"]]
-    # Within the total_points=0 group, non-NULL last_award_at (scored)
-    # sorts before NULL (zero) — ASC NULLS LAST.
-    assert ids_in_order.index(scored) < ids_in_order.index(zero)
+    totals = {e["user_id"]: e["total_points"] for e in lb["entries"]}
+    assert totals[zero] == totals[reversed_] == 0
+    assert ids_in_order.index(zero) < ids_in_order.index(reversed_)
 
 
 # --------------------------------------------------------------------------
@@ -653,12 +655,14 @@ def test_leaderboard_dto_never_exposes_pii_fields(rig: Rig) -> None:
     _assert_no_forbidden_keys(body)
     assert set(body["entries"][0].keys()) == {
         "user_id",
-        "first_name",
-        "last_name",
+        "name",  # first name and surname initial only
         "profession",
         "total_points",
         "rank",
+        "photo_url",  # the profile photo's URL (small rendition) or None - no private field
     }
+    assert body["entries"][0]["name"] == "Privacy C."
+    assert "Checked" not in str(body)  # the full surname is never sent
 
 
 def test_score_dto_never_exposes_pii_fields(rig: Rig) -> None:
@@ -779,7 +783,7 @@ def test_aggregation_stays_fast_over_a_few_thousand_row_ledger(rig: Rig) -> None
         )
         db.commit()
 
-        plan = db.execute(
+        plan: Any = db.execute(
             text(
                 "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) "
                 "SELECT u.id, COALESCE(SUM(p.points), 0) AS total_points, "

@@ -22,6 +22,7 @@ const ATTENDEE = {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  window.localStorage.removeItem("facemark.offlineQr.v1");
 });
 
 describe("fetchSession", () => {
@@ -53,7 +54,9 @@ describe("logout", () => {
   it("POSTs to the same-origin logout route and accepts an empty 204", async () => {
     const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
     vi.stubGlobal("fetch", fetchMock);
+    window.localStorage.setItem("facemark.offlineQr.v1", "encrypted-qr");
     expect(await logout()).toEqual({ ok: true });
+    expect(window.localStorage.getItem("facemark.offlineQr.v1")).toBeNull();
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("/api/auth/logout");
     expect(init.method).toBe("POST");

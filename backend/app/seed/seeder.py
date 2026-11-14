@@ -18,6 +18,12 @@ onward", and its coverage table enumerates request-time paths only
 against a freshly migrated, not-yet-serving database is the same
 category of operation as the M15 reset CLI itself, which also owns its
 own connection rather than going through this helper.
+
+DEMO ONLY. Everything here is the fictional summit (booths, tasks,
+staff, attendees with published QR tokens). `seed_all` therefore refuses
+to run outside DEMO_MODE or in production, before touching the
+database. A real event is set up with `app.seed.baseline` (settings
+only) and the `create-admin` command instead.
 """
 
 from __future__ import annotations
@@ -32,14 +38,32 @@ from sqlalchemy.dialects.postgresql import Insert as PgInsert
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import InstrumentedAttribute, Session
 
+from app.core.config import Settings, get_settings
 from app.core.security import hash_password
-from app.modules.admin.models import EventConfig
 from app.modules.attendees.models import User, UserInterest, UserStatus
-from app.modules.booths.models import Booth, BoothInterest, Task, TaskPresetPoint
+from app.modules.booths.models import Booth, BoothInterest, Task
 from app.modules.contact_cards.models import ContactCard
 from app.modules.interests.models import Interest
 from app.modules.staff.models import StaffAccount
 from app.seed import demo_fixtures as fx
+from app.seed.baseline import seed_baseline
+
+
+class DemoSeedRefusedError(RuntimeError):
+    """The demo seed was asked to run where it must not."""
+
+
+def ensure_demo_seed_allowed(settings: Settings) -> None:
+    """The demo fixtures publish fixed QR tokens and known staff emails;
+    they must never reach a real deployment. Pure check on settings —
+    callers run it BEFORE opening a database session."""
+    if settings.is_production:
+        raise DemoSeedRefusedError("ENVIRONMENT=production — refusing to load demo data.")
+    if not settings.demo_mode:
+        raise DemoSeedRefusedError(
+            "DEMO_MODE is not enabled — refusing to load demo data. "
+            "For a real event run `python -m app.cli bootstrap` instead."
+        )
 
 
 @dataclass(frozen=True)
@@ -58,10 +82,23 @@ class SeedResult:
     event_config_created: bool
 
 
-def seed_all(db: Session, *, admin_password: str, staff_password: str) -> SeedResult:
+def seed_all(
+    db: Session,
+    *,
+    admin_password: str,
+    staff_password: str,
+    include_demo_attendees: bool = True,
+) -> SeedResult:
     """Seeds the full demo catalogue. Commits on success; the caller
     decides what to do on an exception (this function does not catch
-    or roll back)."""
+    or roll back).
+
+    `include_demo_attendees=False` skips the fictional attendees, their
+    interests and their fixed-token contact cards — the part of the
+    fixture set that has no place outside DEMO_MODE (ARCHITECTURE.md
+    §19.8: fixed public tokens are acceptable only for demo identities).
+    The default keeps the M03 behaviour for callers that want it all."""
+    ensure_demo_seed_allowed(get_settings())  # before any database access
     if not admin_password:
         raise ValueError("admin_password must not be empty")
     if not staff_password:
@@ -75,13 +112,15 @@ def seed_all(db: Session, *, admin_password: str, staff_password: str) -> SeedRe
 
     booth_interests_created = _seed_booth_interests(db, booth_ids, interest_ids)
     tasks_created = _seed_tasks(db, booth_ids)
-    preset_points_created = _seed_preset_points(db)
+    baseline = seed_baseline(db)
     staff_accounts_created = _seed_staff(db, booth_ids, admin_password, staff_password)
-    attendees_created = _seed_attendees(db)
-    user_ids = _email_id_map(db, User)
-    _seed_user_interests(db, user_ids, interest_ids)
-    contact_cards_created = _seed_contact_cards(db, user_ids)
-    event_config_created = _seed_event_config(db)
+    attendees_created = 0
+    contact_cards_created = 0
+    if include_demo_attendees:
+        attendees_created = _seed_attendees(db)
+        user_ids = _email_id_map(db, User)
+        _seed_user_interests(db, user_ids, interest_ids)
+        contact_cards_created = _seed_contact_cards(db, user_ids)
 
     db.commit()
 
@@ -90,11 +129,11 @@ def seed_all(db: Session, *, admin_password: str, staff_password: str) -> SeedRe
         booths_created=booths_created,
         booth_interests_created=booth_interests_created,
         tasks_created=tasks_created,
-        preset_points_created=preset_points_created,
+        preset_points_created=baseline.preset_points_created,
         staff_accounts_created=staff_accounts_created,
         attendees_created=attendees_created,
         contact_cards_created=contact_cards_created,
-        event_config_created=event_config_created,
+        event_config_created=baseline.event_config_created,
     )
 
 
@@ -191,21 +230,10 @@ def _seed_tasks(db: Session, booth_ids: dict[str, int]) -> int:
                     title=t.title,
                     description=t.description,
                     sort_order=t.sort_order,
+                    points=t.points,
                 )
             )
             created += 1
-    return created
-
-
-def _seed_preset_points(db: Session) -> int:
-    created = 0
-    for p in fx.PRESET_POINTS:
-        stmt = (
-            pg_insert(TaskPresetPoint)
-            .values(booth_id=None, points=p.points, label=p.label, sort_order=p.sort_order)
-            .on_conflict_do_nothing(index_elements=["points"], index_where=text("booth_id IS NULL"))
-        )
-        created += _execute_on_conflict_do_nothing(db, stmt, TaskPresetPoint.id)
     return created
 
 
@@ -285,12 +313,3 @@ def _seed_contact_cards(db: Session, user_ids: dict[str, int]) -> int:
         )
         created += _execute_on_conflict_do_nothing(db, stmt, ContactCard.id)
     return created
-
-
-def _seed_event_config(db: Session) -> bool:
-    stmt = (
-        pg_insert(EventConfig)
-        .values(**fx.EVENT_CONFIG_DEFAULTS)
-        .on_conflict_do_nothing(index_elements=["id"])
-    )
-    return bool(_execute_on_conflict_do_nothing(db, stmt, EventConfig.id))

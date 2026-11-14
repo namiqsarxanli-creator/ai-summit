@@ -13,15 +13,16 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.languages import DEFAULT_LANGUAGE
 from app.modules.attendees.models import OtpPurpose, User, UserStatus
 from app.modules.attendees.service import PendingOtpDelivery, issue_otp
 
 
-def request_otp(db: Session, email: str) -> PendingOtpDelivery | None:
-    """Returns None when no user exists for this email — the caller
-    (the router) must still return the standard generic response
-    either way (ARCHITECTURE.md §8.2: "returns the same response
-    whether or not the email is registered")."""
+def request_otp(
+    db: Session, email: str, language: str = DEFAULT_LANGUAGE
+) -> PendingOtpDelivery | None:
+    """Returns None when no user exists for this email; the router then answers
+    EMAIL_NOT_REGISTERED (owner's decision, 10 Nov 2026)."""
     normalized_email = email.strip().lower()
     user = db.execute(
         select(User).where(User.email == normalized_email).with_for_update()
@@ -30,4 +31,6 @@ def request_otp(db: Session, email: str) -> PendingOtpDelivery | None:
         return None
 
     purpose = OtpPurpose.ACTIVATION if user.status == UserStatus.PROVISIONAL else OtpPurpose.LOGIN
-    return issue_otp(db, email=normalized_email, user_id=user.id, purpose=purpose)
+    return issue_otp(
+        db, email=normalized_email, user_id=user.id, purpose=purpose, language=language
+    )

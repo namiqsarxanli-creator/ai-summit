@@ -41,10 +41,21 @@ def make_client(**kwargs: Any) -> TestClient:
     return TestClient(app, headers=headers, **kwargs)
 
 
+# `pg_locks` is CLUSTER-wide: it also lists the locks of every other database on
+# the server, including a concurrent test run's own. Advisory locks belong to a
+# database, so a test inspecting "the fence" must look at this database only.
+ADVISORY_LOCKS_HERE = (
+    "locktype = 'advisory' "
+    "AND database = (SELECT oid FROM pg_database WHERE datname = current_database())"
+)
+
+
 _APP_TABLE_LOCKS_WHILE_WAITING_ON_FENCE = """
 SELECT count(*) FROM pg_locks rel
 JOIN pg_locks adv ON adv.pid = rel.pid AND adv.locktype = 'advisory' AND NOT adv.granted
+  AND adv.database = rel.database
 WHERE rel.locktype = 'relation' AND rel.granted
+  AND rel.database = (SELECT oid FROM pg_database WHERE datname = current_database())
   AND rel.relation IN (
       'users'::regclass, 'otp_challenges'::regclass, 'interests'::regclass,
       'user_interests'::regclass, 'contact_cards'::regclass, 'consent_audit'::regclass,
@@ -77,7 +88,7 @@ def assert_fenced_before_any_read(call: Callable[[], Response]) -> Response:
             waiting = 0
             while time.monotonic() < deadline and not waiting:
                 cur.execute(
-                    "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND NOT granted"
+                    f"SELECT count(*) FROM pg_locks WHERE {ADVISORY_LOCKS_HERE} AND NOT granted"
                 )
                 row = cur.fetchone()
                 waiting = row[0] if row else 0
@@ -109,6 +120,7 @@ def register_payload(email: str, **overrides: Any) -> dict[str, Any]:
         "email": email,
         "phone": "+1-555-0142",
         "profession": "Systems Engineer",
+        "company": "Hopper Labs",
         "linkedin_url": "https://www.linkedin.com/in/grace-hopper-demo",
         "interest_slugs": ["generative-ai", "data-analytics"],
         "sponsor_consent": False,
@@ -149,6 +161,21 @@ def cleanup_email(email: str) -> None:
             db.execute(text("DELETE FROM consent_audit WHERE user_id = ANY(:ids)"), ids)
             db.execute(text("DELETE FROM contact_cards WHERE user_id = ANY(:ids)"), ids)
             db.execute(text("DELETE FROM user_interests WHERE user_id = ANY(:ids)"), ids)
+            # People (migration 0021): a test's connections and one-way scans.
+            db.execute(
+                text(
+                    "DELETE FROM connections WHERE user_low_id = ANY(:ids) "
+                    "OR user_high_id = ANY(:ids)"
+                ),
+                ids,
+            )
+            db.execute(
+                text(
+                    "DELETE FROM connection_scans WHERE scanner_id = ANY(:ids) "
+                    "OR scanned_id = ANY(:ids)"
+                ),
+                ids,
+            )
             db.execute(text("DELETE FROM users WHERE id = ANY(:ids)"), ids)
         db.commit()
     finally:
@@ -180,3 +207,25 @@ def execute(sql: str, **params: Any) -> None:
         db.commit()
     finally:
         db.close()
+
+
+def rule_revision_in_force(task_id: int) -> str:
+    """The `rule_revision` the server would hand a staff screen for this
+    activity right now - what a scanner that had just listed the activities
+    would later send back as "I confirmed this rule". Reads committed state
+    and resolves the repeat policy the same documented way (activity ->
+    booth -> event default)."""
+    from app.modules.points.service import compute_rule_revision, resolve_repeat_policy
+
+    row = fetch_one(
+        "SELECT t.points, t.allow_repeat_points, b.allow_repeat_task_points, "
+        "e.allow_repeat_task_points_default "
+        "FROM tasks t JOIN booths b ON b.id = t.booth_id, event_config e "
+        "WHERE t.id = :t AND e.id = 1",
+        t=task_id,
+    )
+    if row is None or row[0] is None:
+        # unknown or unpriced activity: the server refuses before it compares
+        return "no-rule-in-force"
+    repeatable = resolve_repeat_policy(task=row[1], booth=row[2], event_default=row[3])
+    return compute_rule_revision(task_id=task_id, points=int(row[0]), repeatable=repeatable)

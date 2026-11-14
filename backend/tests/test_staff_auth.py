@@ -76,7 +76,7 @@ def _insert_returning_id(sql: str, **params: Any) -> int:
     all (only safe for SELECTs)."""
     db = SessionLocal()
     try:
-        row = db.execute(text(sql), params).scalar_one()
+        row: Any = db.execute(text(sql), params).scalar_one()
         db.commit()
         return int(row)
     finally:
@@ -264,13 +264,58 @@ def test_staff_registration_endpoint_does_not_exist() -> None:
         assert "register" not in path.lower(), (path, methods)
     assert set(staff_paths) == {
         "/api/staff/auth/login",
+        "/api/staff/cards/lookup",  # a typed card code -> the card (3 Nov 2026)
+        "/api/staff/id-reference",  # booth and staff numbers, names only (organisers)
+        "/api/staff/panel-screen-links",  # the hall computer's links (organisers)
         "/api/staff/auth/logout",
         "/api/staff/me",
         "/api/staff/points/presets",
+        "/api/staff/tasks",
         # M11: the award mutation — still no route creates a staff
         # account from an unauthenticated request.
         "/api/staff/points/award",
         "/api/staff/scan/resolve",
+        # Passwords: change while signed in, and the emailed one-time reset. None of
+        # them creates an account, and the reset never reveals whether one exists.
+        "/api/staff/auth/password",
+        "/api/staff/auth/password-reset/request",
+        "/api/staff/auth/password-reset/confirm",
+        # AI Playground arrivals: booth-scoped reads and the arrival confirmation.
+        # They act on existing bookings only; none creates an account.
+        "/api/staff/playground",
+        "/api/staff/playground/slots/{slot_id}",
+        "/api/staff/playground/bookings/{booking_id}/admit",
+        # Verified participation (migration 0020): scopes are granted by an
+        # administrator; none of these creates or changes an account.
+        "/api/staff/me/scopes",
+        # The FACEMARK organiser workspace: a read of what this account may do.
+        "/api/staff/organiser",
+        "/api/staff/masterclasses/{masterclass_id}/door",
+        "/api/staff/playground/slots/{slot_id}/complete",
+        "/api/staff/qmeter/identify",
+        "/api/staff/qmeter/award",
+        # Meet the Mentor hosts (MENTOR_HOST scope per session, migration 0022).
+        "/api/staff/mentor-sessions",
+        "/api/staff/mentor-sessions/{session_id}",
+        "/api/staff/mentor-sessions/{session_id}/complete",
+        # The final result: snapshots of the ranking, never an account.
+        "/api/staff/final",
+        "/api/staff/final/{result_id}",
+        "/api/staff/final/{result_id}/publish",
+        "/api/staff/final/{result_id}/discard",
+        "/api/staff/final/{result_id}/founders.csv",
+        # Offline scans and the booth's own report (migrations 0026, phase F).
+        "/api/staff/offline-scans",
+        "/api/staff/offline-scans/{scan_id}/approve",
+        "/api/staff/offline-scans/{scan_id}/reject",
+        "/api/staff/booth/report",
+        # Points corrections in the organiser panel: an administrator or a Game Master.
+        "/api/staff/points-log",
+        "/api/staff/grand-final/open",
+        "/api/staff/points-log/award",
+        "/api/staff/points-log/{entry_id}/reverse",
+        "/api/staff/connections/unpaid",
+        "/api/staff/connections/reconcile",
     }
 
 
@@ -293,8 +338,8 @@ def test_lockout_arms_at_ten_failures_and_blocks_the_next_attempt_without_checki
     staff_account: Callable[..., tuple[str, int]],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The rate limiter's own STAFF_LOGIN_PER_EMAIL bucket is also 10
-    per 15 minutes — widened here so this test observes ONLY the
+    """The rate limiter's own STAFF_LOGIN_PER_EMAIL bucket (60 per 15
+    minutes) is widened here so this test observes ONLY the
     persistent, DB-backed lockout (§21.8), not the separate limiter."""
     from app.modules.staff import routers as staff_routers
 
@@ -837,7 +882,16 @@ def test_the_seeded_demo_booth_staff_account_logs_in_and_resolves_a_card(
         login_response = _login(c, SEEDED_BOOTH_STAFF_EMAIL, staff_password)
         assert login_response.status_code == 204
         me = c.get(ME).json()
-        assert me == {"full_name": "Noah Bergström", "role": "BOOTH_STAFF", "booth_name": "AIWorks"}
+        owner, generation = me.pop("queue_owner"), me.pop("dataset_generation")
+        own = {k: me[k] for k in ("full_name", "role", "booth_name")}
+        assert own == {
+            "full_name": "Noah Bergström",
+            "role": "BOOTH_STAFF",
+            "booth_name": "AIWorks",
+        }
+        assert isinstance(me["staff_id"], int) and isinstance(me["booth_id"], int)
+        # The offline-queue label is an opaque keyed hash, never the account id.
+        assert len(owner) == 64 and int(owner, 16) >= 0 and isinstance(generation, int)
 
         resolved = c.post(RESOLVE, json={"card_token": fx.ATTENDEES[0].public_token})
         assert resolved.status_code == 200
@@ -891,3 +945,25 @@ def test_the_seeded_demo_admin_account_logs_in_but_cannot_reach_presets() -> Non
         "(SELECT id FROM staff_accounts WHERE email = :e)",
         e=SEEDED_ADMIN_EMAIL,
     )
+
+
+def test_a_shared_account_signs_in_on_many_phones_at_once(
+    test_booth: Callable[..., int], staff_account: Callable[..., tuple[str, int]]
+) -> None:
+    """A team on one account: 30 sign-ins in a row all succeed, and each phone
+    keeps its own session (none signs the others out)."""
+    from app.core.ratelimit import STAFF_LOGIN_PER_EMAIL
+
+    assert STAFF_LOGIN_PER_EMAIL.limit >= 30
+    email, _ = staff_account(booth_id=test_booth())
+    phones = [make_client() for _ in range(30)]
+    try:
+        for phone in phones:
+            assert (
+                phone.post(LOGIN, json={"email": email, "password": TEST_PASSWORD}).status_code
+                == 204
+            )
+        assert all(p.get("/api/staff/me").status_code == 200 for p in phones)
+    finally:
+        for phone in phones:
+            phone.close()

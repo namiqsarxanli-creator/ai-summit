@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+!.env.production.example
 
 # --- Backend (Python) ---
 __pycache__/
@@ -32,3 +33,10 @@ Thumbs.db
 
 # --- Local data / logs ---
 *.log
+
+# Device-specific local HTTPS profile (public certificate, generated on this PC).
+frontend/public/phone-ca.mobileconfig
+
+# Local UI review screenshots (hundreds of MB) and IDE run configurations.
+design-review/
+.run/

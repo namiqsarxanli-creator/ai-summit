@@ -18,8 +18,9 @@ from fastapi import APIRouter
 
 from app.core.config import get_settings
 from app.core.deps import SessionToken
+from app.core.errors import ClientOutdatedError
 from app.db.session import DbSession, mutating_transaction
-from app.modules.points.schemas import AwardResponse, AwardTaskPointsRequest
+from app.modules.points.schemas import AwardRequestBody, AwardResponse
 from app.modules.points.service import (
     complete_award,
     compute_award_fingerprint,
@@ -32,7 +33,7 @@ router = APIRouter(prefix="/staff/points", tags=["points"])
 
 
 @router.post("/award", response_model=AwardResponse)
-def award(payload: AwardTaskPointsRequest, token: SessionToken, db: DbSession) -> AwardResponse:
+def award(body: AwardRequestBody, token: SessionToken, db: DbSession) -> AwardResponse:
     """A1 (pydantic already validated `payload`) through B12.
 
     A2: `token` is the raw session cookie — a string, not yet an
@@ -42,13 +43,20 @@ def award(payload: AwardTaskPointsRequest, token: SessionToken, db: DbSession) -
     None of this touches a reset-sensitive read — B1 (inside the fence,
     in `complete_award`) is where authentication actually happens.
     """
+    # A1b: an older cached staff page (no confirmed rule_revision, or still
+    # sending a point value) is turned away before anything else runs - it
+    # can never create points, and its message tells the user to reload.
+    payload = body.current_contract()
+    if payload is None:
+        raise ClientOutdatedError()
+
     now = datetime.now(UTC)
 
     scan_payload = verify_scan_ref_signature(
         secret=get_settings().scan_ref_secret, scan_ref=payload.scan_ref, now=now
     )
     verify_token_binding(scan_payload, payload.card_token)
-    fingerprint = compute_award_fingerprint(card_token=payload.card_token, points=payload.points)
+    fingerprint = compute_award_fingerprint(card_token=payload.card_token, task_id=payload.task_id)
     maintenance_fast_path_check(db)
 
     with mutating_transaction(db) as tx:

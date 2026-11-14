@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { messageFor } from "@/lib/errors";
@@ -28,6 +28,8 @@ function errorResponse(status: number, code: string): Response {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  delete window.FacemarkOfflineQr;
+  window.localStorage.removeItem("facemark.offlineQr.v1");
 });
 
 describe("MyCard", () => {
@@ -50,6 +52,28 @@ describe("MyCard", () => {
     expect(calls.map(([url]) => url)).toEqual(["/api/attendees/me/card"]);
   });
 
+  it("saves an offline QR drawing only after the attendee chooses and confirms a PIN", async () => {
+    const save = vi.fn(async () => {});
+    window.FacemarkOfflineQr = { save, hasCopy: () => false, clear: () => {} };
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(200, { card_url: CARD_URL, card: CARD })));
+    render(<MyCard />);
+    await screen.findByRole("img", { name: /QR code for Marcus Lindqvist/ });
+    expect(save).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("Choose a 6–12 digit PIN"), { target: { value: "123456" } });
+    fireEvent.change(screen.getByLabelText("Repeat PIN"), { target: { value: "123456" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save offline QR" }));
+    await waitFor(() => expect(save).toHaveBeenCalledOnce());
+    const [pin, drawing] = save.mock.calls[0] as unknown as [string, { dim: number; path: string }];
+    expect(pin).toBe("123456");
+    expect(drawing.dim).toBeGreaterThan(29);
+    expect(drawing.path).toMatch(/^M/);
+    expect(await screen.findByText("Offline QR saved on this device.")).toBeInTheDocument();
+  });
+  it("shows the six-character code to type when the camera cannot read the QR", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(200, { card_url: CARD_URL, card: CARD, short_code: "K7M4QX" })));
+    render(<MyCard />);
+    expect(await screen.findByLabelText("Your attendee code")).toHaveTextContent("K7M-4QX");
+  });
   it("refuses to encode anything that is not a bare card URL", async () => {
     vi.stubGlobal(
       "fetch",

@@ -73,7 +73,11 @@ def test_registration_returns_no_session(
     and no `sessions` row exists for the new user."""
     response = client.post(REGISTER, json=register_payload(unique_email))
     assert response.status_code == 200
-    assert "set-cookie" not in response.headers
+    # The only cookie is the registration intent, scoped to /api/auth; it
+    # authenticates nothing (see test_registration_intent.py).
+    cookies = response.headers.get_list("set-cookie")
+    assert all(c.startswith("registration_intent=") for c in cookies)
+    assert all("Path=/api/auth" in c and "HttpOnly" in c for c in cookies)
     assert set(response.json().keys()) == {"message"}  # no id, no status, nothing internal
 
     user = _user(unique_email)
@@ -455,8 +459,11 @@ def test_all_three_duplicate_email_branches_return_byte_identical_bodies(
 
     assert new_branch.status_code == provisional_branch.status_code == active_branch.status_code
     assert new_branch.content == provisional_branch.content == active_branch.content
+    # Every branch sets the same kind of cookie (a fresh registration intent),
+    # so the headers are no oracle either; none of them sets a session.
     for r in (new_branch, provisional_branch, active_branch):
-        assert "set-cookie" not in r.headers
+        cookies = r.headers.get_list("set-cookie")
+        assert len(cookies) == 1 and cookies[0].startswith("registration_intent=")
 
 
 # --------------------------------------------------------------------------

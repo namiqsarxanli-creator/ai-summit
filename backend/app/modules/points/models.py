@@ -36,6 +36,16 @@ from app.db.base import Base, IdentityPKMixin
 class PointsSource(enum.StrEnum):
     TASK = "TASK"
     FEEDBACK = "FEEDBACK"
+    # The Beyond Now competition (migration 0020, competition/rules.py). Only
+    # these count in the competition ranking; TASK / FEEDBACK stay as history.
+    PROFILE = "PROFILE"
+    PANEL = "PANEL"
+    QMETER = "QMETER"
+    MASTERCLASS = "MASTERCLASS"
+    PLAYGROUND = "PLAYGROUND"
+    CONNECTION = "CONNECTION"
+    MENTOR = "MENTOR"
+    FOUNDER = "FOUNDER"
 
 
 class PointsEntryType(enum.StrEnum):
@@ -88,6 +98,11 @@ class PointsLog(IdentityPKMixin, Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+    # Migration 0027: when the scored activity happened, as verified (a reviewed
+    # offline scan is recorded after the close but happened before it). NULL on
+    # rows written before 0027 and on entries without an activity of their own;
+    # read as `created_at` then (competition/founder.py).
+    occurred_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
         CheckConstraint("points <> 0", name="points_nonzero"),
@@ -96,13 +111,26 @@ class PointsLog(IdentityPKMixin, Base):
             "(entry_type = 'REVERSAL' AND points < 0 AND reverses_points_log_id IS NOT NULL)",
             name="entry_type_consistency",
         ),
+        # A FEEDBACK AWARD is the system's (no staff account); a FEEDBACK
+        # REVERSAL may instead be made by an administrator, who is then recorded
+        # (migration 0012) - the third form. The first two are the original rule,
+        # so every older row keeps its meaning.
         CheckConstraint(
             "(source = 'TASK' AND booth_id IS NOT NULL "
             "AND entered_by_staff_id IS NOT NULL AND entered_by_system = false) OR "
             "(source = 'FEEDBACK' AND booth_id IS NOT NULL "
-            "AND entered_by_staff_id IS NULL AND entered_by_system = true)",
+            "AND entered_by_staff_id IS NULL AND entered_by_system = true) OR "
+            "(source = 'FEEDBACK' AND entry_type = 'REVERSAL' AND booth_id IS NOT NULL "
+            "AND entered_by_staff_id IS NOT NULL AND entered_by_system = false) OR "
+            # Competition entries (migration 0020): made by a scoped staff member
+            # (a scan, a Game Master check) or by the system (profile, founder).
+            "(source IN ('PROFILE', 'PANEL', 'QMETER', 'MASTERCLASS', 'PLAYGROUND', "
+            "'CONNECTION', 'MENTOR', 'FOUNDER') "
+            "AND (entered_by_staff_id IS NULL) = entered_by_system)",
             name="source_attribution",
         ),
+        # The reason of a reversal lives here; bounded unconditionally.
+        CheckConstraint("note IS NULL OR char_length(note) <= 300", name="note_length"),
         # Structural feedback-reward uniqueness (F, ARCHITECTURE.md
         # §7.12) — NOT string-based like dedupe_key, so a bug in key
         # construction can never disable the invariant it protects.
@@ -136,9 +164,44 @@ class PointsLog(IdentityPKMixin, Base):
             ["tasks.id", "tasks.booth_id"],
             name="fk_points_task_booth",
         ),
+        # Structural backstop for the once-per-(attendee, activity) rule
+        # (alongside the string `dedupe_key`): a TASK award that was
+        # made under a once-only policy (dedupe_key set) can exist at most
+        # once per attendee and activity, however the key was built.
+        # Legacy rows have task_id NULL and are outside it.
+        Index(
+            "uq_points_task_user_once",
+            "user_id",
+            "task_id",
+            unique=True,
+            postgresql_where=text(
+                "source = 'TASK' AND entry_type = 'AWARD' "
+                "AND task_id IS NOT NULL AND dedupe_key IS NOT NULL"
+            ),
+        ),
         Index("ix_points_log_user_id", "user_id"),
         Index("ix_points_log_user_id_created_at", "user_id", text("created_at DESC")),
         Index("ix_points_log_booth_id_created_at", "booth_id", text("created_at DESC")),
+        # The admin ledger list: newest first, keyset-paged on (created_at, id).
+        # The unfiltered list uses the first; the activity and staff filters
+        # use the partial ones (most rows have no task / no staff account to
+        # filter on, so the partial indexes stay small). The attendee and booth
+        # filters are served by the two indexes above.
+        Index("ix_points_log_created_at_id", text("created_at DESC"), text("id DESC")),
+        Index(
+            "ix_points_log_task_id_created_at_id",
+            "task_id",
+            text("created_at DESC"),
+            text("id DESC"),
+            postgresql_where=text("task_id IS NOT NULL"),
+        ),
+        Index(
+            "ix_points_log_staff_id_created_at_id",
+            "entered_by_staff_id",
+            text("created_at DESC"),
+            text("id DESC"),
+            postgresql_where=text("entered_by_staff_id IS NOT NULL"),
+        ),
     )
 
 

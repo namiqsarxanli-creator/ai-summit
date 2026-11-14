@@ -5,7 +5,8 @@
 
 import { apiGet, type ApiResult } from "@/lib/api";
 
-export type Booth = { slug: string; name: string; location_label: string | null };
+// `description`: the booth's one-sentence card (optional: an older server sends none).
+export type Booth = { slug: string; name: string; location_label: string | null; description?: string | null };
 
 export type MatchedInterest = { slug: string; name: string };
 
@@ -26,6 +27,24 @@ export function fetchRecommendations(): Promise<ApiResult<Recommendation[]>> {
 
 export function fetchBooths(): Promise<ApiResult<Booth[]>> {
   return apiGet<Booth[]>("/api/booths");
+}
+
+// What the Booths page and the home page list: the recommendations first (best
+// match first, as the server ranks them), then every other active booth with no
+// match. The server leaves a booth without an interest profile out of the
+// recommendations entirely; without this, an event whose booths have no
+// interests yet would show an empty Booths page. The catalogue failing still
+// leaves the recommendations.
+export async function fetchBoothListing(): Promise<ApiResult<Recommendation[]>> {
+  const recommended = await fetchRecommendations();
+  if (!recommended.ok) return recommended;
+  const catalogue = await fetchBooths();
+  if (!catalogue.ok || !Array.isArray(catalogue.data)) return recommended;
+  const listed = new Set(recommended.data.map((r) => r.booth.slug));
+  const rest = catalogue.data
+    .filter((b) => typeof b?.slug === "string" && typeof b?.name === "string" && !listed.has(b.slug))
+    .map((booth) => ({ booth, match: null }));
+  return { ...recommended, data: [...recommended.data, ...rest] };
 }
 
 // M08's booth detail screen ("tasks and location"). A task carries no

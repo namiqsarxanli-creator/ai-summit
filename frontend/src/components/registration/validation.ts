@@ -3,6 +3,8 @@
 // everything here is re-validated by the backend, and a client that
 // skips these checks gets the same answer as a 422.
 
+import { cardProblem, MAX_COMPANY_LENGTH, type InterestCard } from "@/lib/interestCard";
+
 export type RegistrationValues = {
   first_name: string;
   last_name: string;
@@ -10,6 +12,8 @@ export type RegistrationValues = {
   phone: string;
   profession: string;
   linkedin_url: string;
+  // Optional (an attendee without a company registers normally).
+  company: string;
 };
 
 export type ConsentChoice = "yes" | "no" | null;
@@ -28,9 +32,25 @@ export function isLinkedInUrl(value: string): boolean {
   }
 }
 
+// The company and interest-card rules registration and profile editing share.
+export function companyAndCardErrors(
+  company: string,
+  card: InterestCard,
+  saved?: InterestCard,
+): Record<string, string> {
+  const errors: Record<string, string> = {};
+  // Required (23 Oct 2026): it is how colleagues are told apart.
+  if (!company.trim()) errors.company = "Enter your company.";
+  else if (company.trim().length > MAX_COMPANY_LENGTH) errors.company = "Company name is too long.";
+  const problem = cardProblem(card, saved);
+  if (problem) errors.interest_card = problem;
+  return errors;
+}
+
 export function validateRegistration(
   values: RegistrationValues,
   consent: ConsentChoice,
+  card?: InterestCard,
 ): Record<string, string> {
   const errors: Record<string, string> = {};
   if (!values.first_name.trim()) errors.first_name = "Enter your first name.";
@@ -47,6 +67,7 @@ export function validateRegistration(
   if (consent === null) {
     errors.sponsor_consent = "Choose whether to share your details with sponsors.";
   }
+  if (card) Object.assign(errors, companyAndCardErrors(values.company, card));
   return errors;
 }
 

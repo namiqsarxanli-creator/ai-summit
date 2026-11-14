@@ -1,5 +1,6 @@
 "use client";
 
+import { useLanguage } from "@/components/ui/LanguageProvider";
 import { useEffect, useState } from "react";
 
 import type { ApiError } from "@/lib/api";
@@ -16,6 +17,7 @@ type State =
 // The page a scanned QR opens. No session is needed or consulted: the
 // token in the URL is the whole capability (§9.2).
 export function PublicCardView({ token }: { token: string }) {
+  const { t } = useLanguage();
   const [state, setState] = useState<State>({ kind: "loading" });
 
   useEffect(() => {
@@ -30,12 +32,12 @@ export function PublicCardView({ token }: { token: string }) {
   }, [token]);
 
   if (state.kind === "loading") {
-    return <p className="text-sm text-slate-500">Loading card…</p>;
+    return <p role="status" className="fm-note">{t("Loading card…")}</p>;
   }
   if (state.kind === "error") {
     return (
-      <p role="alert" className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-5 text-amber-200">
-        {messageFor(state.error.code)}
+      <p role="alert" className="fm-alert fm-alert-warn">
+        {t(messageFor(state.error.code))}
       </p>
     );
   }

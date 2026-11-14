@@ -52,6 +52,9 @@ class DomainError(Exception):
 
     code: str = "INTERNAL_ERROR"
     status_code: int = 500
+    # Machine-readable context for the §20.2 envelope's `details`. Most errors
+    # carry none; the few that do (TASK_RULE_CHANGED) say so in their docstring.
+    details: dict[str, object] | None = None
 
     def __init__(self, message: str | None = None) -> None:
         super().__init__(message or self.code)
@@ -81,7 +84,80 @@ class DuplicateTaskRewardError(DomainError):
     status_code = 409
 
     def __init__(self) -> None:
-        super().__init__("This attendee has already earned points at this booth.")
+        super().__init__("This attendee has already earned points for this activity.")
+
+
+class TaskNotFoundError(DomainError):
+    """The activity does not exist OR belongs to another booth - one
+    answer for both, so a staff member cannot probe other booths' ids."""
+
+    code = "TASK_NOT_FOUND"
+    status_code = 404
+
+    def __init__(self) -> None:
+        super().__init__("That activity is not available at your booth.")
+
+
+class TaskInactiveError(DomainError):
+    """The activity is the booth's own but has been switched off."""
+
+    code = "TASK_INACTIVE"
+    status_code = 409
+
+    def __init__(self) -> None:
+        super().__init__("That activity is no longer active.")
+
+
+class TaskNotConfiguredError(DomainError):
+    """The activity has no point value yet (it predates the rule)."""
+
+    code = "TASK_NOT_CONFIGURED"
+    status_code = 409
+
+    def __init__(self) -> None:
+        super().__init__("That activity has no point value yet. Ask an admin to set one.")
+
+
+class TaskRuleChangedError(DomainError):
+    """The activity's point value or repeat policy is no longer what the
+    staff member confirmed. NOTHING was awarded. `details` carries the rule
+    as it stands now (plus its new `rule_revision`) so the staff screen can
+    show it and ask for a fresh confirmation instead of paying a value the
+    attendee-facing booth never agreed to."""
+
+    code = "TASK_RULE_CHANGED"
+    status_code = 409
+
+    def __init__(self, details: dict[str, object]) -> None:
+        super().__init__(
+            "This activity's points or repeat rule changed. Review it and confirm again."
+        )
+        self.details = details
+
+
+class ClientOutdatedError(DomainError):
+    """The award request came from a staff page that predates the current
+    award contract (it names no confirmed `rule_revision`, or still sends a
+    point value). Refused before any database access, so it can never create
+    points.
+
+    The code is deliberately the EXISTING `CSRF_REJECTED`, not a new one:
+    every earlier staff page renders that code as "This request couldn't be
+    verified. Please reload the page and try again." A new code would reach
+    those pages as an unknown one and show the generic "Something went wrong.
+    Please try again." - an invitation to retry something that can never
+    succeed. `details.reason` tells the two apart for current code and logs;
+    `message` (which old pages ignore) states the real cause."""
+
+    code = "CSRF_REJECTED"
+    status_code = 403
+
+    def __init__(self) -> None:
+        super().__init__(
+            "This page is out of date. Reload the page (or reopen the app) and scan again"
+            " - no points were awarded."
+        )
+        self.details = {"reason": "client_outdated"}
 
 
 class UnknownInterestError(DomainError):
@@ -94,6 +170,74 @@ class UnknownInterestError(DomainError):
 
     code = "UNKNOWN_INTEREST"
     status_code = 400
+
+    def __init__(self, message: str | None = None, *, unknown: list[str] | None = None) -> None:
+        super().__init__(message)
+        # The profile editor names WHICH slugs were refused (unknown, or retired
+        # from the catalogue) so the screen can say so instead of guessing.
+        if unknown:
+            self.details = {"slugs": sorted(unknown)}
+
+
+class ProfileConflictError(DomainError):
+    """The profile was changed (on another device or tab) after the client
+    loaded it: its `expected_version` is no longer current. NOTHING was saved.
+    `details.profile` is the profile as it stands now, so the screen can show
+    the difference and let the person decide - their own text is never lost."""
+
+    code = "PROFILE_CONFLICT"
+    status_code = 409
+
+    def __init__(self, current: dict[str, object]) -> None:
+        super().__init__("Your profile was changed elsewhere. Review the latest version.")
+        self.details = {"profile": current}
+
+
+class PhotoInvalidError(DomainError):
+    """The upload is not a usable photo: not a JPEG/PNG/WebP by its CONTENT
+    (SVG, GIF, HEIC... and renamed files included), corrupt, animated or too
+    small. `details.reason` is a short machine code, never anything from the file."""
+
+    code = "PHOTO_INVALID"
+    status_code = 400
+
+    def __init__(self, reason: str) -> None:
+        super().__init__("That file is not a supported photo.")
+        self.details = {"reason": reason}
+
+
+class PhotoTooLargeError(DomainError):
+    """Over the size limit in bytes, or more pixels than the limit (a tiny file
+    that claims to expand to a huge canvas). Refused before any pixel is decoded."""
+
+    code = "PHOTO_TOO_LARGE"
+    status_code = 413
+
+    def __init__(self, *, max_bytes: int, max_pixels: int) -> None:
+        super().__init__("That photo is too large.")
+        self.details = {"max_bytes": max_bytes, "max_pixels": max_pixels}
+
+
+class PhotoBusyError(DomainError):
+    """Too many photos are being processed at once; nothing was changed."""
+
+    code = "PHOTO_BUSY"
+    status_code = 503
+
+
+class PhotoStorageUnavailableError(DomainError):
+    """The photo store could not be written (full or missing volume). Nothing was
+    changed: the previous photo, if any, is still the attendee's photo."""
+
+    code = "PHOTO_STORAGE_UNAVAILABLE"
+    status_code = 503
+
+
+class MediaNotFoundError(DomainError):
+    """No such photo file (never made, replaced, removed, or not a photo name)."""
+
+    code = "MEDIA_NOT_FOUND"
+    status_code = 404
 
 
 class OtpInvalidError(DomainError):
@@ -178,6 +322,15 @@ class BoothNotFoundError(DomainError):
     GET /api/attendees/me/card (M06)."""
 
     code = "BOOTH_NOT_FOUND"
+    status_code = 404
+
+
+class EmailNotRegisteredError(DomainError):
+    """A sign-in code asked for an address that has no account (owner, 10 Nov 2026:
+    say so and point to registration rather than let people wait for a code that
+    never comes)."""
+
+    code = "EMAIL_NOT_REGISTERED"
     status_code = 404
 
 
@@ -290,6 +443,118 @@ class UnexpectedConstraintViolationError(DomainError):
     status_code = 500
 
 
+class PointsEntryNotFoundError(DomainError):
+    """The ledger entry an administrator asked to reverse does not exist."""
+
+    code = "POINTS_ENTRY_NOT_FOUND"
+    status_code = 404
+
+
+class PointsNotReversibleError(DomainError):
+    """Only an AWARD can be reversed. A REVERSAL cannot itself be reversed
+    (not supported; a mistaken reversal is corrected by a new award)."""
+
+    code = "POINTS_NOT_REVERSIBLE"
+    status_code = 409
+
+
+class PointsAlreadyReversedError(DomainError):
+    """This AWARD already has its REVERSAL (`uq_points_reverses`): a row is
+    reversed at most once, whichever request got there first."""
+
+    code = "POINTS_ALREADY_REVERSED"
+    status_code = 409
+
+
+class CurrentPasswordInvalidError(DomainError):
+    """The current password given to change a password was wrong. A code of
+    its own (not INVALID_CREDENTIALS, whose message means "sign in again")."""
+
+    code = "CURRENT_PASSWORD_INVALID"
+    status_code = 400
+
+
+class PasswordUnchangedError(DomainError):
+    """The new password is the same as the current one."""
+
+    code = "PASSWORD_UNCHANGED"
+    status_code = 400
+
+
+class PasswordResetUnavailableError(DomainError):
+    """The reset email cannot be sent in this deployment (no email outbox is
+    configured). Said explicitly only to an administrator who asked; the public
+    request answers the same generic message whatever happens."""
+
+    code = "PASSWORD_RESET_UNAVAILABLE"
+    status_code = 503
+
+
+class MasterclassNotFoundError(DomainError):
+    """No such masterclass or block - or one an attendee cannot see (not
+    published, not scheduled). One answer for all."""
+
+    code = "MASTERCLASS_NOT_FOUND"
+    status_code = 404
+
+
+class MasterclassFullError(DomainError):
+    """Every seat is taken (or people are already queueing for one). Nothing
+    changed - a choice the attendee already holds in the block is kept.
+    `details.waitlist_open` says whether the waitlist still has room."""
+
+    code = "MASTERCLASS_FULL"
+    status_code = 409
+
+    def __init__(self, *, waitlist_open: bool = False) -> None:
+        super().__init__("This masterclass is full.")
+        self.details = {"waitlist_open": waitlist_open}
+
+
+class MasterclassWaitlistFullError(DomainError):
+    """Seats and waitlist are both full: there is no place at all."""
+
+    code = "MASTERCLASS_WAITLIST_FULL"
+    status_code = 409
+
+
+class MasterclassChangesClosedError(DomainError):
+    """The block's change deadline has passed (server clock)."""
+
+    code = "MASTERCLASS_CHANGES_CLOSED"
+    status_code = 409
+
+
+class MasterclassSeatWouldBeLostError(DomainError):
+    """The change would give up a CONFIRMED seat for a waitlist place. Nothing
+    changed; the client must ask the attendee and resend with
+    `give_up_confirmed_seat: true`."""
+
+    code = "MASTERCLASS_SEAT_WOULD_BE_LOST"
+    status_code = 409
+
+
+class MasterclassChoiceConflictError(DomainError):
+    """A stale request cannot replace a newer choice. Refresh before retrying."""
+
+    code = "MASTERCLASS_CHOICE_CONFLICT"
+    status_code = 409
+
+
+class MasterclassAdminConflictError(DomainError):
+    """An administrator change that would break existing reservations (capacity
+    below the confirmed seats, deleting or moving a masterclass that has
+    reservations, overlapping blocks). Nothing changed; `details.reason` is a
+    short machine code."""
+
+    code = "MASTERCLASS_ADMIN_CONFLICT"
+    status_code = 409
+
+    def __init__(self, reason: str, message: str, **details: object) -> None:
+        super().__init__(message)
+        self.details = {"reason": reason, **details}
+
+
 class IdempotencyKeyConflict(Exception):  # noqa: N818 — deliberately not an Error suffix; see docstring
     """NOT a DomainError.
 
@@ -316,15 +581,21 @@ CONSTRAINT_ERROR_MAP: Final[dict[str, type[Exception]]] = {
     # --- user-facing outcomes -------------------------------------------------
     "uq_points_feedback_user_booth": DuplicateFeedbackRewardError,
     "uq_points_dedupe_key": DuplicateTaskRewardError,
+    "uq_points_task_user_once": DuplicateTaskRewardError,
     # --- control-flow signal, not an error ------------------------------------
     "pk_idempotency_records": IdempotencyKeyConflict,
     # --- structural invariants that indicate an application bug --------------
-    "uq_points_reverses": UnexpectedConstraintViolationError,
+    "uq_points_reverses": PointsAlreadyReversedError,
     "uq_contact_card_live_user": UnexpectedConstraintViolationError,
     "ck_staff_role_booth": UnexpectedConstraintViolationError,
     "fk_points_task_booth": UnexpectedConstraintViolationError,
     "pk_user_interests": UnexpectedConstraintViolationError,
     "uq_preset_global_points": UnexpectedConstraintViolationError,
+    # --- masterclasses (migration 0017): the service checks first under the
+    # masterclass row lock, so these firing means a writer skipped that path.
+    "ck_masterclass_reservations_capacity": MasterclassFullError,
+    "ck_masterclass_reservations_waitlist_capacity": MasterclassWaitlistFullError,
+    "uq_masterclass_reservations_one_active_per_block": UnexpectedConstraintViolationError,
 }
 
 
@@ -356,6 +627,20 @@ def translate_integrity_error(err: IntegrityError) -> Exception:
     error_cls = CONSTRAINT_ERROR_MAP.get(constraint_name)
     if error_cls is None:
         logger.error("Unmapped constraint violation: %s", constraint_name)
-        return UnexpectedConstraintViolationError(f"unmapped constraint: {constraint_name}")
+        # The name is logged above; the client gets no schema detail.
+        return UnexpectedConstraintViolationError("unexpected constraint violation")
 
     return error_cls()
+
+
+class ClientUpdateRequiredError(DomainError):
+    """A page of an earlier version sent a request this server no longer accepts
+    in that form (an offline scan queue without its owner label). Answered as a
+    TEMPORARY failure on purpose: that page keeps its queue and retries instead
+    of discarding the scans, and a reload brings the current page, which moves
+    them into its quarantine for a person to decide (competition/offline.py)."""
+
+    code = "CLIENT_UPDATE_REQUIRED"
+    status_code = 503
+    expected = True
+    retry_after = 60

@@ -1,0 +1,5 @@
+# Shell scripts and the proxy config run on Linux servers and in containers: a CRLF
+# line ending (what a Windows checkout with core.autocrlf=true would write) breaks them.
+*.sh text eol=lf
+deploy/Caddyfile text eol=lf
+deploy/backup/crontab.example text eol=lf

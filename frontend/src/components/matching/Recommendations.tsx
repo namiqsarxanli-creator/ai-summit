@@ -1,12 +1,14 @@
 "use client";
 
 import Link from "next/link";
+import { useLanguage } from "@/components/ui/LanguageProvider";
 import { useEffect, useState } from "react";
 
 import { AttendeeTabBar } from "@/components/nav/AttendeeTabBar";
 import type { ApiResult } from "@/lib/api";
 import { messageFor } from "@/lib/errors";
-import { fetchRecommendations, isGeneralListing, type Recommendation } from "@/lib/matching";
+import { fetchBoothListing, isGeneralListing, type Recommendation } from "@/lib/matching";
+import { useCardTopics } from "@/lib/useCardTopics";
 
 import { RecommendationCard } from "./RecommendationCard";
 
@@ -30,11 +32,13 @@ function stateFrom(result: ApiResult<Recommendation[]>): State {
 // IMPLEMENTATION_PLAN.md M07). Identity comes from the session the
 // backend resolves — this component never sends or knows an attendee id.
 export function Recommendations() {
+  const { t } = useLanguage();
+  const hasTopics = useCardTopics();
   const [state, setState] = useState<State>({ kind: "loading" });
 
   useEffect(() => {
     let cancelled = false;
-    fetchRecommendations().then((result) => {
+    fetchBoothListing().then((result) => {
       if (!cancelled) setState(stateFrom(result));
     });
     return () => {
@@ -43,18 +47,15 @@ export function Recommendations() {
   }, []);
 
   if (state.kind === "loading") {
-    return <p className="text-sm text-slate-500">Loading your matches…</p>;
+    return <p role="status" className="fm-note">{t("Loading your matches…")}</p>;
   }
 
   if (state.kind === "signed-out") {
     return (
-      <div className="flex flex-col gap-3">
-        <p className="text-sm text-slate-400">Sign in to see your personalised booth matches.</p>
-        <Link
-          href="/login"
-          className="w-full rounded-lg bg-indigo-500 px-4 py-3 text-center font-semibold text-white transition-colors hover:bg-indigo-400"
-        >
-          Sign in
+      <div className="fm-stack">
+        <p className="fm-note">{t("Sign in to see your personalised booth matches.")}</p>
+        <Link href="/login" className="fm-btn fm-btn-primary fm-btn-block">
+          {t("Sign in")}
         </Link>
       </div>
     );
@@ -62,8 +63,8 @@ export function Recommendations() {
 
   if (state.kind === "error") {
     return (
-      <p role="alert" className="text-sm text-amber-300">
-        {messageFor(state.code)}
+      <p role="alert" className="fm-alert fm-alert-warn">
+        {t(messageFor(state.code))}
       </p>
     );
   }
@@ -72,8 +73,8 @@ export function Recommendations() {
 
   if (recommendations.length === 0) {
     return (
-      <div className="flex flex-col gap-4">
-        <p className="text-sm text-slate-500">No booths are available yet. Check back soon.</p>
+      <div className="fm-stack">
+        <p className="fm-empty">{t("No booths are available yet. Check back soon.")}</p>
         <AttendeeTabBar active="booths" />
       </div>
     );
@@ -82,21 +83,19 @@ export function Recommendations() {
   const general = isGeneralListing(recommendations);
 
   return (
-    <div className="flex flex-col gap-4">
-      <p
-        className={
-          general
-            ? "rounded-lg border border-slate-800 bg-slate-900/60 p-3 text-sm text-slate-400"
-            : "text-sm text-slate-500"
-        }
-      >
-        {general
-          ? "Select interests when you register to see your personalised match for each booth. For now, here are all the booths at the summit."
-          : "Ranked for you, based on the interests you selected."}
-      </p>
-      <ul className="flex flex-col gap-4">
+    <div className="fm-stack">
+      {/* With no match at all, wait to know whether the card has topics: the
+          hint differs, and a wrong one ("pick topics") is worse than none. */}
+      {(!general || hasTopics !== null) && <p className={general ? "fm-alert fm-alert-info" : "fm-note"}>
+        {!general
+          ? t("Ranked for you, based on the interests you selected.")
+          : hasTopics
+          ? t("Your interest card is saved. The booths' own interest profiles are not set yet, so no match can be shown; here are all the booths at the summit.")
+          : t("Choose topics on your interest card in your profile to see your personalised match for each booth. For now, here are all the booths at the summit.")}
+      </p>}
+      <ul className="fm-list">
         {recommendations.map((r) => (
-          <RecommendationCard key={r.booth.slug} recommendation={r} />
+          <RecommendationCard key={r.booth.slug} recommendation={r} askForTopics={hasTopics === false} />
         ))}
       </ul>
       <AttendeeTabBar active="booths" />

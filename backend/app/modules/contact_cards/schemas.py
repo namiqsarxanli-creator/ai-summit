@@ -41,7 +41,12 @@ class PublicCard(_Strict):
     last_name: str
     profession: str
     interests: list[CardInterest]
-    contact: ContactAction
+    # Beyond Now (migration 0021): the contact action opens ONLY to a signed-in
+    # attendee connected with the card owner by the mutual QR scan; everyone
+    # else gets None, so the public card is no way round the contact gate.
+    contact: ContactAction | None = None
+    # The attendee's profile photo, or None (the screen then shows the robot).
+    photo_url: str | None = None
 
 
 class CardIdentity(_Strict):
@@ -64,3 +69,5 @@ class OwnCard(_Strict):
 
     card_url: str
     card: PublicCard
+    # Six characters to type when the QR cannot be read (service.card_short_code).
+    short_code: str

@@ -56,7 +56,7 @@ SCAN_REF_SHAPE = re.compile(r"[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+")
 def _insert_returning_id(sql: str, **params: Any) -> int:
     db = SessionLocal()
     try:
-        row = db.execute(text(sql), params).scalar_one()
+        row: Any = db.execute(text(sql), params).scalar_one()
         db.commit()
         return int(row)
     finally:

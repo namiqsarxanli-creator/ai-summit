@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { messageFor } from "@/lib/errors";
 
-import { StaffLoginForm } from "./StaffLoginForm";
+import { StaffLoginForm, returnPath } from "./StaffLoginForm";
 
 const push = vi.hoisted(() => vi.fn());
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
@@ -41,6 +41,38 @@ async function submit(email: string, password: string) {
 }
 
 describe("StaffLoginForm", () => {
+  it("returns to the staff page the sign-in was opened from", async () => {
+    window.history.pushState({}, "", "/staff/login?next=/staff/final");
+    try {
+      await submit("organiser@example.com", "hunter2");
+      await waitFor(() => expect(push).toHaveBeenCalledWith("/staff/final"));
+    } finally {
+      window.history.pushState({}, "", "/");
+    }
+  });
+
+  it("leads the FACEMARK sign-in to the FACEMARK section", async () => {
+    render(<StaffLoginForm home="/facemark" />);
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "organiser@example.com" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "hunter2" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/facemark"));
+  });
+
+  it("never returns to another site or an unknown path: the staff page instead", async () => {
+    for (const next of ["https://evil.example/", "//evil.example", "/admin", "/facemark/../admin", "javascript:alert(1)"]) {
+      expect(returnPath(`?next=${encodeURIComponent(next)}`)).toBe("/staff");
+    }
+    expect(returnPath("")).toBe("/staff");
+    expect(returnPath("?next=/staff/final")).toBe("/staff/final");
+    expect(returnPath("?next=/facemark", "/staff")).toBe("/facemark");
+    expect(returnPath("?next=https://evil.example/", "/facemark")).toBe("/facemark");
+  });
+  it("links to the password reset page", () => {
+    render(<StaffLoginForm />);
+    expect(screen.getByRole("link", { name: "Forgot your password?" })).toHaveAttribute("href", "/staff/reset");
+  });
+
   it("validates the email before submitting", async () => {
     render(<StaffLoginForm />);
     fireEvent.change(screen.getByLabelText("Email"), { target: { value: "nope" } });
@@ -104,6 +136,7 @@ describe("StaffLoginForm", () => {
 
   it("has no link to a staff registration page", () => {
     render(<StaffLoginForm />);
-    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+    // the only link on the form is the way back into an EXISTING account
+    expect(screen.getAllByRole("link").map((a) => a.getAttribute("href"))).toEqual(["/staff/reset"]);
   });
 });

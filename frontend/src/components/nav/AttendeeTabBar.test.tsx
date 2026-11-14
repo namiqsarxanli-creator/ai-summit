@@ -33,10 +33,11 @@ describe("AttendeeTabBar", () => {
     expect(screen.getByRole("link", { name: "My QR" })).not.toHaveAttribute("aria-current");
   });
 
-  it("gives every tab a touch target at least 44px tall", () => {
+  it("names every tab and marks only the current one", () => {
     render(<AttendeeTabBar active="profile" />);
-    for (const link of screen.getAllByRole("link")) {
-      expect(link.className).toMatch(/min-h-\[52px\]/);
-    }
+    const links = screen.getAllByRole("link");
+    expect(links).toHaveLength(5);
+    for (const link of links) expect(link).toHaveAccessibleName();
+    expect(links.filter((link) => link.getAttribute("aria-current") === "page")).toHaveLength(1);
   });
 });

@@ -62,10 +62,39 @@ _RESET_SENSITIVE_TABLES: tuple[str, ...] = (
     "idempotency_records",
     "feedback",
     "sessions",
+    "otp_deliveries",
     "otp_challenges",
     "consent_audit",
     "user_interests",
     "contact_cards",
+    # Attendee choices (migration 0017). The programme itself (events, blocks,
+    # rooms, masterclasses) is administrator configuration and is kept.
+    # Competition evidence (migration 0020): who scanned in where.
+    "panel_scans",
+    # People (migration 0021): requests, meetings, blocks, connections. The
+    # Match Corner tables themselves are administrator configuration and stay.
+    "connections",
+    "connection_scans",
+    "meeting_participants",
+    "meetings",
+    "meeting_requests",
+    "user_blocks",
+    # Meet the Mentor (migration 0022): bookings and attendance. The sessions
+    # themselves are administrator configuration and stay.
+    "mentor_bookings",
+    # Final results (migration 0023): snapshots of THIS dataset's ranking. TRUNCATE
+    # does not fire the row trigger that keeps a published result permanent; a
+    # reset is the one deliberate, fenced way to start a new dataset.
+    "final_results",
+    # Programme reminders (migration 0024): who is reminded of what.
+    "reminder_deliveries",
+    # Pair photos and offline scans (migrations 0025-0026). Pair photo FILES are
+    # left to the media janitor, which removes every key no row references.
+    "pair_photos",
+    "offline_scans",
+    "masterclass_attendance",
+    "masterclass_reservations",
+    "playground_bookings",
     "users",
 )
 
@@ -129,7 +158,7 @@ def _try_acquire_admission_lock(conn: Connection) -> bool:
     """Non-blocking. `True` means this invocation may proceed; `False`
     means another reset already holds it — the caller must not touch
     maintenance_mode, the real fence, or anything else."""
-    acquired = conn.execute(
+    acquired: Any = conn.execute(
         text("SELECT pg_try_advisory_lock(:key)"), {"key": FACEMARK_RESET_ADMISSION}
     ).scalar_one()
     conn.commit()
@@ -297,6 +326,14 @@ def _reconcile_reference_data(
             text("DELETE FROM admin_audit WHERE staff_account_id IN :ids").bindparams(ids_param),
             {"ids": extra_staff_ids},
         )
+        # Their scopes (granted to them or by them) go with the rehearsal accounts.
+        conn.execute(
+            text(
+                "DELETE FROM staff_scopes WHERE staff_account_id IN :ids "
+                "OR granted_by_staff_id IN :ids"
+            ).bindparams(ids_param),
+            {"ids": extra_staff_ids},
+        )
         conn.execute(
             text("DELETE FROM staff_accounts WHERE id IN :ids").bindparams(ids_param),
             {"ids": extra_staff_ids},
@@ -307,6 +344,15 @@ def _reconcile_reference_data(
     # was, by construction, itself non-fixture and is already gone (R4)
     # — a kept (fixture) staff row only ever points at a fixture booth.
     fixture_booth_slugs = [b.slug for b in fx.BOOTHS]
+    # A demo reset removes non-fixture booths; their empty Playground schedule
+    # goes with them. Schedules of retained booths remain administrator config.
+    conn.execute(
+        text(
+            "DELETE FROM playground_slots WHERE booth_id IN "
+            "(SELECT id FROM booths WHERE slug NOT IN :slugs)"
+        ).bindparams(slugs_param),
+        {"slugs": fixture_booth_slugs},
+    )
     conn.execute(
         text("DELETE FROM booths WHERE slug NOT IN :slugs").bindparams(slugs_param),
         {"slugs": fixture_booth_slugs},
@@ -397,14 +443,15 @@ def _reconcile_reference_data(
         for t in b.tasks:
             conn.execute(
                 text(
-                    "INSERT INTO tasks (booth_id, title, description, sort_order) "
-                    "VALUES (:booth_id, :title, :description, :sort_order)"
+                    "INSERT INTO tasks (booth_id, title, description, sort_order, points) "
+                    "VALUES (:booth_id, :title, :description, :sort_order, :points)"
                 ),
                 {
                     "booth_id": booth_ids[b.slug],
                     "title": t.title,
                     "description": t.description,
                     "sort_order": t.sort_order,
+                    "points": t.points,
                 },
             )
     for p in fx.PRESET_POINTS:
@@ -459,7 +506,7 @@ def _insert_demo_attendees(conn: Connection) -> tuple[tuple[str, str], ...]:
     }
     attendees: list[tuple[str, str]] = []
     for a in fx.ATTENDEES:
-        user_id = conn.execute(
+        user_id: Any = conn.execute(
             text(
                 "INSERT INTO users "
                 "(first_name, last_name, email, phone, profession, sponsor_consent, "
@@ -522,19 +569,19 @@ def _verify_restore(conn: Connection, *, expected_generation: int) -> None:
     """§19.5 step 6 / §19.7: "abort to the failure path if they
     disagree" — maintenance stays ON (the caller never reaches
     `_exit_maintenance` if this raises)."""
-    generation = conn.execute(
+    generation: Any = conn.execute(
         text("SELECT dataset_generation FROM event_config WHERE id = 1")
     ).scalar_one()
     if generation != expected_generation:
         raise ResetVerificationError(
             f"expected dataset_generation {expected_generation}, found {generation}"
         )
-    attendee_count = conn.execute(text("SELECT count(*) FROM users")).scalar_one()
+    attendee_count: Any = conn.execute(text("SELECT count(*) FROM users")).scalar_one()
     if attendee_count != len(fx.ATTENDEES):
         raise ResetVerificationError(
             f"expected {len(fx.ATTENDEES)} demo attendees, found {attendee_count}"
         )
-    booth_count = conn.execute(text("SELECT count(*) FROM booths")).scalar_one()
+    booth_count: Any = conn.execute(text("SELECT count(*) FROM booths")).scalar_one()
     if booth_count != len(fx.BOOTHS):
         raise ResetVerificationError(f"expected {len(fx.BOOTHS)} booths, found {booth_count}")
     conn.commit()

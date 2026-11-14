@@ -1,0 +1,8 @@
+<!-- AI Summit app icon (source). The PNG/ICO files next to it are rendered from
+     this design with Arial Black - the wordmark's font - white on the brand red
+     (--fm-red #a71923). Full-bleed square: Android masks it, iOS rounds it. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" fill="#a71923"/>
+  <text x="256" y="256" text-anchor="middle" dominant-baseline="central"
+        font-family="Arial Black, Arial, sans-serif" font-weight="900" font-size="215" fill="#ffffff">AI</text>
+</svg>

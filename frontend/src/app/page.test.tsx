@@ -1,8 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { realtimeStore } from "@/lib/realtime";
 import { installMockEventSource } from "@/test-utils/mockEventSource";
+import { teardownRealtime } from "@/test-utils/realtimeTeardown";
 
 import Home from "./page";
 
@@ -33,18 +33,18 @@ describe("Home", () => {
   });
 
   afterEach(() => {
-    realtimeStore.resetForTests();
-    vi.unstubAllGlobals();
+    teardownRealtime();
   });
 
-  it("renders the FACEMARK heading", () => {
+  it("renders the AI Summit heading", () => {
     render(<Home />);
-    expect(screen.getByRole("heading", { name: "FACEMARK" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "AI Summit" })).toBeInTheDocument();
   });
 
   it("presents event actions without developer health data", async () => {
     render(<Home />);
-    expect(screen.getByText(/Your people, your discoveries/)).toBeInTheDocument();
+    expect(screen.getByText("Beyond Now")).toBeInTheDocument();
+    expect(screen.queryByText("Artificial intelligence opens bigger possibilities.")).not.toBeInTheDocument();
     expect(await screen.findByRole("link", { name: /Register as an attendee/ })).toBeInTheDocument();
     expect(screen.queryByText(/Backend connectivity/)).not.toBeInTheDocument();
   });
@@ -78,10 +78,11 @@ describe("Home", () => {
       }),
     );
     render(<Home />);
-    // M08: the profile summary (M05's SessionPanel) ...
-    expect(await screen.findByText("Marcus Lindqvist")).toBeInTheDocument();
-    // ... the matched-booths preview (M07 data, this milestone's UI) ...
-    expect(await screen.findByRole("heading", { name: "AIWorks" })).toBeInTheDocument();
+    // The Beyond Now hub (booths themselves are on the Booths page) ...
+    expect(await screen.findByRole("heading", { name: "Beyond Now" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "AIWorks" })).not.toBeInTheDocument();
+    // ... no identity strip: the profile is the Profile tab, not a block on Home ...
+    expect(screen.queryByText("Marcus Lindqvist")).not.toBeInTheDocument();
     // ... and the shared attendee navigation, all on one coherent screen.
     expect(screen.getByRole("navigation", { name: "Attendee navigation" })).toBeInTheDocument();
   });

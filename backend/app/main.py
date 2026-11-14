@@ -29,21 +29,40 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import OperationalError
 
+from app.core.admission import AdmissionMiddleware
 from app.core.config import get_settings
 from app.core.csrf import OriginAssertionMiddleware
+from app.core.error_log import ErrorRecorderMiddleware
 from app.core.errors import DomainError, MaintenanceError, RateLimitedError, error_envelope
-from app.core.privacy import CardPrivacyHeadersMiddleware, install_card_token_log_filter
+from app.core.media import get_store
+from app.core.privacy import CardPrivacyHeadersMiddleware, install_log_masking
 from app.db import all_models  # noqa: F401 — full metadata, or cross-module FKs fail at flush
 from app.db.session import database_is_reachable
 from app.modules.admin.routers import router as admin_router
 from app.modules.attendees.routers import router as attendees_router
 from app.modules.auth.routers import router as auth_router
 from app.modules.booths.routers import router as booths_router
+from app.modules.competition.final_routers import router as final_router
+from app.modules.competition.offline_routers import router as offline_router
+from app.modules.competition.routers import admin_router as competition_admin_router
+from app.modules.competition.routers import router as competition_router
 from app.modules.contact_cards.routers import router as contact_cards_router
 from app.modules.feedback.routers import router as feedback_router
 from app.modules.interests.routers import router as interests_router
 from app.modules.leaderboard.routers import router as leaderboard_router
+from app.modules.masterclasses.routers import admin_router as masterclass_admin_router
+from app.modules.masterclasses.routers import router as masterclasses_router
 from app.modules.matching.routers import router as matching_router
+from app.modules.media.routers import router as media_router
+from app.modules.mentors.routers import admin_router as mentors_admin_router
+from app.modules.mentors.routers import router as mentors_router
+from app.modules.notifications.routers import router as notifications_router
+from app.modules.people.pair_photo_routers import admin_router as pair_photo_admin_router
+from app.modules.people.pair_photo_routers import router as pair_photo_router
+from app.modules.people.routers import admin_router as people_admin_router
+from app.modules.people.routers import router as people_router
+from app.modules.playground.routers import admin_router as playground_admin_router
+from app.modules.playground.routers import router as playground_router
 from app.modules.points.routers import router as points_router
 from app.modules.realtime.broker import event_bus
 from app.modules.realtime.listener import run_reset_listener
@@ -52,6 +71,7 @@ from app.modules.realtime.middleware import (
     RealtimeStreamHeadersMiddleware,
 )
 from app.modules.realtime.routers import router as realtime_router
+from app.modules.reminders.routers import router as reminders_router
 from app.modules.staff.routers import router as staff_router
 
 logger = logging.getLogger(__name__)
@@ -79,6 +99,33 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+# Liveness and readiness are different questions, so they are different routes.
+#
+#   /api/health/live   is this PROCESS able to answer at all? Never touches the
+#                      database, so a database outage cannot make a watchdog
+#                      restart a backend that restarting would not fix.
+#   /api/health/ready  may traffic be sent here? True only while the database
+#                      answers. (`/api/health` above is the same check; it keeps
+#                      its locked M01 contract and the Docker healthcheck.)
+#
+# Both are public, so both say only up/down: no versions, hosts, counts, error
+# text. The operator's detail is `python -m app.cli ops-check` (a shell on the
+# server), never an HTTP route.
+_NO_STORE = {"Cache-Control": "no-store"}
+
+
+@api_router.get("/health/live")
+def health_live() -> JSONResponse:
+    return JSONResponse({"status": "ok"}, headers=_NO_STORE)
+
+
+@api_router.get("/health/ready")
+def health_ready() -> JSONResponse:
+    if not database_is_reachable():
+        return JSONResponse({"status": "unavailable"}, status_code=503, headers=_NO_STORE)
+    return JSONResponse({"status": "ok"}, headers=_NO_STORE)
+
+
 def _register_exception_handlers(app: FastAPI) -> None:
     """ARCHITECTURE.md §20: one JSON envelope for every failure, three
     handlers wide enough to cover it. Introduced with the first
@@ -88,13 +135,16 @@ def _register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(DomainError)
     async def _domain_error_handler(request: Request, exc: DomainError) -> JSONResponse:
-        body = error_envelope(exc.code, str(exc))
-        if exc.status_code >= 500:
+        body = error_envelope(exc.code, str(exc), details=exc.details)
+        if exc.status_code >= 500 and not getattr(exc, "expected", False):
             logger.error(
                 "Unhandled domain error %s on %s", exc.code, request.url.path, exc_info=exc
             )
+        retry_after = getattr(exc, "retry_after", None)
         headers = (
-            {"Retry-After": str(exc.retry_after)} if isinstance(exc, RateLimitedError) else None
+            {"Retry-After": str(retry_after)}
+            if isinstance(exc, RateLimitedError) or retry_after is not None
+            else None
         )
         return JSONResponse(status_code=exc.status_code, content=body, headers=headers)
 
@@ -154,19 +204,16 @@ def _configure_logging(demo_mode: bool) -> None:
     written at DEBUG and that one logger is opened to DEBUG only in
     DEMO_MODE, which config already forbids in production.
 
-    Card tokens are masked (§21.11) on uvicorn's access and error
-    loggers, where request paths are recorded, and on the app handler,
-    whose error lines name the request path."""
+    Card tokens and CSV export tickets are masked (§21.11) on every
+    logger that can print a request URL and on each of their handlers
+    (see app/core/privacy.py: `install_log_masking`)."""
     app_logger = logging.getLogger("app")
     if not app_logger.handlers:
         handler = logging.StreamHandler()
         handler.setFormatter(logging.Formatter("%(levelname)s:     %(name)s - %(message)s"))
         app_logger.addHandler(handler)
     app_logger.setLevel(logging.INFO)
-    for app_handler in app_logger.handlers:
-        install_card_token_log_filter(app_handler)
-    install_card_token_log_filter(logging.getLogger("uvicorn.access"))
-    install_card_token_log_filter(logging.getLogger("uvicorn.error"))
+    install_log_masking()
     logging.getLogger("app.modules.auth.otp_delivery").setLevel(
         logging.DEBUG if demo_mode else logging.INFO
     )
@@ -193,6 +240,14 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     """
     event_bus.bind_loop(asyncio.get_running_loop())
     settings = get_settings()
+    # Not fatal (everything but photo uploads works without it), but an operator
+    # should learn at start-up, not from an attendee, that the volume is missing,
+    # read-only or has the wrong owner.
+    if not get_store().check_writable():
+        logger.warning(
+            "MEDIA_ROOT is not writable: profile photo uploads will answer "
+            "503 PHOTO_STORAGE_UNAVAILABLE until the media volume is fixed"
+        )
     listener_task = asyncio.create_task(run_reset_listener(settings.database_url, event_bus))
     try:
         yield
@@ -215,6 +270,7 @@ def create_app() -> FastAPI:
         # the production OpenAPI schema is the same principle applied
         # more broadly — least exposure by default).
         docs_url="/docs" if not settings.is_production else None,
+        openapi_url="/openapi.json" if not settings.is_production else None,
         redoc_url=None,
         lifespan=_lifespan,
     )
@@ -229,18 +285,52 @@ def create_app() -> FastAPI:
     app.add_middleware(CardPrivacyHeadersMiddleware)
     app.add_middleware(RealtimeStreamHeadersMiddleware)
     app.add_middleware(DatasetGenerationHeaderMiddleware)
+    # Outermost but one: a request waits for an admission slot BEFORE it takes a worker
+    # thread or a database connection (app/core/admission.py).
+    app.add_middleware(AdmissionMiddleware)
+    # Outside admission control, so its 503s are counted too (app/core/error_log.py).
+    app.add_middleware(ErrorRecorderMiddleware)
     app.include_router(api_router)
     app.include_router(attendees_router, prefix="/api")
     app.include_router(admin_router, prefix="/api", include_in_schema=not settings.is_production)
     app.include_router(auth_router, prefix="/api")
     app.include_router(booths_router, prefix="/api")
+    app.include_router(competition_router, prefix="/api")
+    app.include_router(
+        competition_admin_router, prefix="/api", include_in_schema=not settings.is_production
+    )
+    app.include_router(final_router, prefix="/api")
+    app.include_router(offline_router, prefix="/api")
     app.include_router(contact_cards_router, prefix="/api")
     app.include_router(feedback_router, prefix="/api")
     app.include_router(interests_router, prefix="/api")
     app.include_router(leaderboard_router, prefix="/api")
+    app.include_router(masterclasses_router, prefix="/api")
+    app.include_router(
+        masterclass_admin_router, prefix="/api", include_in_schema=not settings.is_production
+    )
     app.include_router(matching_router, prefix="/api")
+    app.include_router(media_router, prefix="/api")
+    app.include_router(mentors_router, prefix="/api")
+    app.include_router(
+        mentors_admin_router, prefix="/api", include_in_schema=not settings.is_production
+    )
     app.include_router(points_router, prefix="/api")
+    app.include_router(people_router, prefix="/api")
+    app.include_router(pair_photo_router, prefix="/api")
+    app.include_router(
+        pair_photo_admin_router, prefix="/api", include_in_schema=not settings.is_production
+    )
+    app.include_router(
+        people_admin_router, prefix="/api", include_in_schema=not settings.is_production
+    )
+    app.include_router(playground_router, prefix="/api")
+    app.include_router(
+        playground_admin_router, prefix="/api", include_in_schema=not settings.is_production
+    )
+    app.include_router(notifications_router, prefix="/api")
     app.include_router(realtime_router, prefix="/api")
+    app.include_router(reminders_router, prefix="/api")
     app.include_router(staff_router, prefix="/api")
 
     return app

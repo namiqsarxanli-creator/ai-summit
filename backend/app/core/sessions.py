@@ -18,8 +18,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 from fastapi import Response
-from sqlalchemy import func, select, update
-from sqlalchemy.orm import Session
+from sqlalchemy import bindparam, func, select, update
+from sqlalchemy.orm import Session, load_only
 
 from app.core.auth_session import AuthSession, PrincipalType
 from app.core.config import get_settings
@@ -36,9 +36,27 @@ from app.modules.staff.models import StaffAccount
 # attributes, §8.3) — fixed once here for every reader and writer.
 SESSION_COOKIE_NAME = "session"
 SESSION_TTL = timedelta(hours=12)
+REMEMBERED_SESSION_TTL = timedelta(days=30)
+
+# Reuse the query structure, never its result: expiry and revocation are still
+# read from PostgreSQL on every call. Building this ORM expression per request
+# is a measurable CPU cost during a burst of authenticated reads/heartbeats.
+_ATTENDEE_SESSION_QUERY = (
+    select(User)
+    .join(AuthSession, AuthSession.user_id == User.id)
+    .where(
+        AuthSession.token_hash == bindparam("session_token_hash"),
+        AuthSession.principal_type == PrincipalType.ATTENDEE,
+        AuthSession.revoked_at.is_(None),
+        AuthSession.expires_at > func.now(),
+    )
+)
+_ATTENDEE_IDENTITY_QUERY = _ATTENDEE_SESSION_QUERY.options(load_only(User.id, User.status))
 
 
-def create_attendee_session(db: Session, *, user_id: int, now: datetime) -> str:
+def create_attendee_session(
+    db: Session, *, user_id: int, now: datetime, remember_device: bool = False
+) -> str:
     """Returns the raw token for the cookie; persists only its hash."""
     raw_token = generate_session_token()
     db.add(
@@ -47,7 +65,7 @@ def create_attendee_session(db: Session, *, user_id: int, now: datetime) -> str:
             principal_type=PrincipalType.ATTENDEE,
             user_id=user_id,
             issued_at=now,
-            expires_at=now + SESSION_TTL,
+            expires_at=now + (REMEMBERED_SESSION_TTL if remember_device else SESSION_TTL),
         )
     )
     db.flush()
@@ -72,7 +90,9 @@ def create_staff_session(db: Session, *, staff_account_id: int, now: datetime) -
     return raw_token
 
 
-def resolve_attendee_session(db: Session, raw_token: str | None) -> User:
+def resolve_attendee_session(
+    db: Session, raw_token: str | None, *, identity_only: bool = False
+) -> User:
     """The authenticated attendee, or an exception — never a guess.
 
     Missing, unknown, expired, revoked, or a session of another
@@ -86,15 +106,9 @@ def resolve_attendee_session(db: Session, raw_token: str | None) -> User:
     """
     if not raw_token:
         raise UnauthenticatedError("Please sign in.")
+    query = _ATTENDEE_IDENTITY_QUERY if identity_only else _ATTENDEE_SESSION_QUERY
     user = db.execute(
-        select(User)
-        .join(AuthSession, AuthSession.user_id == User.id)
-        .where(
-            AuthSession.token_hash == hash_session_token(raw_token),
-            AuthSession.principal_type == PrincipalType.ATTENDEE,
-            AuthSession.revoked_at.is_(None),
-            AuthSession.expires_at > func.now(),
-        )
+        query, {"session_token_hash": hash_session_token(raw_token)}
     ).scalar_one_or_none()
     if user is None:
         raise UnauthenticatedError("Please sign in.")
@@ -178,9 +192,11 @@ def revoke_session(db: Session, raw_token: str | None) -> bool:
     return revoked is not None
 
 
-def set_session_cookie(response: Response, raw_token: str) -> None:
+def set_session_cookie(
+    response: Response, raw_token: str, *, remember_device: bool = False
+) -> None:
     """§8.3: `HttpOnly; SameSite=Lax; Path=/; Secure (when served over
-    HTTPS); Max-Age = 12h`."""
+    HTTPS); Max-Age = 12h, or 30 days with explicit attendee opt-in`."""
     response.set_cookie(
         key=SESSION_COOKIE_NAME,
         value=raw_token,
@@ -188,7 +204,7 @@ def set_session_cookie(response: Response, raw_token: str) -> None:
         samesite="lax",
         secure=get_settings().serves_https,
         path="/",
-        max_age=int(SESSION_TTL.total_seconds()),
+        max_age=int((REMEMBERED_SESSION_TTL if remember_device else SESSION_TTL).total_seconds()),
     )
 
 
@@ -197,6 +213,40 @@ def clear_session_cookie(response: Response) -> None:
     response.delete_cookie(
         key=SESSION_COOKIE_NAME,
         path="/",
+        httponly=True,
+        samesite="lax",
+        secure=get_settings().serves_https,
+    )
+
+
+# Binds an activation code to the browser that submitted the registration
+# (OtpChallenge.registration_intent_hash). Scoped to the auth endpoints, which
+# are the only reader; lives as long as a PROVISIONAL registration does.
+REGISTRATION_INTENT_COOKIE_NAME = "registration_intent"
+REGISTRATION_INTENT_COOKIE_PATH = "/api/auth"
+REGISTRATION_INTENT_TTL = timedelta(hours=24)
+
+
+def generate_registration_intent() -> str:
+    return generate_session_token()
+
+
+def set_registration_intent_cookie(response: Response, intent: str) -> None:
+    response.set_cookie(
+        key=REGISTRATION_INTENT_COOKIE_NAME,
+        value=intent,
+        httponly=True,
+        samesite="lax",
+        secure=get_settings().serves_https,
+        path=REGISTRATION_INTENT_COOKIE_PATH,
+        max_age=int(REGISTRATION_INTENT_TTL.total_seconds()),
+    )
+
+
+def clear_registration_intent_cookie(response: Response) -> None:
+    response.delete_cookie(
+        key=REGISTRATION_INTENT_COOKIE_NAME,
+        path=REGISTRATION_INTENT_COOKIE_PATH,
         httponly=True,
         samesite="lax",
         secure=get_settings().serves_https,

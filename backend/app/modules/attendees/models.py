@@ -21,11 +21,13 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy import Enum as PgEnum
 from sqlalchemy import text as sql_text
-from sqlalchemy.dialects.postgresql import CITEXT
+from sqlalchemy.dialects.postgresql import ARRAY, CITEXT, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
@@ -51,6 +53,10 @@ class OtpPurpose(enum.StrEnum):
 
     ACTIVATION = "ACTIVATION"
     LOGIN = "LOGIN"
+    # A STAFF member's password-reset code (migration 0013). A kind of its own:
+    # an attendee's activation / login code never verifies it, and it never
+    # verifies one of those - every query matches on purpose.
+    STAFF_PASSWORD_RESET = "STAFF_PASSWORD_RESET"
 
 
 class User(IdentityPKMixin, Base):
@@ -89,8 +95,53 @@ class User(IdentityPKMixin, Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
+    # Optimistic concurrency of the attendee's own profile edits (migration
+    # 0014): the client sends the version it loaded, the edit is accepted only
+    # while it is still current, and each accepted edit increments it.
+    profile_version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
+    # The server-made random name of the profile photo's files (see
+    # app/core/media.py); NULL = no photo. Unique, so a key belongs to one row.
+    photo_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Migration 0016. The company, separate from `profession` (the role); NULL =
+    # not given. And the Beyond Now interest card as stable identifiers
+    # (app/modules/attendees/interest_card.py) - unrelated to `user_interests`,
+    # which keeps driving booth recommendations. Private to the attendee.
+    # Migration 0020: why this person is NOT in the competition (organiser
+    # team, volunteer, sponsor, speaker). Set only by an administrator; nothing
+    # an attendee can edit changes it. NULL = eligible.
+    competition_excluded_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Migration 0024: when the attendee opted in to programme reminders by email
+    # (NULL = no reminders). Withdrawing sets it back to NULL.
+    reminder_consent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    company: Mapped[str | None] = mapped_column(Text, nullable=True)
+    card_sector: Mapped[str | None] = mapped_column(Text, nullable=True)
+    card_topics: Mapped[list[str]] = mapped_column(
+        ARRAY(Text), nullable=False, server_default=sql_text("'{}'::text[]")
+    )
+    card_seeking: Mapped[list[str]] = mapped_column(
+        ARRAY(Text), nullable=False, server_default=sql_text("'{}'::text[]")
+    )
+    card_offering: Mapped[list[str]] = mapped_column(
+        ARRAY(Text), nullable=False, server_default=sql_text("'{}'::text[]")
+    )
 
     __table_args__ = (
+        # The card's maximums hold in the database too, whoever writes.
+        CheckConstraint("cardinality(card_topics) <= 3", name="card_topics_max"),
+        CheckConstraint("cardinality(card_seeking) <= 2", name="card_seeking_max"),
+        CheckConstraint("cardinality(card_offering) <= 2", name="card_offering_max"),
+        CheckConstraint(
+            "company IS NULL OR char_length(company) BETWEEN 1 AND 200", name="company_length"
+        ),
+        CheckConstraint(
+            "photo_key IS NULL OR photo_key ~ '^[0-9a-f]{32}$'", name="photo_key_format"
+        ),
+        Index(
+            "uq_users_photo_key",
+            "photo_key",
+            unique=True,
+            postgresql_where=sql_text("photo_key IS NOT NULL"),
+        ),
         CheckConstraint(
             "sponsor_consent = false OR sponsor_consent_at IS NOT NULL",
             name="sponsor_consent_requires_timestamp",
@@ -99,6 +150,9 @@ class User(IdentityPKMixin, Base):
             "status = 'PROVISIONAL' OR activated_at IS NOT NULL",
             name="status_requires_activated_at",
         ),
+        # The admin attendee list: newest registration first, keyset-paged on
+        # (created_at, id) - the unique id makes the order total.
+        Index("ix_users_created_at_id", sql_text("created_at DESC"), sql_text("id DESC")),
     )
 
 
@@ -176,6 +230,15 @@ class OtpChallenge(IdentityPKMixin, Base):
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     request_ip: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Binds an ACTIVATION code to the browser that submitted the registration
+    # (migration 0015). `registration_intent_hash` is the SHA-256 of a random
+    # value held only in that browser's HttpOnly cookie; `registration_snapshot`
+    # is what that submission entered. At verification the snapshot whose intent
+    # the verifying browser presents is what gets activated - so someone who
+    # re-submits a pending registration from another browser cannot make the
+    # owner activate their data or a sponsor consent the owner never gave.
+    registration_intent_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+    registration_snapshot: Mapped[dict[str, object] | None] = mapped_column(JSONB, nullable=True)
 
     __table_args__ = (
         # "at most one live challenge per email and purpose, so
@@ -188,4 +251,119 @@ class OtpChallenge(IdentityPKMixin, Base):
             unique=True,
             postgresql_where=sql_text("consumed_at IS NULL"),
         ),
+    )
+
+
+class OtpDeliveryStatus(enum.StrEnum):
+    """Lifecycle of one OTP email in the delivery outbox.
+
+    `ACCEPTED` means the email PROVIDER took the message (HTTP 2xx). It does
+    not mean the message reached an inbox - bounces, spam placement and
+    delays happen after that and are invisible here.
+    """
+
+    PENDING = "pending"
+    PROCESSING = "processing"
+    ACCEPTED = "accepted"
+    FAILED = "failed"
+    EXPIRED = "expired"
+
+
+OTP_LIVE_STATUSES = (OtpDeliveryStatus.PENDING.value, OtpDeliveryStatus.PROCESSING.value)
+OTP_LANGUAGES = ("az", "en", "ru")
+
+
+class OtpDelivery(IdentityPKMixin, Base):
+    """Durable outbox row for one OTP email (app/modules/auth/otp_outbox.py).
+
+    Written in the SAME transaction as its `otp_challenges` row, so a
+    rolled-back registration/login leaves nothing to send and a committed
+    one can never lose its email. A separate worker process sends it.
+
+    The code is held only as AES-256-GCM ciphertext (`payload_ciphertext`),
+    and only while the delivery is live: the database itself refuses a
+    ciphertext on a finished row. Verification still uses the Argon2id
+    hash on `otp_challenges`; nothing here is consulted for it.
+    """
+
+    __tablename__ = "otp_deliveries"
+
+    challenge_id: Mapped[int] = mapped_column(
+        ForeignKey(
+            "otp_challenges.id",
+            name="fk_otp_deliveries_challenge_id_otp_challenges",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+    )
+    email: Mapped[str] = mapped_column(CITEXT, nullable=False)
+    purpose: Mapped[OtpPurpose] = mapped_column(
+        PgEnum(OtpPurpose, name="otp_purpose", native_enum=True, create_type=False),
+        nullable=False,
+    )
+    language: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="pending")
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    next_attempt_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    # Processing lease: a worker that dies leaves `locked_until` in the past
+    # and another worker reclaims the row.
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    locked_by: Mapped[str | None] = mapped_column(Text)
+    # Fixed at creation, sent with EVERY attempt, so a retry after an
+    # ambiguous timeout cannot make the provider send the email twice.
+    idempotency_key: Mapped[str] = mapped_column(Text, nullable=False)
+    payload_ciphertext: Mapped[bytes | None] = mapped_column(LargeBinary)
+    payload_key_id: Mapped[str | None] = mapped_column(Text)
+    provider_message_id: Mapped[str | None] = mapped_column(Text)
+    # A short machine code, never provider text. See otp_outbox.ERROR_MESSAGES.
+    reason_code: Mapped[str | None] = mapped_column(Text)
+    last_http_status: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    # Copy of the challenge's expiry: after this the code must not be sent.
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        UniqueConstraint("challenge_id"),
+        UniqueConstraint("idempotency_key"),
+        CheckConstraint(
+            "status IN ('pending', 'processing', 'accepted', 'failed', 'expired')",
+            name="status_valid",
+        ),
+        CheckConstraint("language IN ('az', 'en', 'ru')", name="language_valid"),
+        # The code may be stored only while the delivery is live...
+        CheckConstraint(
+            "(status IN ('pending', 'processing')) = (payload_ciphertext IS NOT NULL)",
+            name="payload_only_while_live",
+        ),
+        CheckConstraint(
+            "(status = 'processing') = (locked_until IS NOT NULL)", name="lease_iff_processing"
+        ),
+        CheckConstraint("(locked_until IS NULL) = (locked_by IS NULL)", name="lease_complete"),
+        CheckConstraint(
+            "(status = 'accepted') = (accepted_at IS NOT NULL)", name="accepted_has_timestamp"
+        ),
+        CheckConstraint(
+            "(status IN ('accepted', 'failed', 'expired')) = (finished_at IS NOT NULL)",
+            name="finished_has_timestamp",
+        ),
+        Index(
+            "ix_otp_deliveries_pending_due",
+            "next_attempt_at",
+            postgresql_where=sql_text("status = 'pending'"),
+        ),
+        Index(
+            "ix_otp_deliveries_processing_lease",
+            "locked_until",
+            postgresql_where=sql_text("status = 'processing'"),
+        ),
+        Index("ix_otp_deliveries_status_id", "status", sql_text("id DESC")),
     )

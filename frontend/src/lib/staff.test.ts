@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { fetchPresets, fetchStaffMe, staffLogin, staffLogout } from "./staff";
+import { fetchPresets, fetchStaffMe, fetchStaffTasks, staffLogin, staffLogout } from "./staff";
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -31,6 +31,17 @@ describe("fetchPresets", () => {
     await fetchPresets();
     const [url] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("/api/staff/points/presets");
+  });
+});
+
+describe("fetchStaffTasks", () => {
+  it("calls the same-origin activities endpoint, which takes no booth parameter", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(200, []));
+    vi.stubGlobal("fetch", fetchMock);
+    await fetchStaffTasks();
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("/api/staff/tasks");
+    expect(init.credentials).toBe("same-origin");
   });
 });
 

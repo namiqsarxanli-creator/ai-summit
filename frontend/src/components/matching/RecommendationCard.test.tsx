@@ -51,12 +51,27 @@ describe("RecommendationCard", () => {
       booth: { slug: "aiworks", name: "AIWorks", location_label: "Hall B · 14" },
       match: null,
     };
-    render(<RecommendationCard recommendation={recommendation} />);
+    render(<RecommendationCard recommendation={recommendation} askForTopics />);
     expect(screen.queryByLabelText(/% match/)).not.toBeInTheDocument();
     expect(screen.queryByText("0%")).not.toBeInTheDocument();
     expect(
       screen.getByText("Select your interests to see how well this booth matches you."),
     ).toBeInTheDocument();
+  });
+
+  it("shows the booth's card, and no topics prompt for an attendee who has picked topics", () => {
+    const recommendation: Recommendation = {
+      booth: { slug: "handex", name: "HANDEX — Can You Guess?", location_label: null, description: "You draw, AI guesses!" },
+      match: null,
+    };
+    render(<RecommendationCard recommendation={recommendation} />);
+    expect(screen.getByText("You draw, AI guesses!")).toBeInTheDocument();
+    expect(screen.queryByText("Select your interests to see how well this booth matches you.")).toBeNull();
+    // "Company — Game": the booth (company) as the title, the game beneath it.
+    expect(screen.getByRole("heading", { name: "HANDEX" })).toBeInTheDocument();
+    expect(screen.getByText("Can You Guess?")).toBeInTheDocument();
+    // The way to play opens the Playground page at this booth.
+    expect(screen.getByRole("link", { name: "Book a 15-minute session" })).toHaveAttribute("href", "/playground?booth=handex");
   });
 
   it("omits the location line when the booth has none", () => {

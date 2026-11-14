@@ -18,6 +18,7 @@ from app.core.errors import (
     DuplicateFeedbackRewardError,
     DuplicateTaskRewardError,
     IdempotencyKeyConflict,
+    PointsAlreadyReversedError,
     UnexpectedConstraintViolationError,
     translate_integrity_error,
 )
@@ -40,7 +41,8 @@ def _fake_integrity_error(constraint_name: str | None) -> IntegrityError:
         ("uq_points_feedback_user_booth", DuplicateFeedbackRewardError),
         ("uq_points_dedupe_key", DuplicateTaskRewardError),
         ("pk_idempotency_records", IdempotencyKeyConflict),
-        ("uq_points_reverses", UnexpectedConstraintViolationError),
+        # a row can be reversed once: a second reversal is a user-facing 409 now (M-reversal)
+        ("uq_points_reverses", PointsAlreadyReversedError),
         ("uq_contact_card_live_user", UnexpectedConstraintViolationError),
         ("ck_staff_role_booth", UnexpectedConstraintViolationError),
         ("fk_points_task_booth", UnexpectedConstraintViolationError),

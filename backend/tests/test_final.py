@@ -1,0 +1,845 @@
+"""Beyond Now Founder (+10 for all four zones) and the versioned final result.
+
+Rig database (disposable, freshly seeded); server clocks replaced per test.
+Awards go through the real ledger (`competition.ledger.award`), the one writer
+every scan uses. Times are Asia/Baku (UTC+4) on 13 Nov 2026.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Iterator
+from datetime import UTC, datetime
+from typing import Any
+from uuid import uuid4
+
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+
+from app.core.config import get_settings
+from app.main import app
+from app.modules.competition import final_routers, ledger
+from app.modules.competition import routers as comp_routers
+from app.modules.points.models import PointsSource
+from app.modules.staff.models import StaffRole
+from tests.api_rig import Rig
+from tests.test_masterclasses import Program
+
+
+def baku(hhmm: str) -> datetime:
+    h, m = (int(x) for x in hhmm.split(":"))
+    return datetime(2026, 11, 13, h - 4, m, tzinfo=UTC)
+
+
+class Clock:
+    def __init__(self) -> None:
+        self.now = baku("12:00")
+
+    def __call__(self) -> datetime:
+        return self.now
+
+
+class Final(Program):
+    clock: Clock
+
+    def pay(self, uid: int, source: PointsSource, unit: str, points: int, at: str = "12:00") -> str:
+        with Session(self.rig.engine) as db:
+            result = ledger.award(
+                db, user_id=uid, source=source, unit=unit, points=points, occurred_at=baku(at)
+            )
+            db.commit()
+            return result.outcome
+
+    def grand_final(self) -> int:
+        """The Grand Final check-in row (17:25-17:45), created once."""
+        have = self.rig.sql("SELECT id FROM panels WHERE code = 'grand-final'")
+        if have:
+            return int(have[0][0])
+        return int(
+            self.rig.scalar(
+                "INSERT INTO panels (event_id, code, title, starts_at, ends_at) "
+                "VALUES (:e, 'grand-final', 'Grand Final', :s, :f) RETURNING id",
+                e=self.event,
+                s=baku("17:25"),
+                f=baku("17:45"),
+            )
+        )
+
+    def check_in(self, uid: int) -> None:
+        """The person scanned the Grand Final code (recorded without a recompute)."""
+        self.rig.sql(
+            "INSERT INTO panel_scans (panel_id, user_id, phase, scanned_at) "
+            "VALUES (:p, :u, 'ENTRY', :t)",
+            p=self.grand_final(),
+            u=uid,
+            t=baku("17:30"),
+        )
+
+    def all_zones(self, uid: int) -> None:
+        self.check_in(uid)  # first, so the fourth zone's award completes Founder
+        self.pay(uid, PointsSource.PANEL, "panel:1", 8)
+        self.pay(uid, PointsSource.MASTERCLASS, "block:1", 12)
+        self.pay(uid, PointsSource.PLAYGROUND, "booth:1", 3)
+        self.pay(uid, PointsSource.CONNECTION, "pair:1:2", 3)
+
+    def founder_points(self, uid: int) -> int:
+        return int(
+            self.rig.scalar(
+                "SELECT coalesce(sum(points), 0) FROM points_log "
+                "WHERE user_id = :u AND source = 'FOUNDER'",
+                u=uid,
+            )
+        )
+
+    def entry(self, uid: int, source: str) -> int:
+        return int(
+            self.rig.scalar(
+                "SELECT id FROM points_log WHERE user_id = :u AND source = :s "
+                "AND entry_type = 'AWARD' ORDER BY id LIMIT 1",
+                u=uid,
+                s=source,
+            )
+        )
+
+    def game_master(self) -> TestClient:
+        sid = int(
+            self.rig.scalar(
+                "INSERT INTO staff_accounts (email, password_hash, full_name, role, is_active) "
+                "VALUES (:e, 'x', 'Game Master', 'VOLUNTEER', true) RETURNING id",
+                e=f"gm-{uuid4().hex[:8]}@staff.test",
+            )
+        )
+        self.rig.sql(
+            "INSERT INTO staff_scopes (staff_account_id, scope, granted_by_staff_id) "
+            "VALUES (:s, 'GAME_MASTER', :a)",
+            s=sid,
+            a=self.rig.staff_id(StaffRole.ADMIN),
+        )
+        return self.staff_client(sid)
+
+    def staff_client(self, sid: int) -> TestClient:
+        c = TestClient(app, headers={"Origin": get_settings().app_origin})
+        c.cookies.set("session", self.rig.session_for(sid))
+        self.clients.append(c)
+        return c
+
+
+def rule(monkeypatch: pytest.MonkeyPatch, *, confirmed: bool) -> None:
+    monkeypatch.setenv("FOUNDER_RULE_CONFIRMED", "true" if confirmed else "false")
+    get_settings.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def _fresh_settings() -> Iterator[None]:
+    yield
+    get_settings.cache_clear()  # monkeypatch has restored the environment by now
+
+
+@pytest.fixture
+def fin(rig: Rig, monkeypatch: pytest.MonkeyPatch) -> Iterator[Final]:
+    clock = Clock()
+    monkeypatch.setattr(final_routers, "_now", clock)
+    monkeypatch.setattr(comp_routers, "_now", clock)
+    # These tests exercise the PROVISIONAL Founder rule as designed; the gate that
+    # keeps it off until the organiser confirms it is tested on its own below.
+    rule(monkeypatch, confirmed=True)
+    p = Final(rig)
+    p.clock = clock
+    rig.sql("UPDATE masterclass_events SET competition_closes_at = :c", c=baku("17:30"))
+    rig.sql("UPDATE event_config SET competition_mode = true")
+    yield p
+    for c in p.clients:
+        c.close()
+
+
+def reverse(rig: Rig, entry_id: int) -> int:
+    rig.sign_in_as(rig.staff_id(StaffRole.ADMIN))
+    r = rig.client.post(
+        f"/api/admin/points-log/{entry_id}/reverse",
+        json={"reason": "Scanned by mistake.", "idempotency_key": str(uuid4())},
+    )
+    return int(r.status_code)
+
+
+# --- Founder ------------------------------------------------------------------------------
+
+
+def test_founder_pays_fifteen_once_when_the_fourth_zone_is_reached(fin: Final) -> None:
+    uid = fin.users(1)[0]
+    fin.check_in(uid)
+    fin.pay(uid, PointsSource.PANEL, "panel:1", 8)
+    fin.pay(uid, PointsSource.QMETER, "panel:1", 2)  # a second Main Stage activity
+    fin.pay(uid, PointsSource.MASTERCLASS, "block:1", 12)
+    fin.pay(uid, PointsSource.PLAYGROUND, "booth:1", 3)
+    fin.pay(uid, PointsSource.PROFILE, "profile", 5)  # not a fifth zone
+    assert fin.founder_points(uid) == 0
+    fin.pay(uid, PointsSource.CONNECTION, "pair:1:2", 1)
+    assert fin.founder_points(uid) == 15
+    fin.pay(uid, PointsSource.CONNECTION, "pair:1:3", 1)  # more Connection Hub: no second bonus
+    assert fin.founder_points(uid) == 15
+    mine = fin.client(uid).get("/api/attendees/me/competition").json()
+    assert mine["zones"] == {
+        "main_stage": True,
+        "masterclass": True,
+        "playground": True,
+        "connection_hub": True,
+        "grand_final": True,
+    }
+    assert mine["founder"] is True and mine["lucky_draw"] is True
+    assert next(c for c in mine["categories"] if c["category"] == "FOUNDER")["points"] == 15
+
+
+def test_a_correction_removes_founder_and_new_evidence_restores_it(fin: Final) -> None:
+    uid = fin.users(1)[0]
+    fin.all_zones(uid)
+    assert fin.founder_points(uid) == 15
+    # The only masterclass was scanned by mistake: reversing it reverses Founder too.
+    assert reverse(fin.rig, fin.entry(uid, "MASTERCLASS")) == 200
+    assert fin.founder_points(uid) == 0
+    assert (
+        fin.rig.scalar(
+            "SELECT count(*) FROM points_log WHERE user_id = :u AND source = 'FOUNDER' "
+            "AND entry_type = 'REVERSAL'",
+            u=uid,
+        )
+        == 1
+    )
+    mine = fin.client(uid).get("/api/attendees/me/competition").json()
+    assert mine["zones"]["masterclass"] is False and mine["lucky_draw"] is False
+    # Block 2 is verified later: Founder is earned again, as a new ledger entry.
+    fin.pay(uid, PointsSource.MASTERCLASS, "block:2", 12)
+    assert fin.founder_points(uid) == 15
+    assert fin.rig.scalar("SELECT count(*) FROM points_log WHERE source = 'FOUNDER'") == 3
+
+
+def test_without_the_grand_final_scan_four_zones_earn_no_founder(fin: Final) -> None:
+    from app.modules.competition import panels as panels_module
+    from app.modules.competition.models import Panel
+
+    uid = fin.users(1)[0]
+    final = fin.grand_final()
+    fin.pay(uid, PointsSource.PANEL, "panel:1", 8)
+    fin.pay(uid, PointsSource.MASTERCLASS, "block:1", 12)
+    fin.pay(uid, PointsSource.PLAYGROUND, "booth:1", 3)
+    fin.pay(uid, PointsSource.CONNECTION, "pair:1:2", 3)
+    assert fin.founder_points(uid) == 0  # four zones, but not stayed to the end
+    mine = fin.client(uid).get("/api/attendees/me/competition").json()
+    assert mine["zones"]["grand_final"] is False and mine["founder"] is False
+
+    with Session(fin.rig.engine) as db:
+        row = db.get(Panel, final)
+        assert row is not None
+        code, digits = (
+            panels_module.screen_code(row, "ENTRY"),
+            panels_module.short_code(row, "ENTRY"),
+        )
+    c = fin.client(uid)
+    fin.clock.now = baku("17:20")
+    early = c.post("/api/attendees/me/panels/scan", json={"code": code})
+    assert early.json()["error"]["details"]["reason"] == "outside_window"
+    # 17:40, after the 17:30 close: the check-in still completes Founder, dated by
+    # the fourth zone's activity (12:00), so the close does not refuse it.
+    fin.clock.now = baku("17:40")
+    typed = c.post("/api/attendees/me/panels/scan", json={"code": f"{digits[:3]} {digits[3:]}"})
+    assert typed.status_code == 200, typed.text
+    assert typed.json()["grand_final"] is True and typed.json()["award"] is None
+    assert fin.founder_points(uid) == 15
+    assert fin.rig.scalar(
+        "SELECT occurred_at FROM points_log WHERE user_id = :u AND source = 'FOUNDER'", u=uid
+    ) == baku("12:00")
+    again = c.post("/api/attendees/me/panels/scan", json={"code": code})
+    assert again.status_code == 200 and fin.founder_points(uid) == 15  # once
+    # The Grand Final has no exit code and is never a Qmeter question.
+    with Session(fin.rig.engine) as db:
+        row = db.get(Panel, final)
+        assert row is not None
+        exit_code = panels_module.screen_code(row, "EXIT")
+    refused = c.post("/api/attendees/me/panels/scan", json={"code": exit_code})
+    assert refused.json()["error"]["details"]["reason"] == "invalid_code"
+    listed = {p["id"]: p["kind"] for p in TestClient(app).get("/api/panels").json()}
+    assert listed[final] == "grand_final"
+
+
+def test_the_founder_bonus_itself_cannot_be_reversed_by_hand(fin: Final) -> None:
+    uid = fin.users(1)[0]
+    fin.all_zones(uid)
+    assert reverse(fin.rig, fin.entry(uid, "FOUNDER")) == 409
+    assert fin.founder_points(uid) == 15
+
+
+def test_a_zone_completed_after_the_close_earns_no_founder(fin: Final) -> None:
+    uid = fin.users(1)[0]
+    fin.pay(uid, PointsSource.PANEL, "panel:1", 8)
+    fin.pay(uid, PointsSource.MASTERCLASS, "block:1", 12)
+    fin.pay(uid, PointsSource.PLAYGROUND, "booth:1", 3)
+    # The connection itself is after the close: no award, so no fourth zone.
+    assert fin.pay(uid, PointsSource.CONNECTION, "pair:1:2", 3, at="17:30") == "closed"
+    assert fin.founder_points(uid) == 0
+
+
+def test_an_excluded_person_is_not_on_the_lucky_draw_list(fin: Final) -> None:
+    uid = fin.users(1)[0]
+    fin.all_zones(uid)
+    fin.rig.sql("UPDATE users SET competition_excluded_reason = 'Volunteer' WHERE id = :u", u=uid)
+    mine = fin.client(uid).get("/api/attendees/me/competition").json()
+    assert mine["founder"] is True and mine["lucky_draw"] is False
+
+
+# --- the final result ---------------------------------------------------------------------
+
+
+def test_no_snapshot_before_the_close_and_only_for_a_game_master(fin: Final) -> None:
+    gm = fin.game_master()
+    r = gm.post("/api/staff/final")
+    assert r.status_code == 409 and r.json()["error"]["details"]["reason"] == "competition_open"
+    assert TestClient(app).get("/api/final").json()["status"] == "open"
+    fin.clock.now = baku("17:31")
+    booth_staff = fin.staff_client(fin.rig.staff_id(StaffRole.BOOTH_STAFF))
+    assert booth_staff.post("/api/staff/final").status_code == 403
+    assert booth_staff.get("/api/staff/final").status_code == 403
+    assert TestClient(app).get("/api/final").json()["status"] == "pending_review"
+
+
+def test_review_publish_and_a_new_version_never_rewrites_the_published_one(fin: Final) -> None:
+    a, b, c = fin.users(3)
+    fin.rig.sql("UPDATE users SET first_name = 'Aysel', last_name = 'Məmmədova' WHERE id = :u", u=a)
+    fin.all_zones(a)  # 26 + Founder 15 = 41
+    fin.pay(b, PointsSource.PANEL, "panel:1", 8)
+    fin.clock.now = baku("17:46")  # after the Grand Final check-in
+    gm = fin.game_master()
+    draft = gm.post("/api/staff/final")
+    assert draft.status_code == 201, draft.text
+    v1 = draft.json()
+    assert v1["version"] == 1 and v1["status"] == "draft"
+    review = gm.get(f"/api/staff/final/{v1['id']}").json()
+    assert [e["name"] for e in review["ranking"][:2]] == ["Aysel M.", "Guest N."]
+    assert review["ranking"][0]["points"] == 41
+    assert [f["user_id"] for f in review["founder_list"]] == [a] and review["founders"] == 1
+    assert TestClient(app).get("/api/final").json()["status"] == "pending_review"
+
+    published = gm.post(f"/api/staff/final/{v1['id']}/publish")
+    assert published.json()["status"] == "published"
+    assert gm.post(f"/api/staff/final/{v1['id']}/publish").json()["status"] == "published"
+    screen = TestClient(app).get("/api/final")
+    body = screen.json()
+    assert body["status"] == "published" and body["version"] == 1
+    assert body["top"][0] == {"name": "Aysel M.", "photo_url": None, "place": 1, "points": 41}
+    assert body["founders"] == [{"name": "Aysel M.", "photo_url": None}]
+    assert "@" not in screen.text and "Məmmədova" not in screen.text
+    assert fin.client(a).get("/api/attendees/me/competition").json()["final"] == {
+        "version": 1,
+        "place": 1,
+        "points": 41,
+        "founder": True,
+    }
+
+    # A verified pre-close correction arrives after publication.
+    fin.pay(c, PointsSource.PANEL, "panel:2", 8, at="15:20")
+    assert gm.get(f"/api/staff/final/{v1['id']}").json()["ledger_changed_since"] is True
+    assert TestClient(app).get("/api/final").json()["top"][1]["name"] == "Guest N."
+    v2 = gm.post("/api/staff/final").json()
+    assert v2["version"] == 2
+    gm.post(f"/api/staff/final/{v2['id']}/publish")
+    statuses = dict(fin.rig.sql("SELECT version, status FROM final_results ORDER BY version"))
+    assert statuses == {1: "SUPERSEDED", 2: "PUBLISHED"}
+    assert TestClient(app).get("/api/final").json()["version"] == 2
+    # The superseded snapshot keeps exactly what was shown.
+    assert len(gm.get(f"/api/staff/final/{v1['id']}").json()["ranking"]) == len(review["ranking"])
+
+    actions = [
+        str(r[0])
+        for r in fin.rig.sql(
+            "SELECT action FROM admin_audit WHERE target_type = 'final_result' ORDER BY id"
+        )
+    ]
+    assert actions == ["final.create", "final.publish", "final.create", "final.publish"]
+
+
+def test_the_database_keeps_a_published_result_permanent(fin: Final) -> None:
+    fin.clock.now = baku("17:35")
+    gm = fin.game_master()
+    row = gm.post("/api/staff/final").json()
+    gm.post(f"/api/staff/final/{row['id']}/publish")
+    for statement in (
+        "UPDATE final_results SET payload = '{}'::jsonb WHERE id = :i",
+        "UPDATE final_results SET status = 'DRAFT', published_at = NULL, "
+        "published_by_staff_id = NULL WHERE id = :i",
+        "DELETE FROM final_results WHERE id = :i",
+    ):
+        with pytest.raises(IntegrityError) as caught:
+            fin.rig.sql(statement, i=row["id"])
+        assert caught.value.orig.diag.constraint_name == "ck_final_results_immutable"  # type: ignore[union-attr]
+
+
+def test_a_draft_can_be_discarded_and_not_published_afterwards(fin: Final) -> None:
+    fin.clock.now = baku("17:35")
+    gm = fin.game_master()
+    row = gm.post("/api/staff/final").json()
+    assert gm.post(f"/api/staff/final/{row['id']}/discard").json()["status"] == "discarded"
+    r = gm.post(f"/api/staff/final/{row['id']}/publish")
+    assert r.status_code == 409 and r.json()["error"]["details"]["reason"] == "not_a_draft"
+
+
+def test_on_equal_points_whoever_reached_the_total_first_ranks_ahead(fin: Final) -> None:
+    late, early = fin.users(2)  # the user id would favour `late`
+    # `late` is paid first but its activity happened later: the moment of the
+    # activity decides (`occurred_at`), not the order the ledger recorded them in.
+    fin.pay(late, PointsSource.PANEL, "panel:9", 8, at="14:10")
+    fin.pay(early, PointsSource.PANEL, "panel:9", 8, at="11:00")
+    fin.clock.now = baku("17:35")
+    gm = fin.game_master()
+    row = gm.post("/api/staff/final").json()
+    ranking = gm.get(f"/api/staff/final/{row['id']}").json()["ranking"]
+    top = [(e["user_id"], e["place"]) for e in ranking[:2]]
+    assert top == [(early, 1), (late, 2)]  # own places, never a shared rank
+
+
+def test_the_lucky_draw_list_is_exported_from_the_snapshot_with_audit(fin: Final) -> None:
+    a = fin.users(1)[0]
+    fin.rig.sql("UPDATE users SET first_name = '=cmd', last_name = 'X' WHERE id = :u", u=a)
+    fin.all_zones(a)
+    fin.clock.now = baku("17:35")
+    gm = fin.game_master()
+    row = gm.post("/api/staff/final").json()
+    r = gm.get(f"/api/staff/final/{row['id']}/founders.csv")
+    assert r.status_code == 200 and r.headers["cache-control"] == "no-store"
+    lines = r.text.strip().splitlines()
+    assert lines[0] == "user_id,name,founder_at"
+    assert lines[1].startswith(f"{a},'=cmd X.,")  # spreadsheet formula neutralised
+    assert fin.rig.scalar("SELECT count(*) FROM admin_audit WHERE action = 'final.export'") == 1
+
+
+# --- the gate: the Founder rule is not confirmed by the organiser ------------------------
+
+
+def test_an_unconfirmed_founder_rule_awards_nothing_and_names_no_one(
+    fin: Final, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rule(monkeypatch, confirmed=False)
+    uid = fin.users(1)[0]
+    fin.all_zones(uid)
+    assert fin.founder_points(uid) == 0  # no automatic bonus while unconfirmed
+    mine = fin.client(uid).get("/api/attendees/me/competition").json()
+    assert all(mine["zones"].values())  # the evidence itself is still shown
+    assert mine["founder_rule_confirmed"] is False
+    assert mine["founder"] is False and mine["lucky_draw"] is False
+    fin.clock.now = baku("17:46")  # after the Grand Final check-in
+    gm = fin.game_master()
+    row = gm.post("/api/staff/final").json()
+    assert row["founders"] == 0 and row["founder_rule_confirmed"] is False
+    gm.post(f"/api/staff/final/{row['id']}/publish")
+    public = TestClient(app).get("/api/final").json()
+    assert public["founders"] == [] and public["founder_rule_confirmed"] is False
+    assert public["top"][0]["points"] == 26  # the competition itself is unaffected
+    csv = gm.get(f"/api/staff/final/{row['id']}/founders.csv")
+    assert csv.status_code == 409
+    assert csv.json()["error"]["details"]["reason"] == "founder_rule_unconfirmed"
+
+
+def test_a_founder_bonus_awarded_before_the_gate_is_not_shown_while_gated(
+    fin: Final, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    uid = fin.users(1)[0]
+    fin.all_zones(uid)  # confirmed (fixture): the bonus exists in the ledger
+    assert fin.founder_points(uid) == 15
+    rule(monkeypatch, confirmed=False)
+    mine = fin.client(uid).get("/api/attendees/me/competition").json()
+    assert mine["founder"] is False and mine["lucky_draw"] is False
+    fin.clock.now = baku("17:35")
+    gm = fin.game_master()
+    row = gm.post("/api/staff/final").json()
+    assert row["founders"] == 0  # a snapshot taken while gated names no Founder
+
+
+# --- the server enforces readiness (independent audit 2026-10-17, findings 5-6) -----------
+
+
+def _pending_offline(fin: Final, uid: int) -> int:
+    staff = fin.rig.staff_id(StaffRole.ADMIN)
+    return int(
+        fin.rig.scalar(
+            "INSERT INTO offline_scans (staff_account_id, client_scan_id, kind, target_id, "
+            "user_id, device_scanned_at, status) VALUES (:s, :c, 'MENTOR_COMPLETE', 1, :u, "
+            ":t, 'PENDING_REVIEW') RETURNING id",
+            s=staff,
+            c=str(uuid4()),
+            u=uid,
+            t=baku("15:52"),
+        )
+    )
+
+
+def test_a_draft_the_ledger_has_moved_past_cannot_be_published(fin: Final) -> None:
+    uid = fin.users(1)[0]
+    fin.clock.now = baku("17:40")
+    gm = fin.game_master()
+    draft = gm.post("/api/staff/final").json()
+    # A verified pre-close activity is recorded after the draft was taken.
+    assert fin.pay(uid, PointsSource.PANEL, "panel:7", 8, "12:00") == "awarded"
+    assert gm.get(f"/api/staff/final/{draft['id']}").json()["ledger_changed_since"] is True
+    refused = gm.post(f"/api/staff/final/{draft['id']}/publish")
+    assert refused.status_code == 409
+    assert refused.json()["error"]["details"]["reason"] == "stale_snapshot"
+    assert fin.rig.scalar("SELECT count(*) FROM final_results WHERE status = 'PUBLISHED'") == 0
+    # The way forward: a new version, which includes it.
+    fresh = gm.post("/api/staff/final").json()
+    assert gm.post(f"/api/staff/final/{fresh['id']}/publish").json()["status"] == "published"
+    top = TestClient(app).get("/api/final").json()["top"]
+    assert any(p["points"] == 8 for p in top)
+    # Publishing again is a no-op; the refused draft is still a draft, unchanged.
+    assert gm.post(f"/api/staff/final/{fresh['id']}/publish").json()["status"] == "published"
+    assert fin.rig.scalar("SELECT status FROM final_results WHERE id = :i", i=draft["id"]) == (
+        "DRAFT"
+    )
+
+
+def test_the_result_is_published_only_after_the_grand_final_check_in_closes(fin: Final) -> None:
+    fin.grand_final()  # 17:25-17:45: a check-in can still add a Founder bonus until then
+    fin.clock.now = baku("17:40")
+    gm = fin.game_master()
+    draft = gm.post("/api/staff/final").json()  # a draft for review is fine
+    refused = gm.post(f"/api/staff/final/{draft['id']}/publish")
+    assert refused.status_code == 409
+    assert refused.json()["error"]["details"]["reason"] == "grand_final_open"
+    fin.clock.now = baku("17:45")
+    assert gm.post(f"/api/staff/final/{draft['id']}/publish").json()["status"] == "published"
+
+
+def test_unresolved_offline_reviews_block_publication(fin: Final) -> None:
+    uid = fin.users(1)[0]
+    fin.clock.now = baku("17:40")
+    scan = _pending_offline(fin, uid)
+    gm = fin.game_master()
+    draft = gm.post("/api/staff/final").json()
+    assert gm.get(f"/api/staff/final/{draft['id']}").json()["pending_offline_scans"] == 1
+    refused = gm.post(f"/api/staff/final/{draft['id']}/publish")
+    assert refused.status_code == 409
+    assert refused.json()["error"]["details"]["reason"] == "offline_reviews_pending"
+    fin.rig.sql(
+        "UPDATE offline_scans SET status = 'REJECTED', review_reason = 'not seen' WHERE id = :i",
+        i=scan,
+    )
+    assert gm.post(f"/api/staff/final/{draft['id']}/publish").json()["status"] == "published"
+
+
+def _wait_until_blocked(fin: Final, pattern: str) -> None:
+    """Deterministic interleaving: return once a session waits on a lock running
+    `pattern` (bounded: a few seconds at most)."""
+    import time
+
+    for _ in range(100):
+        waiting = fin.rig.scalar(
+            "SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock' "
+            "AND query LIKE :p",
+            p=pattern,
+        )
+        if waiting:
+            return
+        time.sleep(0.02)
+    raise AssertionError("the publication never waited for the concurrent writer")
+
+
+@pytest.mark.parametrize("writer", ["award", "offline_submission"])
+def test_a_write_in_flight_is_seen_by_the_publication_not_raced(fin: Final, writer: str) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+
+    from sqlalchemy import text
+
+    uid = fin.users(1)[0]
+    fin.clock.now = baku("17:40")
+    gm = fin.game_master()
+    draft = gm.post("/api/staff/final").json()
+    with fin.rig.engine.connect() as other:
+        tx = other.begin()
+        if writer == "award":
+            other.execute(
+                text(
+                    "INSERT INTO points_log (user_id, source, entry_type, points, "
+                    "entered_by_system, dedupe_key) VALUES (:u, 'PANEL', 'AWARD', 8, true, :k)"
+                ),
+                {"u": uid, "k": f"COMP:PANEL:{uid}:race"},
+            )
+        else:
+            other.execute(
+                text(
+                    "INSERT INTO offline_scans (staff_account_id, client_scan_id, kind, "
+                    "target_id, user_id, device_scanned_at, status) VALUES (:s, :c, "
+                    "'MENTOR_COMPLETE', 1, :u, now(), 'PENDING_REVIEW')"
+                ),
+                {"s": fin.rig.staff_id(StaffRole.ADMIN), "c": str(uuid4()), "u": uid},
+            )
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            publishing = pool.submit(gm.post, f"/api/staff/final/{draft['id']}/publish")
+            _wait_until_blocked(fin, "LOCK TABLE users, offline_scans, points_log%")
+            tx.commit()  # the concurrent write lands while the publication waits
+            result = publishing.result(timeout=30)
+    expected = "stale_snapshot" if writer == "award" else "offline_reviews_pending"
+    assert result.status_code == 409, result.text
+    assert result.json()["error"]["details"]["reason"] == expected
+    assert fin.rig.scalar("SELECT count(*) FROM final_results WHERE status = 'PUBLISHED'") == 0
+
+
+# --- Founder judges the verified occurrence, not the recording time ---------------------
+
+
+def test_activity_verified_late_but_done_before_the_close_completes_founder(fin: Final) -> None:
+    from datetime import timedelta
+
+    # The close has just passed; the four activities happened before it, and are
+    # recorded (created_at) only now - like reviewed offline scans.
+    now = datetime.now(UTC)
+    fin.rig.sql(
+        "UPDATE masterclass_events SET competition_closes_at = :c", c=now - timedelta(minutes=5)
+    )
+    uid = fin.users(1)[0]
+    fin.check_in(uid)
+    before = now - timedelta(hours=1)
+    with Session(fin.rig.engine) as db:
+        for source, unit, points in (
+            (PointsSource.PANEL, "panel:1", 8),
+            (PointsSource.MASTERCLASS, "block:1", 12),
+            (PointsSource.PLAYGROUND, "booth:1", 3),
+            (PointsSource.CONNECTION, "pair:1:2", 3),
+        ):
+            assert (
+                ledger.award(
+                    db, user_id=uid, source=source, unit=unit, points=points, occurred_at=before
+                ).outcome
+                == "awarded"
+            )
+        db.commit()
+    assert fin.founder_points(uid) == 15
+    occurred = fin.rig.scalar(
+        "SELECT occurred_at FROM points_log WHERE user_id = :u AND source = 'FOUNDER'", u=uid
+    )
+    assert occurred == before  # dated by the fourth zone's activity
+
+
+def test_historical_rows_without_an_occurrence_are_read_by_their_recording_time(
+    fin: Final,
+) -> None:
+    from datetime import timedelta
+
+    from app.modules.competition.founder import zones
+
+    uid = fin.users(1)[0]
+    fin.all_zones(uid)
+    fin.rig.sql("UPDATE points_log SET occurred_at = NULL WHERE user_id = :u", u=uid)  # pre-0027
+    with Session(fin.rig.engine) as db:
+        reached = zones(db, uid)
+    created = fin.rig.scalar(
+        "SELECT min(created_at) FROM points_log WHERE user_id = :u AND source = 'PANEL'", u=uid
+    )
+    assert reached["main_stage"] == created
+    assert all(
+        abs((t - created).total_seconds()) < timedelta(minutes=5).total_seconds()
+        for t in reached.values()
+        if t
+    )
+
+
+def test_after_confirmation_the_recomputation_reaches_people_with_no_new_award(
+    fin: Final, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.modules.competition.founder import recompute_all
+
+    rule(monkeypatch, confirmed=False)
+    uid = fin.users(1)[0]
+    fin.all_zones(uid)  # completed while the rule was unconfirmed: no bonus
+    assert fin.founder_points(uid) == 0
+    rule(monkeypatch, confirmed=True)
+    with Session(fin.rig.engine) as db:
+        dry = recompute_all(db, apply=False)
+        db.rollback()
+    assert dry["would_award"] == 1 and dry["awarded"] == 0
+    assert fin.founder_points(uid) == 0  # a dry run writes nothing
+    with Session(fin.rig.engine) as db:
+        done = recompute_all(db, apply=True)
+        db.commit()
+    assert done["awarded"] == 1 and fin.founder_points(uid) == 15
+    with Session(fin.rig.engine) as db:
+        assert recompute_all(db, apply=True)["unchanged"] >= 1  # idempotent
+        db.commit()
+    assert fin.founder_points(uid) == 15
+
+
+def test_the_recomputation_command_refuses_while_the_rule_is_unconfirmed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.cli import main
+
+    rule(monkeypatch, confirmed=False)
+    with pytest.raises(SystemExit, match="FOUNDER_RULE_CONFIRMED is false"):
+        main(["founder-recompute", "--confirm"])
+
+
+# --- the venue screen during the day (PDF conformance audit 2026-10-18, P1) -----------------
+
+
+def _screen() -> dict[str, Any]:
+    r = TestClient(app).get("/api/screen/live")  # no session at all
+    assert r.status_code == 200 and r.headers["cache-control"] == "no-store"
+    body: dict[str, Any] = r.json()
+    return body
+
+
+def test_the_screen_says_plainly_when_the_programme_is_not_set_up(fin: Final) -> None:
+    (a,) = fin.users(1)
+    fin.pay(a, PointsSource.PANEL, "panel:1", 8)
+    fin.rig.sql("UPDATE masterclass_events SET competition_closes_at = NULL")
+    fin.rig.sql("UPDATE event_config SET competition_mode = false")
+    body = _screen()
+    assert body["state"] == "not_configured"
+    assert body["missing"] == ["close", "competition_mode"]
+    assert body["closes_at"] is None and body["top"] == [] and body["recent"] == []
+    fin.rig.sql("UPDATE event_config SET competition_mode = true")
+    assert _screen()["missing"] == ["close"]  # still not "open" without the close
+
+
+def test_the_screen_shows_the_live_top_ten_and_recent_awards_without_private_data(
+    fin: Final,
+) -> None:
+    a, b, c, excluded, _zero = fin.users(5)  # _zero: no points, not on the screen
+    fin.rig.sql(
+        "UPDATE users SET first_name = 'Anar', last_name = 'Nəsirov', "
+        "email = 'anar.private@mail.test', phone = '+994501234567' WHERE id = :u",
+        u=a,
+    )
+    fin.pay(a, PointsSource.PANEL, "panel:1", 8, at="11:00")
+    fin.pay(b, PointsSource.PANEL, "panel:1", 8, at="11:05")
+    fin.pay(b, PointsSource.QMETER, "panel:1", 2, at="11:10")
+    wrong = fin.pay(c, PointsSource.CONNECTION, "pair:1:2", 3, at="13:55")
+    assert wrong == "awarded"
+    fin.rig.sql(
+        "UPDATE users SET competition_excluded_reason = 'Speaker' WHERE id = :u", u=excluded
+    )
+    fin.pay(excluded, PointsSource.PANEL, "panel:1", 8)  # not paid: excluded
+    assert reverse(fin.rig, fin.entry(c, "CONNECTION")) == 200  # a correction
+    from app.modules.leaderboard.service import invalidate_ranking_snapshot
+
+    invalidate_ranking_snapshot()
+    fin.clock.now = baku("16:00")
+    response = TestClient(app).get("/api/screen/live")
+    body = response.json()
+    assert body["state"] == "open"
+    assert body["server_time"] == baku("16:00").isoformat()
+    assert body["closes_at"] == baku("17:30").isoformat()
+    assert body["timezone"] == "Asia/Baku"
+    # People with points only, short names, the shared tie-break.
+    assert body["top"] == [
+        {"place": 1, "name": "Guest N.", "points": 10, "photo_url": None},
+        {"place": 2, "name": "Anar N.", "points": 8, "photo_url": None},
+    ]
+    assert [(e["name"], e["points"], e["category"]) for e in body["recent"]] == [
+        ("Guest N.", 2, "QMETER"),
+        ("Guest N.", 8, "PANEL"),
+        ("Anar N.", 8, "PANEL"),
+    ]  # the reversed connection award and the excluded person never appear
+    for private in ("Nəsirov", "anar.private", "+994", "user_id", "email", "phone", "token"):
+        assert private not in response.text, private
+
+
+def test_the_screen_shows_only_photos_both_people_allowed_and_a_moderator_approved(
+    fin: Final,
+) -> None:
+    a, b = fin.users(2)
+    approved, rejected = uuid4().hex, uuid4().hex
+    for key, moderation in ((approved, "APPROVED"), (rejected, "REJECTED")):
+        fin.rig.sql(
+            "INSERT INTO pair_photos (uploader_id, partner_id, photo_key, status, accepted_at, "
+            "uploader_screen_at, partner_screen_at, moderation, moderated_at) "
+            "VALUES (:a, :b, :k, 'ACCEPTED', now(), now(), now(), :m, now())",
+            a=a,
+            b=b,
+            k=key,
+            m=moderation,
+        )
+    photos = _screen()["photos"]
+    assert len(photos) == 1 and approved in photos[0]["photo_url"]
+    assert rejected not in str(photos)
+
+
+def test_after_the_close_the_screen_reviews_and_after_publication_it_shows_the_final(
+    fin: Final,
+) -> None:
+    (a,) = fin.users(1)
+    fin.pay(a, PointsSource.PANEL, "panel:1", 8)
+    fin.clock.now = baku("17:30")
+    body = _screen()
+    assert body["state"] == "review" and body["top"] == [] and body["recent"] == []
+    gm = fin.game_master()
+    draft = gm.post("/api/staff/final").json()
+    assert _screen()["state"] == "review"  # a draft is not a result
+    gm.post(f"/api/staff/final/{draft['id']}/publish")
+    assert _screen()["state"] == "published"
+
+
+def test_public_statuses_agree_when_the_close_is_missing_or_the_ranking_is_off(
+    fin: Final,
+) -> None:
+    fin.rig.sql("UPDATE masterclass_events SET competition_closes_at = NULL")
+    final_ = TestClient(app).get("/api/final").json()
+    screen = TestClient(app).get("/api/screen/live").json()
+    assert final_["status"] == screen["state"] == "not_configured"
+    assert final_["missing"] == screen["missing"] == ["close"]
+    fin.rig.sql("UPDATE masterclass_events SET competition_closes_at = :c", c=baku("17:30"))
+    fin.rig.sql("UPDATE event_config SET competition_mode = false")
+    final_ = TestClient(app).get("/api/final").json()
+    screen = TestClient(app).get("/api/screen/live").json()
+    assert final_["status"] == screen["state"] == "disabled"
+    assert final_["missing"] == screen["missing"] == ["competition_mode"]
+    fin.rig.sql("UPDATE event_config SET competition_mode = true")
+    assert TestClient(app).get("/api/final").json()["status"] == "open"
+    assert TestClient(app).get("/api/screen/live").json()["state"] == "open"
+
+
+def test_the_game_master_opens_the_grand_final_check_in_for_fifteen_minutes(fin: Final) -> None:
+    final = fin.grand_final()  # set up in advance at 17:25-17:45
+    gm = fin.game_master()
+    fin.clock.now = baku("17:52")  # the programme slipped
+    opened = gm.post("/api/staff/grand-final/open")
+    assert opened.status_code == 200, opened.text
+    starts, ends = fin.rig.sql("SELECT starts_at, ends_at FROM panels WHERE id = :p", p=final)[0]
+    assert starts == baku("17:52") and ends == baku("18:07")
+    assert fin.rig.scalar("SELECT count(*) FROM admin_audit WHERE action = 'panel.update'") == 1
+    draft = gm.post("/api/staff/final").json()
+    fin.clock.now = baku("18:00")
+    refused = gm.post(f"/api/staff/final/{draft['id']}/publish")
+    assert refused.json()["error"]["details"]["reason"] == "grand_final_open"
+    fin.clock.now = baku("18:07")
+    assert gm.post(f"/api/staff/final/{draft['id']}/publish").json()["status"] == "published"
+
+
+def test_pressing_again_while_open_changes_nothing_and_restart_is_explicit(fin: Final) -> None:
+    final = fin.grand_final()
+    gm, other = fin.game_master(), fin.game_master()
+    fin.clock.now = baku("17:50")
+    first = gm.post("/api/staff/grand-final/open", json={})
+    assert first.json()["already_open"] is False
+    fin.clock.now = baku("17:58")  # a double click, or a second operator
+    again = other.post("/api/staff/grand-final/open", json={})
+    assert again.status_code == 200 and again.json()["already_open"] is True
+    window = fin.rig.sql("SELECT starts_at, ends_at FROM panels WHERE id = :p", p=final)[0]
+    assert tuple(window) == (baku("17:50"), baku("18:05"))
+    assert fin.rig.scalar("SELECT count(*) FROM admin_audit WHERE action = 'panel.update'") == 1
+    restarted = gm.post("/api/staff/grand-final/open", json={"restart": True})
+    assert restarted.json()["already_open"] is False
+    window = fin.rig.sql("SELECT starts_at, ends_at FROM panels WHERE id = :p", p=final)[0]
+    assert tuple(window) == (baku("17:58"), baku("18:13"))
+
+
+def test_the_grand_final_cannot_be_opened_again_after_the_result_is_published(fin: Final) -> None:
+    final = fin.grand_final()
+    gm = fin.game_master()
+    fin.clock.now = baku("17:50")
+    assert gm.post("/api/staff/grand-final/open", json={}).status_code == 200
+    draft = gm.post("/api/staff/final").json()
+    fin.clock.now = baku("18:06")
+    assert gm.post(f"/api/staff/final/{draft['id']}/publish").json()["status"] == "published"
+    for body in ({}, {"restart": True}):
+        refused = gm.post("/api/staff/grand-final/open", json=body)
+        assert refused.status_code == 409
+        assert refused.json()["error"]["details"]["reason"] == "final_published"
+    window = fin.rig.sql("SELECT starts_at, ends_at FROM panels WHERE id = :p", p=final)[0]
+    assert tuple(window) == (baku("17:50"), baku("18:05"))  # untouched

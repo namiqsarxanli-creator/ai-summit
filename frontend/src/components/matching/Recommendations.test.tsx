@@ -64,9 +64,19 @@ describe("Recommendations", () => {
     expect(screen.queryByLabelText(/% match/)).not.toBeInTheDocument();
     expect(
       screen.getByText(
-        "Select interests when you register to see your personalised match for each booth. For now, here are all the booths at the summit.",
+        "Choose topics on your interest card in your profile to see your personalised match for each booth. For now, here are all the booths at the summit.",
       ),
     ).toBeInTheDocument();
+  });
+
+  it("with topics on the card, says the booths have no interest profile yet instead of asking for topics", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) =>
+      url === "/api/attendees/me/profile"
+        ? jsonResponse(200, { interest_card: { sector: "education", topics: ["data"], seeking: [], offering: [] } })
+        : jsonResponse(200, GENERAL)));
+    render(<Recommendations />);
+    expect(await screen.findByText(/The booths' own interest profiles are not set yet/)).toBeInTheDocument();
+    expect(screen.queryByText(/Choose topics on your interest card/)).toBeNull();
   });
 
   it("shows an empty state when there are no booths at all", async () => {
@@ -107,7 +117,9 @@ describe("Recommendations", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<Recommendations />);
     await screen.findByRole("heading", { name: "AIWorks" });
-    const [url] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe("/api/attendees/me/recommendations");
+    const urls = (fetchMock.mock.calls as unknown as [string][]).map(([u]) => u);
+    expect(urls).toContain("/api/attendees/me/recommendations");
+    // Every call is session-scoped: no attendee id in any path.
+    for (const u of urls) expect(u).not.toMatch(/\/\d+/);
   });
 });

@@ -1,3 +1,127 @@
 <!doctype html>
-<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#080f1d"><title>Offline · FACEMARK</title>
-<body style="margin:0;min-height:100vh;display:grid;place-items:center;background:#080f1d;color:#f8fafc;font:16px system-ui,sans-serif"><main style="max-width:28rem;padding:2rem"><p style="color:#67e8f9;letter-spacing:.2em;font-size:.75rem;font-weight:700">FACEMARK</p><h1>You're offline</h1><p style="line-height:1.6;color:#cbd5e1">Your event details need a connection so they're always current. Reconnect and try again.</p><button onclick="location.reload()" style="min-height:44px;padding:.75rem 1.25rem;border:0;border-radius:.75rem;background:#4f46e5;color:white;font-weight:700">Try again</button></main></body></html>
+<html lang="az">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#ffffff">
+  <title>Offline · AI Summit</title>
+  <style>
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    body { min-height: 100vh; margin: 0; background: #faf8f7; color: #282b33; font: 16px/1.5 system-ui, -apple-system, sans-serif; }
+    main { max-width: 430px; min-height: 100vh; margin: 0 auto; padding: max(20px, env(safe-area-inset-top)) 20px max(24px, env(safe-area-inset-bottom)); background: #fff; box-shadow: 0 0 40px #40141a08; }
+    .brand { display: flex; justify-content: flex-end; padding-bottom: 14px; border-bottom: 1px solid #f1dfdb; }
+    .brand strong { color: #b51620; font-size: 21px; font-weight: 850; letter-spacing: -.04em; }
+    .art { height: 210px; margin: 18px -20px 20px; background: url('/summit-hero.webp') center 65% / cover no-repeat; }
+    h1 { margin: 0; color: #b51620; font-size: clamp(26px, 7vw, 30px); line-height: 1.15; letter-spacing: -.035em; overflow-wrap: break-word; }
+    .intro { margin: 12px 0 24px; color: #62636b; }
+    .card { padding: 20px; border: 1px solid #efdfd9; border-radius: 20px; background: #fffaf9; box-shadow: 0 12px 28px #40141a08; }
+    h2 { margin: 0 0 10px; color: #b51620; font-size: 20px; }
+    .muted { color: #62636b; font-size: 14px; }
+    label { display: block; margin-top: 20px; font-size: 14px; font-weight: 650; }
+    input { width: 100%; min-height: 52px; margin-top: 8px; padding: 12px; border: 1px solid #e8c9c4; border-radius: 12px; background: #fff; color: #282b33; font: inherit; }
+    button { width: 100%; min-height: 52px; padding: 12px 16px; border: 0; border-radius: 14px; font: inherit; font-weight: 700; cursor: pointer; }
+    .primary { margin-top: 14px; background: #b51620; color: #fff; }
+    .secondary { margin-top: 20px; background: #b51620; color: #fff; }
+    #error { padding: 12px; color: #9e1820; background: #fff0ef; border: 1px solid #eec3bf; border-radius: 12px; font-size: 14px; }
+    #drawing { max-width: 300px; margin: 18px auto 0; padding: 16px; border: 1px solid #efdfd9; border-radius: 16px; background: #fff; }
+    #drawing svg { display: block; width: 100%; height: auto; }
+    .warning { margin: 16px 0 0; color: #62636b; font-size: 13px; }
+    .credit { display: flex; gap: 10px; justify-content: center; align-items: center; margin-top: 28px; color: #282b33; font-size: 12px; }
+    .credit::before, .credit::after { content: ''; width: 28px; height: 1px; background: #d8d6d7; }
+    .credit img { width: 72px; height: auto; filter: grayscale(1); }
+    :focus-visible { outline: 3px solid #b51620; outline-offset: 3px; }
+  </style>
+</head>
+<body>
+<main>
+  <div class="brand"><strong>AI Summit</strong></div>
+  <div class="art" aria-hidden="true"></div>
+  <h1 id="offline-title">İnternet bağlantısı yoxdur</h1>
+  <p id="offline-intro" class="intro">Tətbiq açılır. Canlı xal, stend və hesab məlumatları üçün bağlantı lazımdır.</p>
+  <section class="card" aria-labelledby="qr-title">
+    <h2 id="qr-title">Offline QR kartım</h2>
+    <p id="missing" class="muted" hidden>Bu cihazda offline QR saxlanmayıb. Bağlantı qayıdanda tətbiqdə “QR kodum” səhifəsini açıb nüsxə yaradın.</p>
+    <form id="unlock-form" hidden>
+      <p id="unlock-intro" class="muted">Saxladığınız QR kodu göstərmək üçün PIN-i daxil edin.</p>
+      <label id="pin-label" for="pin">6–12 rəqəmli PIN</label>
+      <input id="pin" type="password" inputmode="numeric" pattern="[0-9]{6,12}" minlength="6" maxlength="12" autocomplete="off" required>
+      <button id="unlock-button" class="primary" type="submit">QR kodumu göstər</button>
+      <p id="error" role="alert" hidden>PIN yanlışdır və ya offline QR açıla bilmir.</p>
+    </form>
+    <div id="drawing" role="img" aria-label="Saxlanmış offline QR kodu" hidden></div>
+    <p id="qr-warning" class="warning" hidden>Bu kodun skan edilməsi və kartın açılması üçün qarşı tərəfin serverə bağlantısı olmalıdır. Kod ləğv edilibsə, offline nüsxə yenilənməyəcək.</p>
+  </section>
+  <button id="retry" class="secondary" type="button">Bağlantını yenidən yoxla</button>
+  <footer class="credit"><span>Powered by</span><img src="/aiworks-logo.png" alt="aiworks" width="72" height="32"></footer>
+</main>
+<script src="/offline-qr.js"></script>
+<script>
+  const translations = {
+    en: {
+      "offline-title": "You're offline",
+      "offline-intro": "The app opens offline. Live points, booths and account details need a connection.",
+      "qr-title": "My offline QR",
+      "missing": "No offline QR is saved on this device. When connected, open My QR in the app and save a copy.",
+      "unlock-intro": "Enter your PIN to show the saved QR.",
+      "pin-label": "6–12 digit PIN",
+      "unlock-button": "Show my QR",
+      "error": "Incorrect PIN or offline QR unavailable.",
+      "qr-warning": "The scanning device needs a connection to the AI Summit server. This copy may be stale if the code was revoked.",
+      "retry": "Check connection again"
+    },
+    ru: {
+      "offline-title": "Нет подключения",
+      "offline-intro": "Приложение открывается офлайн. Для баллов, стендов и учётной записи нужна связь.",
+      "qr-title": "Мой офлайн QR",
+      "missing": "На этом устройстве нет сохранённого QR. Подключитесь, откройте «Мой QR» и сохраните копию.",
+      "unlock-intro": "Введите PIN, чтобы показать сохранённый QR.",
+      "pin-label": "PIN из 6–12 цифр",
+      "unlock-button": "Показать QR",
+      "error": "Неверный PIN или офлайн QR недоступен.",
+      "qr-warning": "Сканирующему устройству нужна связь с сервером AI Summit. Копия может устареть после отзыва кода.",
+      "retry": "Проверить подключение"
+    }
+  };
+  const language = localStorage.getItem("facemark.language");
+  document.title = (language === "en" ? "Offline" : language === "ru" ? "Нет подключения" : "Bağlantı yoxdur") + " · AI Summit";
+  if (language === "en" || language === "ru") {
+    document.documentElement.lang = language;
+    for (const [id, value] of Object.entries(translations[language])) {
+      document.getElementById(id).textContent = value;
+    }
+  }  const store = window.FacemarkOfflineQr;
+  const form = document.getElementById("unlock-form");
+  const missing = document.getElementById("missing");
+  if (store && store.hasCopy()) form.hidden = false;
+  else missing.hidden = false;
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const error = document.getElementById("error");
+    error.hidden = true;
+    try {
+      const drawing = await store.unlock(document.getElementById("pin").value);
+      const ns = "http://www.w3.org/2000/svg";
+      const svg = document.createElementNS(ns, "svg");
+      svg.setAttribute("viewBox", `0 0 ${drawing.dim} ${drawing.dim}`);
+      svg.setAttribute("shape-rendering", "crispEdges");
+      const background = document.createElementNS(ns, "rect");
+      background.setAttribute("width", String(drawing.dim));
+      background.setAttribute("height", String(drawing.dim));
+      background.setAttribute("fill", "#fff");
+      const path = document.createElementNS(ns, "path");
+      path.setAttribute("d", drawing.path);
+      path.setAttribute("fill", "#000");
+      svg.append(background, path);
+      document.getElementById("drawing").replaceChildren(svg);
+      document.getElementById("drawing").hidden = false;
+      document.getElementById("qr-warning").hidden = false;
+      form.hidden = true;
+    } catch {
+      error.hidden = false;
+    }
+  });
+  document.getElementById("retry").addEventListener("click", () => location.reload());
+</script>
+</body>
+</html>

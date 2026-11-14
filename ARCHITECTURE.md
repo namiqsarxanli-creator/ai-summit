@@ -14,8 +14,8 @@ FACEMARK is an event networking and gamification platform. Attendees register, d
 | Actor | How they enter the system | What they can do |
 |---|---|---|
 | **Attendee** | Self-registration | Register, select interests, view their QR card, see recommendations, browse booths, submit feedback, view their score and the leaderboard |
-| **Booth Staff** | Created by Admin only | Log in, scan attendee QR, confirm identity, award a preset point value **for their own booth only** |
-| **Admin** | Provisioned out-of-band (seed/CLI) | Manage booths, interests, staff accounts, tasks and preset values; inspect the points audit trail |
+| **Booth Staff** | Created by Admin only | Log in, scan attendee QR, confirm identity, award the points of one of **their own booth's activities** — the value is the activity's server-side rule, never typed or chosen by staff |
+| **Admin** | Provisioned out-of-band (seed/CLI) | Manage booths, interests, staff accounts, tasks (activities, each with its point value and repeat policy) and the legacy preset values; inspect the points audit trail |
 
 ### 1.2 System boundary
 
@@ -129,7 +129,7 @@ Staff phone              Next.js          FastAPI                       PostgreS
     │                       │                │ │B3a. scan_ref expiry        ││
     │                       │                │ │     (new awards only)      ││
     │                       │                │ │B4. resolve token → ACTIVE  ││
-    │                       │                │ │B5. points ∈ booth presets? ││
+    │                       │                │ │B5. task ∈ my booth, active ││
     │                       │                │ │B8. INSERT points_log ──────┼┼─► unique(dedupe_key)
     │                       │                │ │B11. persist snapshot       ││
     │                       │                │ └─ COMMIT (fence releases) ──┘│
@@ -182,6 +182,8 @@ FACEMARK/
 │       ├── core/
 │       │   ├── config.py             # pydantic-settings; env only
 │       │   ├── security.py           # argon2 hashing, token generation
+│       │   ├── images.py             # profile-photo decoding / re-encoding (§8.4.3)
+│       │   ├── media.py              # the photo store on disk: names, atomic writes, janitor
 │       │   ├── errors.py             # DomainError hierarchy + error codes
 │       │   └── deps.py               # current_attendee / current_staff / current_admin
 │       ├── db/
@@ -193,6 +195,7 @@ FACEMARK/
 │       │   ├── booths/
 │       │   ├── matching/             # MatchingService — pure, DB-free scoring core
 │       │   ├── contact_cards/        # QR token issue/resolve
+│       │   ├── media/                # GET /api/media/avatars/{name} — profile photos only
 │       │   ├── staff/
 │       │   ├── points/               # PointsService — the only writer of points_log
 │       │   ├── feedback/
@@ -279,11 +282,13 @@ The first migration must `CREATE EXTENSION IF NOT EXISTS citext;` — the `citex
 | `sponsor_consent` | boolean NOT NULL | explicit, no default — see below |
 | `sponsor_consent_at` | timestamptz NULL | set when consent is granted |
 | `sponsor_consent_version` | text NULL | which consent text was agreed to |
+| `profile_version` | integer NOT NULL DEFAULT 1 | optimistic-concurrency counter of the attendee's own profile edits (§8.4.1) |
+| `photo_key` | text NULL | server-made random name (32 lowercase hex) of the profile photo's files; NULL = no photo (§8.4.3) |
 | `created_at`, `updated_at` | timestamptz NOT NULL | |
 
 *Responsibility:* the attendee identity and profile.
-*Constraints:* `UNIQUE(email)`; `CHECK (sponsor_consent = false OR sponsor_consent_at IS NOT NULL)`.
-*Auditability:* consent is stored as a triple — decision, timestamp, and the version of the text agreed to. A bare boolean is not auditable, because it cannot answer "what did they actually agree to, and when". Changes to consent are additionally appended to `consent_audit` (`user_id`, `granted`, `consent_version`, `changed_at`, `source`), because the current value alone cannot show a later withdrawal.
+*Constraints:* `UNIQUE(email)`; `CHECK (sponsor_consent = false OR sponsor_consent_at IS NOT NULL)`; `CHECK (photo_key IS NULL OR photo_key ~ '^[0-9a-f]{32}$')`; a partial `UNIQUE (photo_key) WHERE photo_key IS NOT NULL`, so no two attendees can ever share a photo name (what makes "delete my old photo's files" unable to touch anyone else's).
+*Auditability:* consent is stored as a triple — decision, timestamp, and the version of the text agreed to. A bare boolean is not auditable, because it cannot answer "what did they actually agree to, and when". Changes to consent are additionally appended to `consent_audit` (`user_id`, `granted`, `consent_version`, `changed_at`, `source`), because the current value alone cannot show a later withdrawal. `source` is `registration` for the choice made at registration and `settings_update` for a later change from the profile screen (§8.4.2).
 
 ### 7.2 `interests`
 
@@ -305,7 +310,7 @@ The first migration must `CREATE EXTENSION IF NOT EXISTS citext;` — the `citex
 | `name`, `description`, `location_label` | text | |
 | `logo_url` | text NULL | |
 | `is_active` | boolean NOT NULL DEFAULT true | inactive booths are excluded from recommendations |
-| `allow_repeat_task_points` | boolean **NULL** | per-booth override; NULL = inherit the event default (§14.5) |
+| `allow_repeat_task_points` | boolean **NULL** | per-booth default for **its activities'** repeat policy; NULL = inherit the event default (§14.5) |
 
 ### 7.5 `booth_interests`
 
@@ -362,8 +367,10 @@ CHECK ((principal_type = 'ATTENDEE' AND user_id IS NOT NULL)
 
 ### 7.9 `tasks`
 
-`id`, `booth_id` FK NOT NULL, `title`, `description`, `is_active`, `sort_order`.
-*Responsibility:* the activity described to attendees ("try the live demo"). It is **descriptive**, not the authorization object — the staff flow in §13 awards points without selecting a task, so `points_log.task_id` is nullable. Tasks exist so the booth detail screen can tell attendees what to do.
+`id`, `booth_id` FK NOT NULL, `title`, `description`, `is_active`, `sort_order`, **`points`** int NULL, **`allow_repeat_points`** boolean NULL.
+*Constraint:* `CHECK (points IS NULL OR (points > 0 AND points <= 100))` (`ck_tasks_points_range`).
+*Responsibility:* the activity ("try the live demo") **and the award rule bound to it**. Staff award by choosing one of their own booth's active activities (§13); the points paid are this row's `points`, read by the server at award time. `points IS NULL` means *no rule yet* (an activity created before activities carried points): it is listed to nobody and cannot be awarded (`TASK_NOT_CONFIGURED`) until an admin sets a value — nothing is guessed or back-filled. `allow_repeat_points` is the activity's own repeat policy; `NULL` inherits (§14.5). Every award stores the activity in `points_log.task_id`.
+> **Revised (activity-bound points).** Earlier drafts kept tasks descriptive and let staff pick a booth-wide preset value (`task_id` was always NULL). Points are now a property of the activity, so the value, the audit trail and the repeat policy all attach to the same concrete thing. Rows written before this change keep `task_id = NULL` and are never attached to an invented activity.
 
 ### 7.10 `task_preset_points`
 
@@ -378,7 +385,7 @@ UNIQUE (points)           WHERE booth_id IS NULL       -- event-wide defaults
 > **Corrected (review finding).** A plain `UNIQUE (booth_id, points)` does **not** de-duplicate the global rows: in SQL, `NULL` is not equal to `NULL`, so two rows with `booth_id = NULL, points = 5` both insert. The allow-list would then contain a duplicate `+5`, rendering a duplicated button and making the preset set ambiguous. Two partial unique indexes express the actual intent.
 *Responsibility:* the allowed award values. `booth_id IS NULL` rows are the event-wide defaults (+5/+10/+15); a booth with its own rows overrides the defaults entirely.
 *Resolution:* `presets(booth) = rows WHERE booth_id = booth.id AND is_active`, falling back to `rows WHERE booth_id IS NULL AND is_active` when the first set is empty.
-This table is **the server-side allow-list** that makes "staff cannot enter arbitrary point values" enforceable rather than aspirational (§14.3).
+> **Revised — legacy.** This table was the server-side allow-list for booth-wide awards. Awards no longer read it: the value comes from the activity (§7.9, §12.2), so "staff cannot enter arbitrary point values" is now enforced by the request having **no point field at all**. The rows, the admin screen and the `GET /api/staff/points/presets` endpoint remain for compatibility and history, are labelled *legacy, does not affect activity points* in the admin console, and are not deleted.
 
 ### 7.11 `feedback`
 
@@ -399,12 +406,12 @@ This table is **the server-side allow-list** that makes "staff cannot enter arbi
 | `source` | enum `TASK` \| `FEEDBACK` NOT NULL | extensible |
 | `entry_type` | enum `AWARD` \| `REVERSAL` NOT NULL DEFAULT `AWARD` | see reversal semantics below |
 | `points` | int NOT NULL | positive for `AWARD`, negative for `REVERSAL` |
-| `task_id` | FK NULL | composite FK with `booth_id` — see below |
+| `task_id` | FK NULL | composite FK with `booth_id` — see below. **Set on every activity award**; NULL only on rows that predate activities (never back-filled) and on `FEEDBACK` rows |
 | `reverses_points_log_id` | FK→points_log **NULL, UNIQUE** | set iff `entry_type = REVERSAL` |
 | `entered_by_staff_id` | FK→staff_accounts **NULL** | NULL ⇔ system-generated |
 | `entered_by_system` | boolean NOT NULL DEFAULT false | |
 | `dedupe_key` | text **NULL, UNIQUE** | TASK repeat policy only (§14.5) |
-| `note` | text NULL | |
+| `note` | text NULL | the reason of a reversal; `CHECK (note IS NULL OR char_length(note) <= 300)` (migration 0012) |
 | `created_at` | timestamptz NOT NULL DEFAULT now() | wall clock, **not** an ordering guarantee |
 
 *Constraints and indexes:*
@@ -417,12 +424,20 @@ CHECK ((source = 'TASK'     AND booth_id IS NOT NULL
                             AND entered_by_system = false)
     OR (source = 'FEEDBACK' AND booth_id IS NOT NULL
                             AND entered_by_staff_id IS NULL
-                            AND entered_by_system = true))
+                            AND entered_by_system = true)
+    OR (source = 'FEEDBACK' AND entry_type = 'REVERSAL' AND booth_id IS NOT NULL
+                            AND entered_by_staff_id IS NOT NULL
+                            AND entered_by_system = false))
+                                      -- the third form (migration 0012): an administrator's
+                                      -- reversal of a feedback reward records WHO made it
 
 -- F: feedback reward uniqueness is STRUCTURAL, not string-based
 UNIQUE (user_id, booth_id) WHERE source = 'FEEDBACK' AND entry_type = 'AWARD'
 
 UNIQUE (dedupe_key)                   -- TASK repeat policy; NULLs do not collide
+UNIQUE (user_id, task_id) WHERE source = 'TASK' AND entry_type = 'AWARD'
+                          AND task_id IS NOT NULL AND dedupe_key IS NOT NULL
+                                      -- once per attendee AND activity (uq_points_task_user_once)
 UNIQUE (reverses_points_log_id)       -- a row can be reversed at most once
 FOREIGN KEY (task_id, booth_id) REFERENCES tasks (id, booth_id)   -- see below
 INDEX  (user_id)                      -- leaderboard aggregation
@@ -447,7 +462,9 @@ INDEX  (booth_id, created_at DESC)
 
 **Task/booth consistency.** `tasks` carries `UNIQUE (id, booth_id)` purely so `points_log` can declare the composite foreign key above. Without it, a row could reference a task belonging to a *different* booth, and nothing in the schema would object. With it, that state is unrepresentable.
 
-**Append-only, and what a reversal is.** No `UPDATE` and no `DELETE` in application code. A correction is a new `REVERSAL` row with negative points referencing the row it reverses. `reverses_points_log_id` is unique, so a row cannot be reversed twice. `uq_points_feedback_user_booth` enforces **historical, lifetime once-per-user-per-booth** feedback-reward eligibility within the current dataset generation: it matches on `entry_type = 'AWARD'`, and the original `AWARD` row is never mutated or deleted by a `REVERSAL`, so the `AWARD` continues to occupy the slot after it is reversed. **A `REVERSAL` does not restore feedback-reward eligibility** — it is a compensating ledger entry that adjusts net points via the append-only sum, not an erasure of the historical fact that the reward was already granted. (A partial index predicate can only inspect the row being inserted; it cannot see whether some other row later reverses it, so "free the slot on reversal" was never an expressible index behaviour in the first place.) Eligibility resets only when a full demo reset replaces the dataset (§19). The demo exposes no correction UI; the schema needs no change to add one.
+**Append-only, and what a reversal is.** No `UPDATE` and no `DELETE` in application code. A correction is a new `REVERSAL` row with negative points referencing the row it reverses. `reverses_points_log_id` is unique, so a row cannot be reversed twice. `uq_points_feedback_user_booth` enforces **historical, lifetime once-per-user-per-booth** feedback-reward eligibility within the current dataset generation: it matches on `entry_type = 'AWARD'`, and the original `AWARD` row is never mutated or deleted by a `REVERSAL`, so the `AWARD` continues to occupy the slot after it is reversed. **A `REVERSAL` does not restore feedback-reward eligibility** — it is a compensating ledger entry that adjusts net points via the append-only sum, not an erasure of the historical fact that the reward was already granted. (A partial index predicate can only inspect the row being inserted; it cannot see whether some other row later reverses it, so "free the slot on reversal" was never an expressible index behaviour in the first place.) Eligibility resets only when a full demo reset replaces the dataset (§19).
+
+**Reversal by an administrator.** An administrator cancels **one AWARD in full**, with a reason, from the console: `POST /api/admin/points-log/{id}/reverse` takes only `{reason, idempotency_key}`. Everything else — the negated points, the attendee, the booth, the activity, the source — is derived on the server from the original row (`extra="forbid"`: the request cannot name an amount or an attendee). Once only, however it is attempted: `uq_points_reverses`, a row lock on the original, and `idempotency_records` (the same key replays the first answer). A `REVERSAL` cannot itself be reversed (`409 POINTS_NOT_REVERSIBLE`); a second reversal with another key is `409 POINTS_ALREADY_REVERSED`. The reversal row, the claimed key and the `points.reverse` admin-audit row commit in one transaction; the reason is stored in `note` and is never logged. A FEEDBACK reward is staff-less and "system" by the `source_attribution` CHECK, which cannot name the administrator who cancels it — hence the third form above, which records them. After the commit the attendee's score and the leaderboard are refreshed through the normal realtime signal (§17.7), not for a replay and not for a refusal. Reopening a once-only activity after a reversal is a separate, deliberate decision that no code makes.
 
 `entered_by_staff_id` is populated from the **authenticated session**, never from the request body.
 
@@ -500,6 +517,8 @@ Every rule that must hold under concurrent requests is backed by a **unique inde
 | One live contact card per attendee | partial unique `(user_id) WHERE revoked_at IS NULL` | `uq_contact_card_live_user` |
 | No duplicate feedback reward | partial unique `(user_id, booth_id) WHERE source='FEEDBACK' AND entry_type='AWARD'` | `uq_points_feedback_user_booth` |
 | No repeat task reward (when disallowed) | unique `dedupe_key` | `uq_points_dedupe_key` |
+| No repeat of one activity for one attendee (when disallowed) | partial unique `(user_id, task_id) WHERE source='TASK' AND entry_type='AWARD' AND task_id IS NOT NULL AND dedupe_key IS NOT NULL` | `uq_points_task_user_once` |
+| Activity points within bounds | `CHECK` | `ck_tasks_points_range` |
 | No duplicate award per idempotency key | PK `(staff_account_id, idempotency_key)` | `pk_idempotency_records` |
 | A row is reversed at most once | unique `reverses_points_log_id` | `uq_points_reverses` |
 | One interest selection per pair | PK `(user_id, interest_id)` | `pk_user_interests` |
@@ -617,6 +636,45 @@ Cookie authentication needs an explicit CSRF stance. Two layers, both server-sid
 
 Layer 2 exists because `SameSite` behaviour varies across older browsers and embedded webviews — plausible at a conference where attendees open links from messaging apps. Because the frontend is same-origin (§3.2), legitimate requests always carry a matching `Origin`, so the check costs nothing in normal operation. No CSRF token table is introduced: a synchroniser token would add state and a failure mode without meaningfully improving on Lax + Origin for this threat model.
 
+### 8.4 The attendee's own profile — editing, sponsor consent, photo
+
+A signed-in attendee manages their own record; nobody else's. **There is no id and no e-mail field in any of these requests**: who is edited is the session's attendee, and changing the e-mail (the login identity) is a separate, verified flow that does not exist. Every one is a mutation through the reset fence (invariant 29): the session is resolved *inside* it, then the attendee row is locked `FOR UPDATE`.
+
+| Call | Purpose |
+|---|---|
+| `GET /api/attendees/me/profile` | the private profile, including `version`, the consent time and wording, and `photo` |
+| `PUT /api/attendees/me/profile` | first name, last name, phone, profession, LinkedIn, interests — the **whole set** plus `expected_version` |
+| `PUT /api/attendees/me/sponsor-consent` | `{granted: bool}` — the consent as a value, not a toggle |
+| `PUT /api/attendees/me/photo` | the raw image as the request body |
+| `DELETE /api/attendees/me/photo` | remove the photo (idempotent) |
+| `GET /api/media/avatars/{key}-{128\|384}.jpg` | a stored photo (public) |
+
+#### 8.4.1 Details and interests — one writer at a time, a stale form never wins
+
+Validation is registration's (the same lengths, trimming and LinkedIn URL shape; a test pins the parity). An interest must be in the **active** catalogue, or already held by the attendee (an interest retired after they chose it stays until they remove it but can never be newly picked); anything else is `400 UNKNOWN_INTEREST` whose `details.slugs` names the offenders. Matching reads `user_interests` live (§11, nothing is cached), so the booths an attendee is shown change with their very next request.
+
+`users.profile_version` is optimistic concurrency. The form carries the version it was loaded at; under the row lock a mismatch writes **nothing** and answers `409 PROFILE_CONFLICT` with the profile as it now stands in `details.profile`, so the screen can show both versions and let the person decide (their typed text is never discarded by an error). An edit that changes nothing writes nothing and does not bump the version. Photo and consent changes do **not** bump it: a device that only toggles consent must not make another device's open form conflict. After the commit — and only for a real change — the attendee's other devices get a personal `state_changed`, and the leaderboard a `leaderboard_changed` when something it shows (name, profession, photo) changed (§17.5).
+
+#### 8.4.2 Sponsor consent — its own choice, its own audit
+
+Consent is not a field of the profile form. `PUT /me/sponsor-consent` writes the value, `sponsor_consent_at` (null on withdrawal), `sponsor_consent_version` and the `consent_audit` row (`source = settings_update`, the same moment) **in one transaction**. Asking for the value already in force writes nothing — no row, no new timestamp — and answers `changed: false`, so the audit trail holds real decisions only. The sponsor contact export reads `users.sponsor_consent` (and the profile columns) at its snapshot, so an edit or a withdrawal is in force for the very next export.
+
+#### 8.4.3 The photo
+
+*Accepted:* JPEG, PNG and WebP, decided by the **content** (magic bytes agreeing with a decoder restricted to exactly those three) — never by a file name, an extension or a `Content-Type`. SVG (a document that can carry script), GIF, TIFF, BMP, HEIC, PDF, an animated image, a damaged file and one smaller than 64 px are refused with `400 PHOTO_INVALID` and a short `details.reason`.
+
+*Bounded twice, before anything is decoded:* the body is read with a hard byte cap (`MEDIA_MAX_UPLOAD_BYTES`, default 8 MiB; also the proxy's per-route limit, §21.12), and the pixel count is judged from the **header** (`MEDIA_MAX_PIXELS`, default 25 MP) so a few kilobytes that claim a huge canvas (a decompression bomb) are refused without allocating it (`413 PHOTO_TOO_LARGE`). JPEGs are decoded at reduced scale; at most two images are processed at once (`503 PHOTO_BUSY` otherwise); decoding runs in a worker thread, so the realtime streams are never blocked by an image.
+
+*What is stored is never the upload.* It is re-encoded into two renditions (128 px for lists, 384 px for cards and the profile), square-cropped from the centre, never enlarged, colour-converted to sRGB, transparency flattened on white, the camera orientation applied to the pixels, then written as progressive optimised JPEG **without any metadata** — EXIF/GPS, XMP, IPTC, comments and the ICC profile do not survive. The file names are `<MEDIA_ROOT>/avatars/<key>-<size>.jpg` with a 128-bit random key made by the server and kept in `users.photo_key`; nothing the client sent is in a name.
+
+*Order of events* (the same for every outcome): authenticate inside the fence and count the upload against the attendee's rate limit → decode and re-encode with no transaction open → write the new files (temporary name, flush, atomic rename) → **one** transaction that re-authenticates, locks the row and points `photo_key` at the new key → only after the commit, delete the **old** key's files. The database never refers to a photo whose files do not exist; if the swap fails the new files are removed and the old photo stands; a failed removal of the old files only leaves an orphan. Because the key is unique to its owner and was just replaced, the cleanup cannot touch another attendee's file. The janitor (`python -m app.cli purge-orphan-photos`, `--grace-minutes`, `--dry-run`) removes files no row references, but only those older than the grace period (default 60 minutes), because an upload writes its files before its row commits — and it touches no name other than the ones the store makes.
+
+*Serving.* `GET /api/media/avatars/{name}` accepts exactly `<32 lowercase hex>-<128|384>.jpg` — anything else (traversal included) is a 404 before the file system is touched. The response is `image/jpeg`, `nosniff`, `Cache-Control: public, max-age=31536000, immutable` (the one `/api/` response not marked `no-store`, §21.12) with an ETag derived from the name. Because the name changes with every new photo, the URL is immutable and a new photo is simply a new URL: caches refresh by construction.
+
+*Public surface.* The leaderboard entry and the public card carry `photo_url` (the 128 px and 384 px rendition respectively) — a value the attendee chose to show, taken from the row already selected (no per-row lookup). Phone, e-mail, consent state, the version and the photo key are in no public response (invariant 19). The staff scan result is unchanged: name and profession only (invariant 20). The client turns a `photo_url` into an `<img>` only if it has exactly that shape, and falls back to the summit robot when it is absent or the image fails to load.
+
+*Storage.* One directory, `MEDIA_ROOT` (default `/data/media`), a **named Docker volume** in both Compose files so photos survive container rebuilds; no external storage service, no credentials. It is part of the backup (DEPLOYMENT.md).
+
 ---
 
 ## 9. Networking QR Architecture
@@ -645,7 +703,7 @@ The same token resolves differently depending on who asks. This is the central d
 
 | Consumer | Endpoint | Auth | Returns |
 |---|---|---|---|
-| Public / networking | `GET /api/cards/{token}` | none | first name, last name, profession, interests, **one contact action** (§9.3.1) |
+| Public / networking | `GET /api/cards/{token}` | none | first name, last name, profession, interests, **one contact action** (§9.3.1), and the attendee's `photo_url` (or null) |
 | Staff scanner | `POST /api/staff/scan/resolve` | staff session required | **first name, last name, profession only** — and a short-lived `scan_ref` |
 
 Neither response ever contains `user_id`, phone number, or sponsor-consent state. The staff response is deliberately the *minimum* needed to answer "is this the correct attendee?" — staff have no reason to see contact details, and not returning them means a compromised staff account cannot harvest them. **The two resolutions are independent**: broadening the public card never widens what staff receive.
@@ -665,7 +723,8 @@ else                        →  action = EMAIL,    value = email
 {
   "first_name": "…", "last_name": "…", "profession": "…",
   "interests": [ { "slug": "generative-ai", "name": "Generative AI" } ],
-  "contact": { "type": "LINKEDIN", "value": "https://www.linkedin.com/in/…" }
+  "contact": { "type": "LINKEDIN", "value": "https://www.linkedin.com/in/…" },
+  "photo_url": "/api/media/avatars/<key>-384.jpg"   // or null — the robot is shown
 }
 ```
 
@@ -829,6 +888,8 @@ The contract above exposes a score, matched interests, and an explanation — **
 
 Staff are **created by Admin only**; there is no staff self-registration endpoint anywhere in the API surface. Login is email + password at `POST /api/staff/auth/login`, verified against the Argon2id hash. Failure returns `INVALID_CREDENTIALS` with **no distinction** between unknown email and wrong password. Brute-force handling is in §21.8. Success issues a session cookie exactly as in §8.3, with `principal_type = STAFF`.
 
+**Changing and recovering a password.** A signed-in staff member changes it at `POST /api/staff/auth/password` by proving the **current** password (a wrong one counts like a wrong login, §21.8) and setting a new one under the same policy the console applies when it creates an account. A forgotten password is recovered by email: `POST /api/staff/auth/password-reset/request` queues a one-time code through the existing OTP outbox (durable, AES-GCM ciphertext while waiting), and `POST /api/staff/auth/password-reset/confirm` takes the address, the code and the new password. The code is its own challenge purpose, `STAFF_PASSWORD_RESET` (migration 0013): every query matches on purpose, so a code of one kind never works as the other. It is verified against an Argon2id hash, single use, valid ten minutes, five wrong tries. An administrator can *start* the flow for a staff member (`POST /api/admin/staff/{id}/password-reset`) — the code goes to that member's own address; the administrator never sees it and never chooses the password. **Any successful change ends every session of the account, the current one included**, and creates none; a `scan_ref` is bound to the session that issued it, so earlier scans die with it. The public request answers the same whatever the address, and the confirmation fails with the same `OTP_INVALID` for an unknown address, a deactivated account and a wrong, missing, expired or used code, doing the same Argon2id work on every path so timing is no oracle. A deactivated account can neither start nor finish a reset and is never reactivated by one. Passwords, hashes and codes are never logged, returned or written to the audit trail.
+
 ### 12.2 The booth authorization invariant
 
 > **A staff member can award points only for their own booth.**
@@ -841,12 +902,17 @@ class AwardTaskPointsRequest(BaseModel):
     """THE canonical award request contract. Defined once, here."""
     model_config = ConfigDict(extra="forbid")
     card_token:      str       # opaque attendee reference (§9)
-    points:          int       # validated against the booth's preset allow-list
-    idempotency_key: UUID      # client-generated once per confirmation screen
+    task_id:         int       # the activity being awarded — must be an active activity of the staff member's booth
+    rule_revision:   str       # the rule (points + repeat policy) the staff member CONFIRMED; compared, never trusted
+    idempotency_key: UUID      # client-generated once per confirmation of one rule
     scan_ref:        str       # opaque; proves this staff member scanned this token
-    # deliberately absent: booth_id, staff_id, source, task_id, timestamp
+    # deliberately absent: points, booth_id, staff_id, source, timestamp
 ```
 `extra="forbid"` means a client sending `booth_id` receives a `422`. The value cannot reach the service even by accident.
+
+> **Revised (activity-bound points).** The earlier contract carried `points` (validated against a booth preset allow-list) and omitted `task_id`. The point value has been removed from the request entirely: it is the activity's server-side rule (§7.9). `rule_revision` is the server-issued revision of that rule as the staff screen showed it (see §13.4 *Confirmed rule*); it can only confirm a rule, never set one.
+>
+> **Older pages.** The endpoint parses a lenient superset of this contract solely to recognise a page that predates it — no `rule_revision`, or a `points` field. Such a request is refused **before any database access** with `403 CSRF_REJECTED` and `details.reason = "client_outdated"`. The existing code is reused deliberately: every earlier staff page already renders it as "This request couldn't be verified. Please reload the page and try again.", whereas a new code would reach them as an unknown one (a generic "try again" that can never succeed). No points are created. Any other unknown field is still a `422`.
 
 > **Corrected (review finding).** An earlier draft of this schema omitted `scan_ref` while §13.3 required it — with `extra="forbid"`, a compliant client would have been rejected with `422`. The block above is now **the single authoritative contract**; §13.1, §13.3, §14.3 and §20.3 all reference it rather than restating it.
 
@@ -855,13 +921,14 @@ class AwardTaskPointsRequest(BaseModel):
 | Value | Source | Client may supply? |
 |---|---|---|
 | `card_token` | request body | ✅ (validated, then resolved server-side) |
-| `points` | request body | ✅ (must be a member of the booth's preset allow-list) |
+| `task_id` | request body | ✅ (must be an **active activity of the staff member's own booth**; another booth's or an unknown id is the same `TASK_NOT_FOUND`) |
+| `rule_revision` | request body, **but server-issued** (`GET /api/staff/tasks`) | ✅ echo only — compared with the rule in force, §13.4 |
+| points awarded | the activity's `points` column, read at B5 | ❌ **never** — there is no field |
 | `idempotency_key` | request body | ✅ (scoped to the authenticated staff account) |
 | `scan_ref` | request body, **but server-issued** at resolve time | ✅ echo only — unforgeable, §13.3 |
 | `booth_id` | `staff.booth_id` via the session | ❌ **never** |
 | `entered_by_staff_id` | the session | ❌ **never** |
 | `source` | constant `TASK` for this endpoint | ❌ **never** |
-| `task_id` | omitted in the demo flow (§7.9) | ❌ **never** |
 | `created_at` | database `now()` | ❌ **never** |
 
 Anything in the "never" rows that appears in a request body is rejected by `extra="forbid"`. There is no code path that reads them from input.
@@ -887,10 +954,13 @@ A test asserting that a request carrying a foreign `booth_id` is rejected, and t
 | Resolve a card token to identity | ❌ | ✅ (name + profession only) | ✅ |
 | Award task points | ❌ | ✅ own booth only | ❌ (deliberately — see below) |
 | Submit feedback | ✅ | ❌ | ❌ |
-| Create booths / staff / presets | ❌ | ❌ | ✅ |
+| Create booths / staff / activities (points, repeat policy) / presets | ❌ | ❌ | ✅ |
+| Edit own profile, photo and sponsor consent (§8.4) | ✅ own only | — | — |
+| Reverse one award in full, with a reason (§7.12) | ❌ | ❌ | ✅ |
+| Change own password / recover it by email (§12.1) | — | ✅ | ✅ |
 | Run demo reset | ❌ | ❌ | ✅ via CLI only |
 
-**Admins deliberately cannot award points.** Admin is a configuration role. Letting the account that manages presets also award points collapses the separation that makes the audit trail meaningful. If an admin must award, they hold a booth staff account as well — which is recorded honestly in `entered_by_staff_id`.
+**Admins deliberately cannot award points.** Admin is a configuration role. Letting the account that sets activity point values also award points collapses the separation that makes the audit trail meaningful. If an admin must award, they hold a booth staff account as well — which is recorded honestly in `entered_by_staff_id`.
 
 ---
 
@@ -907,18 +977,25 @@ A test asserting that a request carrying a foreign `booth_id` is rejected, and t
 4. Resolve                         → POST /api/staff/scan/resolve { card_token }
 5. Confirmation screen (MANDATORY) → "Attendee found — {name} · {profession}.
                                       Is this the correct attendee?"  [Cancel] [Confirm]
-6. Confirm                         → preset buttons [ +5 ] [ +10 ] [ +15 ]  (from the server)
+6. Confirm                         → the booth's activities, each with its points
+                                      (GET /api/staff/tasks — from the server)
+6b. Choose an activity             → REVIEW screen: attendee · booth · activity · exact points
 7. Award                           → POST /api/staff/points/award
-                                      { card_token, points,
+                                      { card_token, task_id, rule_revision,
                                         idempotency_key, scan_ref }   ← §12.2
-8. Result                          → "+15 awarded to {name}" or a typed error
+8. Result                          → "+15 awarded to {name}" or a typed error; another
+                                      activity for the same scan is one tap away
 ```
 
 The confirmation step is **not** skippable and not a client-side convenience: the award endpoint is a separate call that a human action triggers. There is no endpoint that scans and awards in one step, because that would make a misread QR an immediate irreversible award.
 
-### 13.2 Preset buttons come from the server
+### 13.2 Activities come from the server
 
-The `+5 / +10 / +15` buttons are rendered from `GET /api/staff/points/presets`, which returns the resolved presets for **the authenticated staff member's booth** (§7.10). Hardcoding them in the frontend would create a second source of truth for allowed values and let a stale client offer values the server rejects.
+The activity buttons — title and `+N` — are rendered from `GET /api/staff/tasks`, which returns **the authenticated staff member's own booth's** active activities that have a point value, each with the repeat policy it resolves to (§14.5) and its current `rule_revision`. Hardcoding any of it in the frontend would create a second source of truth for what an award pays.
+
+The review screen states the exact points before anything is sent. The award button is disabled the moment it is pressed (a double tap sends one request). A network failure offers *Try again*, which re-sends the **same** request with the **same** key and revision (§13.4). If the server answers `TASK_RULE_CHANGED`, nothing was awarded: the screen is shown again with the **new** rule, a notice of what changed, and a **new** idempotency key, and a fresh tap is required.
+
+> **Revised.** This section previously described `+5 / +10 / +15` preset buttons from `GET /api/staff/points/presets`. That endpoint still exists (legacy) but the scanner no longer uses it.
 
 ### 13.3 What the award call carries
 
@@ -971,7 +1048,7 @@ Being stateless, `scan_ref` needs no table, no cleanup job, and no shared state 
 
 > **Stated bound — `scan_ref` is not single-use.** Within its 120 s window the same envelope can be presented more than once. This is deliberate: single-use would require a server-side consumption record, reintroducing exactly the shared state the stateless design avoids, and it would break the legitimate retry in §13.4 case 8.
 >
-> The bound is safe because it grants no privilege the staff member lacks. A second presentation with the **same** idempotency key replays the original response; with a **different** key it is an ordinary new award, which the repeat policy then judges — blocked by `dedupe_key` when repeats are disallowed (the demo default), and permitted when they are allowed, which is what "repeats allowed" means. In no case can a staff member award outside their own booth, exceed the preset allow-list, or act after their session ends.
+> The bound is safe because it grants no privilege the staff member lacks. A second presentation with the **same** idempotency key replays the original response; with a **different** key it is an ordinary new award, which the repeat policy then judges — blocked by `dedupe_key` when repeats are disallowed (the demo default), and permitted when they are allowed, which is what "repeats allowed" means. In no case can a staff member award outside their own booth, pay anything other than the activity's own rule, or act after their session ends.
 
 It binds *this staff member* to *this token* for *this short window*. Without it, a staff client could award against any token it obtained by other means — a photograph of someone's card, a value pasted from a log — without ever having scanned it in their own session. It also bounds how long a scan stays actionable, so a phone left on a confirmation screen during a coffee break cannot award an hour later. Cost: one response field and one signature check.
 
@@ -1008,7 +1085,7 @@ Cases 4, 9 and 10 are the security-critical ones; cases 2, 6, 7 and 8 are the de
 
 #### The rule
 
-**Idempotency is resolved immediately after authentication and authorization, and before every mutable validation.** "Mutable" means anything that can legitimately change between the original request and its retry: `scan_ref` freshness, preset configuration, repeat policy, QR revocation state.
+**Idempotency is resolved immediately after authentication and authorization, and before every mutable validation.** "Mutable" means anything that can legitimately change between the original request and its retry: `scan_ref` freshness, the activity's points and repeat policy (and therefore the confirmed `rule_revision`), whether the activity is still active, QR revocation state.
 
 #### Key binding and fingerprint
 
@@ -1016,13 +1093,15 @@ A key is identified by `(staff_account_id, idempotency_key)` — the primary key
 
 ```
 fingerprint = sha256( canonical_json({
-    "v": 1,
+    "v": 2,
     "tok": sha256(card_token),
-    "points": points,
+    "task": task_id,
 }) )
 ```
 
-The fingerprint deliberately **excludes** `scan_ref` (time-bound by design), the booth (derived, not supplied), and all configuration. It answers exactly one question: *is this the same logical award?* Storing `sha256(card_token)` rather than the token keeps the attendee reference out of a second table while still making the comparison exact.
+> **Revised.** Version 1 hashed `{v, tok, points}`. The point value is no longer part of the request, so the *activity* takes its place: the same key with another attendee or another activity is a different logical award.
+
+The fingerprint deliberately **excludes** `scan_ref` (time-bound by design), `rule_revision` (a retry must replay whatever the rule is now), the booth (derived, not supplied), and all configuration. It answers exactly one question: *is this the same logical award?* Storing `sha256(card_token)` rather than the token keeps the attendee reference out of a second table while still making the comparison exact.
 
 #### Protocol
 
@@ -1067,8 +1146,12 @@ BEGIN;
   --      now - iat > 120s  → SCAN_EXPIRED
 
   -- B4. Resolve card_token → attendee; require status = ACTIVE
-  -- B5. points ∈ presets(booth)
-  -- B6. repeat policy → dedupe_key
+  -- B5. SELECT … FROM tasks WHERE id = :task_id FOR SHARE
+  --     task must belong to staff.booth_id (else TASK_NOT_FOUND), be active
+  --     (TASK_INACTIVE) and have points (TASK_NOT_CONFIGURED); points := task.points
+  -- B6. repeat policy (activity → booth → event default) → dedupe_key
+  -- B6a. rule_revision(task, points, repeat) ≠ request.rule_revision
+  --      → TASK_RULE_CHANGED (nothing written)
 
   -- B7. CLAIM the key (first write of the transaction)
   INSERT INTO idempotency_records
@@ -1076,7 +1159,8 @@ BEGIN;
   VALUES (:staff, :key, :fingerprint, now());
   --  ↳ unique violation on pk_idempotency_records ⇒ see "Concurrent same-key"
 
-  -- B8.  INSERT INTO points_log (...) RETURNING id;
+  -- B7a. once-only policy: attendee already has an AWARD for this task → DUPLICATE_TASK_REWARD
+  -- B8.  INSERT INTO points_log (..., points := task.points, task_id := task.id) RETURNING id;
   -- B9.  SELECT COALESCE(SUM(points),0) FROM points_log WHERE user_id = :user;
   -- B10. Build the complete canonical response from B8 and B9
   -- B11. UPDATE idempotency_records
@@ -1094,7 +1178,7 @@ COMMIT;
 
 **Ordering rules that remain contractual:**
 
-- **B3a–B6 run only for a genuinely new logical request.** `scan_ref` freshness is evaluated at B3a, *after* the idempotency lookup, which is what makes "retried after `scan_ref` expired" return the original success rather than an error.
+- **B3a–B6a run only for a genuinely new logical request.** `scan_ref` freshness is evaluated at B3a, *after* the idempotency lookup, which is what makes "retried after `scan_ref` expired" return the original success rather than an error.
 - **The response is computed (B8–B10) before it is persisted (B11) and before commit.** A replay is byte-identical to the original reply.
 - A failure anywhere in Stage B rolls the whole transaction back: no award, no claimed key, nothing to reconcile.
 
@@ -1123,13 +1207,24 @@ Two properties make this reliable:
 | Scenario | Result |
 |---|---|
 | Same key + same request | **200**, stored snapshot, `replayed: true`. No new row |
-| Same key + different `points` | **409 `IDEMPOTENCY_KEY_REUSE`** — fingerprint mismatch, never a silent second award |
+| Same key + different activity | **409 `IDEMPOTENCY_KEY_REUSE`** — fingerprint mismatch, never a silent second award |
 | Same key + different attendee/token | **409 `IDEMPOTENCY_KEY_REUSE`** — same reason |
 | Same key + different staff account | Different primary key ⇒ a **different record**; proceeds normally. Safe because keys are scoped per account |
 | Same key **after `scan_ref` expiry** | **200, replay.** Phase 1 completes before `scan_ref` is examined in Phase 2 |
 | Same key **after QR revocation** | **200, replay.** The award was valid when it committed; revoking a card does not rewrite history |
-| Same key **after preset change** | **200, replay.** Configuration at retry time has no bearing on a completed operation |
+| Same key **after the activity's points or repeat policy changed, or the activity was deactivated** | **200, replay.** The stored snapshot is returned, whatever `rule_revision` the retry carries. Configuration at retry time has no bearing on a completed operation |
+| New key, rule **changed since the staff member confirmed it** | **409 `TASK_RULE_CHANGED`** — nothing written, the key is not claimed; `details` carries the current rule and its new `rule_revision` (below) |
 | Key never seen, but the repeat policy forbids the award | **409 `DUPLICATE_TASK_REWARD`** — a genuinely different attempt, correctly refused |
+
+#### Confirmed rule — `rule_revision`
+
+What the staff member agreed to (the points and whether the attendee may earn the activity again) must be what is paid. Each activity in `GET /api/staff/tasks` carries a server-issued **`rule_revision`**, and the award echoes it back.
+
+- **Derivation.** `rule_revision = base64url(HMAC_SHA256(secret, "task-rule:v1:{task_id}:{points}:{repeatable}"))` truncated to 22 characters, where `repeatable` is the repeat policy **after** resolution (activity → booth → event default, §14.5). It is derived from the rule in force rather than stored as a counter, so *every* way of changing the rule — editing the activity's points or repeat setting, the booth's repeat flag, or the event default — changes it, and no edit path can forget to bump it. It is keyed and bound to the activity id, so it is opaque and cannot be computed or transplanted by a client.
+- **Check (B6a).** After the activity is read `FOR SHARE` and the policy resolved, the server recomputes the revision and compares it (constant time). A mismatch writes nothing, does **not** claim the idempotency key, and answers `409 TASK_RULE_CHANGED` with `details = {task_id, task_title, points, repeatable, rule_revision}` — the rule as it stands now.
+- **Never blocks a replay.** The check sits after the idempotency lookup (B3), so a completed award replays regardless of the revision sent. A retry that overlapped its own original and loses the race to a rule change (or deactivation) between B3 and B5/B6a looks the record up once more before refusing, and replays it if it exists.
+- **New confirmation, new key.** On `TASK_RULE_CHANGED` the client shows the new rule and asks again; the new tap uses a **new** idempotency key. A network retry of the *same* confirmation keeps its key and revision.
+- **It cannot set a rule.** The points awarded always come from the `points` column read at B5; a client that sends any revision — current, stale, forged or another activity's — can only cause a refusal or a confirmed award of the current rule.
 
 #### The canonical response — and what it deliberately omits
 
@@ -1141,7 +1236,9 @@ Two properties make this reliable:
   "attendee_name":  "Leyla A.",   // for the staff confirmation toast
   "booth_name":     "AIWorks",
   "awarded_at":     "2026-09-22T17:04:11Z",
-  "replayed":       false         // stored as false; set to true when replayed
+  "replayed":       false,        // stored as false; set to true when replayed
+  "task_id":        7,            // the activity awarded (absent on a snapshot stored before activities)
+  "task_title":     "Live demo"   // its title at award time
 }
 ```
 
@@ -1208,7 +1305,7 @@ def award_feedback(user: User, booth: Booth, feedback: Feedback) -> AwardResult 
 
 | # | Stage | Step | On failure |
 |---|---|---|---|
-| A1 | **Pre-fence — pure** | Parse and schema-validate the body (§12.2) | `VALIDATION_ERROR` |
+| A1 | **Pre-fence — pure** | Parse and schema-validate the body (§12.2). A body from an older page (no `rule_revision`, or a `points` field) is refused here, before any database access | `VALIDATION_ERROR` / `CSRF_REJECTED` (`client_outdated`) |
 | A2 | Pre-fence — pure | Extract the session cookie (a string, **not** an identity) | — |
 | A3 | Pre-fence — pure | `scan_ref` structural + cryptographic checks (§13.3 checks 1–4). **Expiry is not checked here** | `INVALID_QR` |
 | A4 | Pre-fence — pure | `scan_ref` token binding, `sha256(card_token) == tok` (§13.3 check 7) | `INVALID_QR` |
@@ -1220,9 +1317,11 @@ def award_feedback(user: User, booth: Booth, feedback: Feedback) -> AwardResult 
 | B3 | Fenced — **resolve** | **IDEMPOTENCY LOOKUP** — match → return the stored snapshot with `replayed: true` and **stop**, *without* evaluating freshness; fingerprint differs → | `IDEMPOTENCY_KEY_REUSE` |
 | B3a | Fenced — validate | **`scan_ref` expiry (§13.3 check 8) — new awards only**, reached only when B3 found no record | `SCAN_EXPIRED` |
 | B4 | Fenced — validate | Resolve the token → attendee; unknown, revoked, or `PROVISIONAL` (§8.1) → | `INVALID_QR` |
-| B5 | Fenced — validate | `points ∈ presets(booth)` — allow-list membership, not a range check. `12` is rejected even though it lies between 10 and 15 → | `INVALID_POINT_VALUE` |
-| B6 | Fenced — validate | Repeat policy → compute `dedupe_key` (§14.5) | — |
+| B5 | Fenced — validate | Read the activity `FOR SHARE`: it must exist **and belong to `staff.booth_id`** (unknown and other-booth are indistinguishable), be active, and have a point value; `points := task.points` → | `TASK_NOT_FOUND` / `TASK_INACTIVE` / `TASK_NOT_CONFIGURED` |
+| B6 | Fenced — validate | Repeat policy (activity → booth → event default) → compute `dedupe_key` (§14.5) | — |
+| B6a | Fenced — validate | Recompute the rule's `rule_revision` and compare with the request's (§13.4 *Confirmed rule*) → | `TASK_RULE_CHANGED` |
 | B7 | Fenced — write | **Claim the idempotency key** — first write of the transaction | conflict → wait-then-replay (§13.4) |
+| B7a | Fenced — write | Once-only policy: the attendee must not already hold an `AWARD` for this activity. After the claim on purpose, so a retry of a committed award replays instead of being reported as a duplicate → | `DUPLICATE_TASK_REWARD` |
 | B8 | Fenced — write | Insert `points_log`; violations dispatched by constraint name (§7.14) | mapped domain error |
 | B9 | Fenced — write | Compute the resulting total | — |
 | B10 | Fenced — write | Build the complete canonical response | — |
@@ -1235,7 +1334,7 @@ Four ordering rules are contractual, not incidental:
 
 - **The fence precedes every reset-sensitive database read** — including authentication (B1) and the idempotency lookup (B3). Nothing between B0 and B12 can observe a dataset that is replaced before the write. This is invariant §24.29.
 - **Authentication at A2 is not authentication.** Only B1, inside the fence, authorises the mutation. A pre-fence cookie read is a string extraction.
-- **B3a–B6 run only for a genuinely new logical request.** `scan_ref` freshness is part of that set, which is precisely what makes "retried after `scan_ref` expired" replay rather than fail.
+- **B3a–B6a run only for a genuinely new logical request.** `scan_ref` freshness is part of that set, which is precisely what makes "retried after `scan_ref` expired" replay rather than fail.
 - **The response is computed (B9–B10) before it is persisted (B11) and before commit (B12).** A replay is byte-identical to the original reply.
 
 A failure anywhere in Stage B rolls back the whole transaction: no award, no claimed key, nothing to reconcile, and the fence released.
@@ -1246,26 +1345,32 @@ Awarded by the system: `entered_by_system = true`, `entered_by_staff_id = NULL`,
 
 ### 14.5 The open repetition rule — `allow_repeat_task_points`
 
-The product has not permanently decided whether an attendee may earn task points repeatedly at the same booth. The architecture therefore treats this as **configuration, not structure**.
+The product has not permanently decided whether an attendee may earn task points repeatedly. The architecture therefore treats this as **configuration, not structure** — and, since points are bound to activities (§7.9), the policy is evaluated **per attendee and activity**, not per booth.
 
-**Where it lives:** `booths.allow_repeat_task_points` (nullable) overriding `event_config.allow_repeat_task_points_default`.
+**Where it lives, most specific first:** `tasks.allow_repeat_points` (the activity's own setting), else `booths.allow_repeat_task_points` (which now supplies the default for *the booth's activities*; it no longer means "one award per booth"), else `event_config.allow_repeat_task_points_default`.
 
 ```python
-allow_repeat = booth.allow_repeat_task_points
-if allow_repeat is None:
-    allow_repeat = event_config.allow_repeat_task_points_default   # demo default: False
+if task.allow_repeat_points is not None:    allow_repeat = task.allow_repeat_points
+elif booth.allow_repeat_task_points is not None: allow_repeat = booth.allow_repeat_task_points
+else:                                        allow_repeat = event_config.allow_repeat_task_points_default   # default: False
 ```
 
-**How it is enforced — the `dedupe_key` mechanism.** A static unique index on `(user_id, booth_id) WHERE source='TASK'` would hard-code "no repeats" into the schema, requiring a migration to change a product decision. Instead the service computes the key and the database enforces whatever was computed:
+With nothing set anywhere, every activity pays **once per attendee**. The admin console changes the activity's setting separately from its points; each change is written to the admin audit log with the previous and new values. A change moves the activity's `rule_revision` (§13.4), so a staff member who confirmed the old policy is asked to confirm again rather than being paid under the new one.
+
+> **Revised (activity-bound points).** The policy used to be per attendee and *booth* (`dedupe_key = "TASK:{user_id}:{booth_id}"`). A legacy booth-level award (no `task_id`) therefore no longer blocks activity awards.
+
+**How it is enforced — the `dedupe_key` mechanism.** A static unique index on `(user_id, task_id) WHERE source='TASK'` would hard-code "no repeats" into the schema, requiring a migration to change a product decision. Instead the service computes the key and the database enforces whatever was computed:
 
 | Situation | `dedupe_key` |
 |---|---|
-| `TASK`, repeats **disallowed** | `"TASK:{user_id}:{booth_id}"` |
+| `TASK`, repeats **disallowed** | `"TASK:{user_id}:task:{task_id}"` |
 | `TASK`, repeats **allowed** | `NULL` |
 | `FEEDBACK` | `NULL` — feedback uniqueness is **structural** (§7.12), not string-based |
 | `REVERSAL` (any source) | `NULL` — a reversal must never be blocked by the policy of the row it reverses |
 
 Because Postgres unique indexes **do not collide on NULLs**, a NULL key means unconstrained, while a non-NULL key is enforced atomically by the index. Flipping the config changes behaviour for future awards with no migration and no code change.
+
+Two further guards make "once" hold whatever string the service builds or earlier awards left behind: the partial unique index `uq_points_task_user_once` on `(user_id, task_id)` for key-carrying activity awards, and the explicit ledger check at B7a (§14.3), which also sees earlier repeats that were made while the policy still allowed them.
 
 > **Refinement (review finding).** Feedback de-duplication was previously expressed as a `dedupe_key` string, putting a stated invariant in the same mutable mechanism as a configurable policy — one service-layer bug in key construction could have silently disabled it. It is now a **partial unique index on `(user_id, booth_id) WHERE source='FEEDBACK' AND entry_type='AWARD'`**, which holds regardless of what any service computes. `dedupe_key` is now exclusively the TASK repeat-policy mechanism.
 
@@ -1276,17 +1381,17 @@ The policy is evaluated **at award time only**, and `dedupe_key` is frozen into 
 | Transition | Effect on existing rows | Effect on future awards |
 |---|---|---|
 | disallow → **allow** | Old rows keep their non-NULL keys | New awards get `NULL` keys and are unconstrained. **An attendee blocked under the old policy can now earn again**, because the new row's key is NULL and collides with nothing |
-| allow → **disallow** | Old rows keep `NULL` keys | The *first* award after the flip writes `TASK:{u}:{b}` and succeeds **even if the attendee already earned there** under the permissive policy, since the earlier rows have no key to collide with. Subsequent attempts are then blocked |
+| allow → **disallow** | Old rows keep `NULL` keys | The B7a ledger check sees the earlier awards: an attendee who **already earned the activity** under the permissive policy gets `DUPLICATE_TASK_REWARD` straight away; one who had not earned it yet is paid once and then blocked |
 
-Neither transition rewrites history, and neither is retroactive. The allow→disallow case permits exactly one extra award per attendee/booth pair that had already earned — acceptable for a demo, and the honest description of what the mechanism does. A production change that must be strictly retroactive requires a documented backfill that writes keys for existing rows, which would fail loudly on any pair that already has duplicates rather than silently discarding them.
-
-Changing this setting is an admin action and is written to the admin audit log with the previous and new values.
+Neither transition rewrites history. Tightening the policy stops *further* awards for pairs that already earned, without touching the rows that exist (they stay exactly as written); loosening it lets an attendee blocked under the old policy earn again. Changing the setting is an admin action and is written to the admin audit log with the previous and new values.
 
 ### 14.6 Threat/failure matrix
 
 | Threat | Defence |
 |---|---|
-| Arbitrary point values | Allow-list membership (§14.3 step 8); `INVALID_POINT_VALUE` |
+| Client-chosen or inflated point values | The request has **no point field**: the value is the activity's server-side rule (§12.2, B5). A body carrying `points` is refused as an outdated page |
+| Rule changed between the staff member's confirmation and the award | `rule_revision` mismatch → `TASK_RULE_CHANGED`, nothing written; the new rule is shown and confirmed again under a new key (§13.4). A completed award still replays |
+| Awarding another booth's activity, or probing its ids | Activity must belong to `staff.booth_id`; other-booth and unknown ids are the same `TASK_NOT_FOUND` |
 | Client-supplied `booth_id` / `staff_id` / `source` | Fields do not exist; `extra="forbid"`; all derived server-side (§12.2 field-authority table) |
 | Double-click | Idempotency resolution (§13.4) → original result replayed, not an error |
 | Duplicate network retry, response lost | Same mechanism; resolves **before** any mutable validation, so a retry after `scan_ref` expiry still replays |
@@ -1295,12 +1400,12 @@ Changing this setting is an admin action and is written to the admin audit log w
 | Key reused for a different operation | Fingerprint mismatch → explicit `IDEMPOTENCY_KEY_REUSE`, never a silent second award |
 | Key replayed by a *different* staff account | Key is scoped by `staff_account_id`; one account cannot address another's record |
 | Unauthorized staff | Session → role → active checks before any mutation |
-| Duplicate reward where prohibited | `dedupe_key` unique index (TASK) / partial unique index (FEEDBACK), enforced by the database under concurrency |
+| Duplicate reward where prohibited | `dedupe_key` unique index and `uq_points_task_user_once` (TASK) / partial unique index (FEEDBACK), enforced by the database under concurrency; the activity row is read `FOR SHARE` so an admin edit cannot interleave with an award |
 | Awarding to a token never scanned in this session | `scan_ref` staff **and session** binding (§13.3) |
 | `scan_ref` reuse after logout | Session binding — a revoked session invalidates every outstanding envelope |
 | Forged `scan_ref` timestamp | Future-`iat` rejection with a 5 s skew allowance (§13.3) |
 | Awarding to an unverified attendee | Token resolution requires `status = ACTIVE` (§8.1) |
-| Staff account compromise | Blast radius bounded to one booth and to preset values; every row is attributed and reversible by a `REVERSAL` entry |
+| Staff account compromise | Blast radius bounded to one booth and to the point values of that booth's activities; every row is attributed and reversible by a `REVERSAL` entry |
 
 ---
 
@@ -1392,6 +1497,8 @@ so two attendees on 45 points both show rank 3 and the next shows 5. Ties are sh
 
 `current_user` is always populated for an authenticated attendee, even when they are inside the top N, so the client renders one consistent component and the highlight logic has no special case.
 
+Each entry also carries `photo_url` (the 128 px rendition of the attendee's profile photo, or null — the client then shows the robot). It is a column of the row the aggregation already selects (`users.photo_key`), so the leaderboard costs no extra query per row (§8.4.3).
+
 ### 16.4 No caching in the demo — justified
 
 At summit scale (hundreds of attendees, low thousands of point rows) this aggregation with the `(user_id)` index completes in single-digit milliseconds. A cache would add an invalidation path, a staleness window, and a second thing that can be wrong on stage — while solving a problem we do not have. **No caching is introduced.**
@@ -1474,8 +1581,8 @@ SSE is used **only** to say *"refetch"*. It never carries a total, a rank, or a 
 
 ```
 event: ready            data: {"dataset_generation":7,"heartbeat_seconds":15}
-event: state_changed    data: {"scope":"personal"}      ← your points changed; refetch
-event: leaderboard_changed  data: {}                    ← broadcast; refetch leaderboard
+event: state_changed    data: {"scope":"personal"}      ← your points or your own profile changed; refetch
+event: leaderboard_changed  data: {}                    ← broadcast; refetch leaderboard (a score, or a name / profession / photo)
 event: heartbeat        data: {"t":"…"}                 ← every 15 s
 event: session_invalid  data: {"reason":"revoked"}      ← stream closes; client re-authenticates
 event: dataset_reset    data: {"dataset_generation":8}  ← demo reset (§19); client hard-reinitialises
@@ -1560,11 +1667,11 @@ If `EventSource` fails to connect, or after 3 consecutive failed reconnects, the
 
 ## 18. Admin Boundary
 
-Admin capabilities: manage interests, booths and their interest weights, create and deactivate staff accounts, manage tasks and preset point values, edit `event_config`, and inspect the points audit trail.
+Admin capabilities: manage interests, booths and their interest weights, create and deactivate staff accounts, manage tasks (activities, each with its point value and repeat policy; changes audited) and the legacy preset point values, edit `event_config`, and inspect the points audit trail (which names the activity of each award).
 
 Boundaries:
 - All admin routes are under `/api/admin/*` behind `Depends(current_admin)`, which requires `principal_type = STAFF` **and** `role = ADMIN`. A booth staff session receives `403 STAFF_NOT_AUTHORIZED` on every route in the namespace.
-- Admins **cannot award or modify points** (§12.3). The audit view is read-only. Corrections, if ever built, are compensating entries attributed to a real account.
+- Admins **cannot award points** (§12.3) and never edit or delete a ledger row. The audit view is read-only. The one correction an administrator can make is a **reversal** — a compensating `REVERSAL` entry attributed to their own account, with a reason (§7.12); there is no way to enter an arbitrary amount.
 - The first admin is created by the seed/CLI path, never by an HTTP endpoint. There is no bootstrap route that creates an admin if none exists — that is a backdoor by another name.
 - Admin routes are excluded from the public OpenAPI schema in production and rate-limited (§21.9).
 - **Every admin mutation and its audit row are written in the same transaction.** An audit log that can be missing entries for committed changes is worse than none, because it is trusted. The same rule applies to attendee consent and its `consent_audit` row (§8.1), and to `event_config` changes, which record the previous and new values.
@@ -1662,7 +1769,7 @@ The fence belongs in the shared unit-of-work helper (`db/session.py`), acquired 
 
 | Mutating path | Fence required | First reset-sensitive read it guards |
 |---|---|---|
-| Task point award | ✅ | session → staff, idempotency record, attendee, presets |
+| Task point award | ✅ | session → staff, idempotency record, attendee, activity rule |
 | Feedback submission + reward | ✅ | session → attendee, booth, prior reward |
 | Registration / provisional user creation | ✅ | email uniqueness lookup, interest slug resolution |
 | OTP issuance | ✅ | user lookup, prior challenge supersession |
@@ -1856,11 +1963,15 @@ One shape for every failure, so the client has exactly one parsing path. `messag
 | `IDEMPOTENCY_KEY_REUSE` | 409 | Domain | Key reused with a different request fingerprint (§13.4) |
 | `AWARD_IN_PROGRESS` | 409 | Domain | **Safety valve only** — `lock_timeout` exceeded waiting on a same-key transaction. Normal concurrency waits and replays instead (§13.4) |
 | `MAINTENANCE` | 503 | API | Demo reset in progress; mutations rejected (§19) |
-| `CSRF_REJECTED` | 403 | API | Missing or mismatched `Origin` on a mutating request (§8.3.1) |
+| `CSRF_REJECTED` | 403 | API | Missing or mismatched `Origin` on a mutating request (§8.3.1). Also returned, with `details.reason = "client_outdated"`, to an award request from a staff page that predates the current contract (§12.2) |
 | `REGISTRATION_NOT_VERIFIED` | 403 | Domain | Action requires an `ACTIVE` attendee (§8.1) |
 | `USER_NOT_FOUND` | 404 | Domain | Attendee referenced but absent |
-| `INVALID_POINT_VALUE` | 400 | Domain | Value not in the booth's preset allow-list |
-| `DUPLICATE_TASK_REWARD` | 409 | Domain | `dedupe_key` collision on a TASK award |
+| `INVALID_POINT_VALUE` | 400 | Domain | **Retired** — awards no longer carry a point value; kept in the catalogue for old clients |
+| `TASK_NOT_FOUND` | 404 | Domain | The activity does not exist **or belongs to another booth** — one answer for both (§12.2) |
+| `TASK_INACTIVE` | 409 | Domain | The staff member's own activity has been deactivated |
+| `TASK_NOT_CONFIGURED` | 409 | Domain | The activity has no point value yet (an admin must set one) |
+| `TASK_RULE_CHANGED` | 409 | Domain | The activity's points or repeat policy differ from the `rule_revision` the staff member confirmed. Nothing was awarded; `details` carries the current rule (§13.4) |
+| `DUPLICATE_TASK_REWARD` | 409 | Domain | The attendee already earned this activity and its repeat policy forbids another (`dedupe_key` / `uq_points_task_user_once` / B7a) |
 | `DUPLICATE_FEEDBACK` | 409 | Domain | Feedback reward already granted (surfaced as `already_rewarded`, §15) |
 | `STAFF_NOT_AUTHORIZED` | 403 | Domain | Wrong role, inactive account, or admin-only route |
 | `INVALID_CREDENTIALS` | 401 | Domain | Login failure — never distinguishes unknown email from wrong password |
@@ -1868,7 +1979,19 @@ One shape for every failure, so the client has exactly one parsing path. `messag
 | `ACCOUNT_LOCKED` | 429 | Domain | Too many failed logins |
 | `OTP_INVALID` | 400 | Domain | Wrong, expired, consumed, or attempt-exhausted code — one code for all four |
 | `EMAIL_ALREADY_REGISTERED` | 409 | Domain | Registration email conflict |
-| `UNKNOWN_INTEREST` | 400 | Domain | Interest slug not in the catalogue |
+| `UNKNOWN_INTEREST` | 400 | Domain | Interest slug not in the catalogue, or retired and not already held by the attendee; `details.slugs` names them (§8.4.1) |
+| `PROFILE_CONFLICT` | 409 | Domain | The profile was changed after the client loaded it (`expected_version` is stale). Nothing was saved; `details.profile` is the current profile (§8.4.1) |
+| `PHOTO_INVALID` | 400 | Domain | The upload is not a usable photo by its content; `details.reason` is a short machine code (§8.4.3) |
+| `PHOTO_TOO_LARGE` | 413 | Domain | Over the byte limit, or a header claiming more than the pixel limit (§8.4.3) |
+| `PHOTO_BUSY` | 503 | Domain | Too many images are being processed at once; nothing changed |
+| `PHOTO_STORAGE_UNAVAILABLE` | 503 | Domain | The photo store could not be written; the previous photo stands |
+| `MEDIA_NOT_FOUND` | 404 | Domain | No such photo file (never made, replaced, removed, or not a photo name) |
+| `POINTS_ENTRY_NOT_FOUND` | 404 | Domain | The ledger entry to reverse does not exist |
+| `POINTS_NOT_REVERSIBLE` | 409 | Domain | Only an award can be reversed; a reversal cannot itself be reversed |
+| `POINTS_ALREADY_REVERSED` | 409 | Domain | The entry already has a reversal |
+| `CURRENT_PASSWORD_INVALID` | 400 | Domain | The current password given for a change is wrong |
+| `PASSWORD_UNCHANGED` | 400 | Domain | The new password equals the current one |
+| `PASSWORD_RESET_UNAVAILABLE` | 503 | Domain | Email delivery is not configured, so no reset code can be sent |
 | `RATE_LIMITED` | 429 | API | Throttle exceeded |
 | `INTERNAL_ERROR` | 500 | API | Anything unhandled — generic message only |
 | `CAMERA_PERMISSION_DENIED` | — | Frontend | `getUserMedia` denied/unavailable |
@@ -1940,9 +2063,9 @@ QR tokens need specific care because they appear in a **URL path** (`/c/{token}`
 - Card pages send `Referrer-Policy: no-referrer`, so the token is not leaked to a third-party site when an attendee taps the LinkedIn contact action (§9.3.1). This is stricter than the site-wide `strict-origin-when-cross-origin` precisely because the path itself is the secret.
 - `scan_ref` is never logged even though it embeds only a token *hash*, because logging it would make the signature reusable for its 120 s lifetime. In demo mode the OTP is logged deliberately — behind the `DEMO_MODE` guard, and stated in the README so it can never be mistaken for an accident.
 
-**21.12 Transport and headers.** **The presentation environment must be served over HTTPS** — this is mandatory, because real camera scanning is a hard requirement and browsers gate `getUserMedia` on a secure context (§13.5). The certificate must be trusted by iPhone Safari and Android Chrome; the mechanism that provides it is deliberately replaceable. Cookies `HttpOnly`, `SameSite=Lax`, `Secure` when the scheme allows. `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, and a Content-Security-Policy without `unsafe-eval`.
+**21.12 Transport and headers.** **The presentation environment must be served over HTTPS** — this is mandatory, because real camera scanning is a hard requirement and browsers gate `getUserMedia` on a secure context (§13.5). The certificate must be trusted by iPhone Safari and Android Chrome; the mechanism that provides it is deliberately replaceable. Cookies `HttpOnly`, `SameSite=Lax`, `Secure` when the scheme allows. `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, and a Content-Security-Policy without `unsafe-eval`. The CSP's `img-src 'self' data: blob:` already covers profile photos (served from the same origin under `/api/media/avatars/`) and the local preview of a chosen picture (`blob:`); nothing was widened. Every `/api/` response is `Cache-Control: no-store` **except** a served profile photo, whose URL is random and per-photo and which therefore sets its own immutable caching (§8.4.3). The reverse proxy caps request bodies **per route**, not site-wide — Caddy stacks `request_body` limits, so a site-wide 1 MB would also cap the photo upload: 1 MB for every route except `PUT /api/attendees/me/photo`, which gets 9 MB (a little above the application's own `MEDIA_MAX_UPLOAD_BYTES`, so the application's documented error is the one a person normally meets).
 
-**21.13 Proportionality.** Deliberately out of scope for the demo: MFA for staff, full audit of read access, key rotation, WAF, penetration testing, SOC2-style controls. These are production concerns. What is *in* scope is the refusal to ship a known flaw — no plaintext passwords, no client-trusted authorization, no guessable tokens, no reset endpoint.
+**21.13 Proportionality.** Deliberately out of scope for the demo: MFA for staff, full audit of read access, key rotation, WAF, penetration testing, SOC2-style controls. These are production concerns. What is *in* scope is the refusal to ship a known flaw — no plaintext passwords, no client-trusted authorization, no guessable tokens, and no password-reset path that skips proof (a staff reset needs a one-time code emailed to the account's own address, §12.1).
 
 ---
 
@@ -1962,6 +2085,7 @@ QR tokens need specific care because they appear in a **URL path** (`/c/{token}`
 | Workers | Exactly 1 (invariant) | N, once `EventBus` is swapped | Blocked on the transport change only |
 | HTTPS | Mandatory; mechanism chosen against three properties (§13.5) and deliberately not vendor-locked | Managed TLS at the edge | Configuration only — no application code depends on which mechanism provides the certificate |
 | QR scanning | Real camera; manual entry is an emergency fallback | Real camera only | Fallback may simply be removed |
+| Profile photos | `MEDIA_ROOT` on a named Docker volume, single host | The same, in the backup; object storage only if the app ever runs on several hosts | One `MediaStore` implementation (names, writes, deletes) — the rest of the code sees keys and URLs |
 
 The pattern: demo shortcuts are **implementations behind interfaces**, never structural simplifications. Nothing listed above requires a schema change or a frontend change.
 
@@ -2008,9 +2132,9 @@ Seven HIGH findings, each independently verified against the document before cor
 
 ### 23.3 Still open — needing a product answer
 
-1. **`allow_repeat_task_points`** — demo default `false`. The mechanism supports either; only the default is pending.
+1. **`allow_repeat_task_points`** — default `false`. The mechanism supports either; only the default is pending. *(Now resolved per activity, then booth, then event default — §14.5.)*
 2. **Feedback reward amount** — placeholder 5 points in `event_config`.
-3. **Preset values** — `+5/+10/+15` globally, or per booth? Schema supports both; demo uses global.
+3. **Preset values** — *superseded:* points are a property of each activity (§7.9); the preset tables are legacy.
 4. **OTP delivery for the demo** — logged, or a real provider? Affects infra setup only.
 5. **Leaderboard privacy** — full names, or first name plus last initial? Currently full names.
 6. **Zero-point attendees in the "show all" view** — included today; confirm this is wanted.
@@ -2046,6 +2170,7 @@ Non-negotiable. A change that violates one of these is an architecture change re
 21. **Real camera scanning is the primary staff flow**, and the presentation environment is served over HTTPS. Manual token entry exists only as a development and emergency fallback and is never the default path.
 22. **`points_log.id` is an identity, never a cursor.** It may be used for set membership and row references; it may never be used as a high-water mark, an ordering, or a resume token, because sequence allocation is not commit order.
 23. **Idempotency is resolved after authentication and before every mutable validation**, and its key is bound to `(staff_account_id, fingerprint)`. A completed request replays its original response snapshot verbatim. **The award, the key claim and the response snapshot commit in one transaction**, so no partially-completed state is observable and no crash-recovery path exists.
+23a. **An award pays exactly the activity's server-side rule, as the staff member confirmed it.** The request has no point field; the activity must belong to the authenticated staff member's booth; the confirmed `rule_revision` must match the rule in force or nothing is written (`TASK_RULE_CHANGED`); and a completed award replays whatever the rule is now.
 24. **Constraint violations are dispatched by constraint name**, never by which error the database happens to report first.
 25. **No attendee capability exists before email ownership is proven.** Registration creates a provisional record; sessions, public cards, scanning, matching and leaderboard presence all require `ACTIVE`.
 26. **Rate limits are primarily per identity, never primarily per IP**, because a venue shares one public IP. Forwarding headers are trusted only from configured proxies.
@@ -2053,3 +2178,33 @@ Non-negotiable. A change that violates one of these is an architecture change re
 28. **A client can never confuse pre-reset and post-reset state**, because `dataset_generation` changes on every reset and a mismatch forces hard reinitialisation.
 29. **No reset-sensitive mutation may perform authoritative database resolution or business validation before acquiring the shared reset fence.** The fence (`pg_advisory_xact_lock_shared`) is acquired as the first statement of the mutating transaction — before authentication, before entity resolution, before policy lookup — and is held continuously through commit or rollback. Only pure, dataset-independent work (parsing, schema validation, cookie extraction, cryptographic verification, hashing) may precede it. A maintenance-mode check outside the fence is advisory only and is never the authoritative gate.
 30. **Demo reset revokes every session, with no exception.** The operator runs the CLI and needs no web session.
+31. **An attendee edits only their own profile, and a stale form never overwrites a newer one.** The edited row is the session's, locked before anything is compared; `expected_version` decides, and a no-op changes nothing (§8.4.1).
+32. **A consent change and its audit row are one transaction, and a repeated value writes neither** (§8.4.2).
+33. **A stored photo is never the upload.** It is re-encoded from decoded pixels under a server-made random name; its size and pixel count are bounded before decoding; the database refers only to files that exist; and a cleanup can only name the files of the key it was given (§8.4.3).
+
+
+## 25. Beyond Now PDF conformance addendum (18 October 2026)
+
+This addendum supersedes the legacy leaderboard name/tie-break and booth-interest
+default descriptions above for the current implementation.
+
+Ranking is derived from the ledger; `reached_at` is the maximum verified activity
+time (`occurred_at`, falling back to `created_at` for historical rows) across
+standing positive awards. A full reversal removes its award from this date;
+reversal timestamps themselves do not date a total. Category totals retain signed
+ledger sums. The same query orders live lists, keyset pages, shared snapshots and
+final results. Equal timestamps use user id. Zero standing awards have NULL time.
+Entries expose `name` (first name + last initial); full surnames are not part of
+the leaderboard response. This resolves the old open name-privacy question.
+
+A read-only public `/api/screen/live` supplies venue display states, server time,
+close, top ten scoring attendees, standing recent awards and the existing
+consented/moderated photo feed. It uses the shared ranking snapshot and carries
+no user id or contact/QR/audit data. `/screen/live` polls every 15 seconds while
+visible and backs off on failure, with one request in flight. Not-configured,
+open, review and published are explicit states; the final remains server-owned.
+
+Own reports distinguish completed `attended` from started `not_completed` items.
+Booth matching uses card topics by default; retained hidden legacy interests are
+used only under explicit `BOOTH_MATCH_PROFILE_INTERESTS=true`. Read-only event
+readiness is part of the existing `competition-report` CLI, not an auto-seeder.

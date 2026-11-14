@@ -14,6 +14,7 @@ the `db` fixture, a genuine psycopg-backed SQLAlchemy session.
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 import pytest
 from sqlalchemy import text
@@ -934,7 +935,7 @@ def test_deleting_a_user_cascades_their_interests(
         {"u": seeded_user_id, "i": seeded_interest_id},
     )
     db.execute(text("DELETE FROM users WHERE id = :u"), {"u": seeded_user_id})
-    remaining = db.execute(
+    remaining: Any = db.execute(
         text("SELECT count(*) FROM user_interests WHERE user_id = :u"), {"u": seeded_user_id}
     ).scalar_one()
     assert remaining == 0

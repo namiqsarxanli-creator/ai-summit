@@ -1,9 +1,9 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { messageFor } from "@/lib/errors";
-import { realtimeStore } from "@/lib/realtime";
 import { installMockEventSource, MockEventSource } from "@/test-utils/mockEventSource";
+import { teardownRealtime } from "@/test-utils/realtimeTeardown";
 
 import { HomeDashboard } from "./HomeDashboard";
 
@@ -82,46 +82,36 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  realtimeStore.resetForTests();
-  vi.unstubAllGlobals();
+  teardownRealtime();
 });
 
 describe("HomeDashboard", () => {
-  it("shows only the top 3 matches, plus a See all link and the real score/rank", async () => {
+  it("links to the Booths page instead of listing booths, and shows the real score/rank", async () => {
     vi.stubGlobal("fetch", router(() => jsonResponse(200, SCORED)));
     render(<HomeDashboard />);
     // ScoreSummary (and its EventSource) only mounts once HomeDashboard's
-    // own recommendations fetch resolves into the "ok" branch.
-    expect(await screen.findByRole("heading", { name: "AIWorks" })).toBeInTheDocument();
+    // own recommendations fetch (the session check) resolves into "ok".
     await waitFor(() => expect(MockEventSource.instances.length).toBeGreaterThan(0));
     openReady();
-    expect(screen.getByRole("heading", { name: "FinPulse" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "MediSync AI" })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "SecureStack" })).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "See all →" })).toHaveAttribute("href", "/booths");
+    // Booths live on the Booths page (owner, 30 Oct 2026): none are listed here.
+    expect(screen.queryByRole("heading", { name: "AIWorks" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Your top matches")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: "Booths" })[0]).toHaveAttribute("href", "/booths");
+    expect(screen.getAllByRole("link", { name: "My QR" })[0]).toHaveAttribute("href", "/my-card");
+    // the Beyond Now surfaces (masterclasses included) are reached from Home, not from a sixth tab
+    const hub = within(screen.getByRole("heading", { name: "Beyond Now" }).closest("section")!);
+    expect(hub.getAllByRole("link").map((a) => a.getAttribute("href"))).toEqual([
+      "/programme", "/guide", "/masterclasses", "/playground", "/people", "/points", "/report",
+    ]);
+    expect(hub.getByRole("link", { name: /^Masterclasses/ })).toHaveTextContent("Reserve a seat or join the waitlist");
+    const tabs = within(screen.getByRole("navigation", { name: "Attendee navigation" }));
+    expect(tabs.getAllByRole("link")).toHaveLength(5);
     // M13 wires the real, server-computed score/rank in place of M08's
     // placeholder — see ScoreSummary.test.tsx for its own detailed cases.
     expect(await screen.findByText("45")).toBeInTheDocument();
     expect(screen.getByText("Rank #3")).toBeInTheDocument();
   });
 
-  it("shows the general-listing banner when interests are unset", async () => {
-    vi.stubGlobal(
-      "fetch",
-      router(() =>
-        jsonResponse(200, [
-          { booth: { slug: "aiworks", name: "AIWorks", location_label: null }, match: null },
-        ]),
-      ),
-    );
-    render(<HomeDashboard />);
-    await screen.findByRole("heading", { name: "AIWorks" });
-    expect(
-      screen.getByText(
-        "Select interests when you register to see your personalised match for each booth.",
-      ),
-    ).toBeInTheDocument();
-  });
 
   it("renders nothing when signed out — SessionPanel already offers the CTA", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => errorResponse(401, "UNAUTHENTICATED")));

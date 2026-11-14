@@ -1,16 +1,32 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useLanguage } from "@/components/ui/LanguageProvider";
+import { HomeIcon } from "@/components/ui/HomeIcons";
+import { type MouseEvent, useEffect, useState } from "react";
 
 import { ScoreSummary } from "@/components/dashboard/ScoreSummary";
-import { RecommendationCard } from "@/components/matching/RecommendationCard";
+import { NotificationBell } from "@/components/notifications/Notifications";
 import { AttendeeTabBar } from "@/components/nav/AttendeeTabBar";
 import type { ApiResult } from "@/lib/api";
 import { messageFor } from "@/lib/errors";
-import { fetchRecommendations, isGeneralListing, type Recommendation } from "@/lib/matching";
+import { fetchRecommendations, type Recommendation } from "@/lib/matching";
+import { rememberScroll, restoreScroll } from "@/lib/scrollMemory";
 
-const TOP_N = 3;
+const SCROLL_KEY = "home";
+
+// The Beyond Now programme surfaces, in the order an attendee uses them. Styled
+// after the event's posters: numbered like their zones, the programme as the dark
+// feature card, the last one full width.
+const HUB = [
+  { href: "/programme", icon: "calendar", title: "My programme", detail: "Your sessions and reminders", look: "feature" },
+  { href: "/guide", icon: "report", title: "How to play", detail: "Rules, points and booth games", look: "wide" },
+  { href: "/masterclasses", icon: "masterclass", title: "Masterclasses", detail: "Reserve a seat or join the waitlist", look: "tile" },
+  { href: "/playground", icon: "playground", title: "AI Playground", detail: "Book a hands-on slot", look: "tile" },
+  { href: "/people", icon: "people", title: "People to meet", detail: "Matches for a conversation", look: "tile" },
+  { href: "/points", icon: "star", title: "My points", detail: "How you earned every point", look: "tile" },
+  { href: "/report", icon: "report", title: "My report", detail: "Your day in one place", look: "wide" },
+] as const;
 
 type State =
   | { kind: "loading" }
@@ -37,6 +53,7 @@ function stateFrom(result: ApiResult<Recommendation[]>): State {
 // mirroring how every other M06/M07 surface independently
 // authenticates itself from its own endpoint.
 export function HomeDashboard() {
+  const { t } = useLanguage();
   const [state, setState] = useState<State>({ kind: "loading" });
 
   useEffect(() => {
@@ -49,8 +66,18 @@ export function HomeDashboard() {
     };
   }, []);
 
+  // Back from a section opened here, the visitor returns to where they were
+  // (the dashboard loads after the page opens, too late for the browser's own
+  // restore). Tab-bar links are not remembered: "Home" from elsewhere opens at the top.
+  const loaded = state.kind === "ok";
+  useEffect(() => (loaded ? restoreScroll(SCROLL_KEY) : undefined), [loaded]);
+  const remember = (e: MouseEvent<HTMLDivElement>) => {
+    const target = e.target as Element;
+    if (target.closest("a") && !target.closest(".fm-tabbar")) rememberScroll(SCROLL_KEY);
+  };
+
   if (state.kind === "loading") {
-    return <p className="text-sm text-slate-500">Loading your dashboard…</p>;
+    return <p role="status" className="fm-note">{t("Loading your dashboard…")}</p>;
   }
 
   // SessionPanel already offers the register/login call to action for
@@ -63,46 +90,51 @@ export function HomeDashboard() {
 
   if (state.kind === "error") {
     return (
-      <p role="alert" className="w-full text-sm text-amber-300">
-        {messageFor(state.code)}
+      <p role="alert" className="fm-alert fm-alert-warn">
+        {t(messageFor(state.code))}
       </p>
     );
   }
 
-  const { recommendations } = state;
-  const top = recommendations.slice(0, TOP_N);
-  const general = isGeneralListing(recommendations);
-
   return (
-    <div className="flex w-full flex-col gap-6 text-left">
+    <div className="fm-stack" onClickCapture={remember}>
+      <NotificationBell />
       <ScoreSummary />
 
-      <section className="flex flex-col gap-3">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-            Your top matches
-          </h2>
-          <Link href="/booths" className="text-sm font-medium text-indigo-300 hover:text-indigo-200">
-            See all →
-          </Link>
-        </div>
-        {top.length === 0 ? (
-          <p className="text-sm text-slate-500">No booths are available yet. Check back soon.</p>
-        ) : (
-          <>
-            {general && (
-              <p className="rounded-lg border border-slate-800 bg-slate-900/60 p-3 text-sm text-slate-400">
-                Select interests when you register to see your personalised match for each booth.
-              </p>
-            )}
-            <ul className="flex flex-col gap-3">
-              {top.map((r) => (
-                <RecommendationCard key={r.booth.slug} recommendation={r} />
-              ))}
-            </ul>
-          </>
-        )}
+      <div className="fm-actions" aria-label={t("Quick actions")}>
+        <Link href="/booths" className="fm-action fm-action-booths">
+          <span className="fm-action-title">{t("Booths")}</span>
+          <span className="fm-action-detail">{t("Discover sponsors and join activities")}</span>
+          <span className="fm-action-arrow"><HomeIcon name="arrow" /></span>
+        </Link>
+        <Link href="/my-card" className="fm-action fm-action-qr">
+          <span className="fm-action-title">{t("My QR")}</span>
+          <span className="fm-action-detail">{t("Make event participation easier")}</span>
+          <span className="fm-action-arrow"><HomeIcon name="arrow" /></span>
+        </Link>
+      </div>
+
+      <section className="fm-hub-section" aria-labelledby="home-beyond-now">
+        <h2 id="home-beyond-now" className="fm-hub-tag">{t("Beyond Now")}</h2>
+        <ul className="fm-hub">
+          {HUB.map((item, index) => (
+            <li key={item.href} className={`fm-hub-item fm-hub-${item.look}`}>
+              <Link href={item.href} className="fm-hub-link">
+                {item.look === "feature" && <span className="fm-hub-art" aria-hidden="true" />}
+                <span className="fm-hub-top" aria-hidden="true">
+                  <span className="fm-hub-number">{String(index + 1).padStart(2, "0")}</span>
+                  <span className="fm-hub-icon"><HomeIcon name={item.icon} /></span>
+                </span>
+                <span className="fm-hub-title">{t(item.title)}</span>
+                <span className="fm-hub-detail">{t(item.detail)}</span>
+                <span className="fm-hub-arrow" aria-hidden="true"><HomeIcon name="arrow" /></span>
+                <span className="fm-hub-checks" aria-hidden="true" />
+              </Link>
+            </li>
+          ))}
+        </ul>
       </section>
+
 
       <AttendeeTabBar active="home" />
     </div>

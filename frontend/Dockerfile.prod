@@ -1,0 +1,39 @@
+# FACEMARK frontend - PRODUCTION image (multi-stage). The development image
+# stays in ./Dockerfile; nothing here is used by `docker-compose.yml`.
+#
+#   deps    : exact, locked dependencies (npm ci - fails if package-lock.json
+#             and package.json disagree)
+#   build   : next build, standalone output (opt-in via NEXT_OUTPUT)
+#   runtime : only the traced server, static assets and public/ - no source,
+#             no devDependencies, no npm, runs as the unprivileged `node` user.
+
+FROM node:24-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 AS deps
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+
+FROM node:24-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 AS build
+WORKDIR /app
+ENV NEXT_TELEMETRY_DISABLED=1 \
+    NEXT_OUTPUT=standalone
+# next.config.ts bakes the /api rewrite into the build. Production traffic
+# reaches the API through the reverse proxy (deploy/Caddyfile), so this
+# rewrite is only a fallback; it must still be a valid URL at build time.
+ARG BACKEND_INTERNAL_URL=http://backend:8000/api
+ENV BACKEND_INTERNAL_URL=${BACKEND_INTERNAL_URL}
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+RUN npm run build
+
+FROM node:24-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 AS runtime
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1 \
+    PORT=3000 \
+    HOSTNAME=0.0.0.0
+WORKDIR /app
+COPY --from=build --chown=node:node /app/.next/standalone ./
+COPY --from=build --chown=node:node /app/.next/static ./.next/static
+COPY --from=build --chown=node:node /app/public ./public
+USER node
+EXPOSE 3000
+CMD ["node", "server.js"]

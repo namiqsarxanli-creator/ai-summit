@@ -1,27 +1,19 @@
+import { BrandCredit } from "@/components/ui/BrandCredit";
+import { PageHeader } from "@/components/ui/PageHeader";
 import type { Metadata } from "next";
-import Link from "next/link";
 
 import { MyCard } from "@/components/card/MyCard";
 
 export const metadata: Metadata = {
-  title: "My card · FACEMARK",
+  title: "My card",
 };
 
 export default function MyCardPage() {
   return (
-    <main id="main-content" className="mx-auto flex min-h-screen max-w-md flex-col gap-8 px-4 py-10 pb-24 sm:px-6">
-      <header className="flex flex-col gap-2">
-        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-indigo-400">
-          AI Summit · My card
-        </p>
-        <h1 className="text-3xl font-semibold tracking-tight text-slate-50">Your networking QR</h1>
-        <p className="text-sm text-slate-400">
-          <Link href="/" className="font-medium text-indigo-300 hover:text-indigo-200">
-            ← Home
-          </Link>
-        </p>
-      </header>
+    <main id="main-content" className="fm-page fm-screen-qr">
+      <PageHeader showBack={false} title="My QR" description="Show your attendee card" kind="qr" />
       <MyCard />
+      <BrandCredit />
     </main>
   );
 }
